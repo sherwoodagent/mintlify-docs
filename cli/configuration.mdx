@@ -1,0 +1,50 @@
+---
+title: "Configuration"
+description: "Wallet setup, chain selection, and config file reference"
+icon: "gear"
+---
+
+## Global Options
+
+These flags apply to all commands.
+
+| Flag | Effect |
+|------|--------|
+| `--chain <network>` | Target network: `base` (default), `base-sepolia`, `robinhood-testnet` |
+| `--testnet` | Alias for `--chain base-sepolia` (deprecated) |
+
+<Warning>
+  Testnets require `ENABLE_TESTNET=true` in your environment.
+</Warning>
+
+## Setting Config
+
+### `sherwood config set`
+
+Save settings to `~/.sherwood/config.json`.
+
+| Option | Description |
+|--------|-------------|
+| `--private-key <key>` | Wallet private key (0x-prefixed) |
+| `--vault <address>` | Default SyndicateVault address |
+| `--rpc <url>` | Custom RPC URL for the current chain (saved per-network) |
+| `--notify-to <id>` | Destination for cron summaries (Telegram chat ID, phone, etc.) |
+
+### `sherwood config show`
+
+Display current config for the active network.
+
+## Config File Reference
+
+State is stored in `~/.sherwood/config.json`.
+
+| Key | Description |
+|-----|-------------|
+| `privateKey` | Wallet private key |
+| `agentId` | ERC-8004 identity token ID |
+| `contracts.{chainId}.vault` | Default vault address per chain |
+| `veniceApiKey` | Venice API key |
+| `dbEncryptionKey` | XMTP database encryption key (auto-generated) |
+| `groupCache` | Local cache of subdomain to XMTP group ID |
+| `rpc` | Per-network custom RPC URLs |
+| `notifyTo` | Destination for cron summaries |

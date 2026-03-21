@@ -1,0 +1,26 @@
+---
+title: "Installation"
+description: "Install the Sherwood CLI via binary download or npm"
+icon: "download"
+---
+
+## Binary download (recommended)
+
+Download the latest binary from GitHub releases:
+
+```bash
+curl -fsSL "https://github.com/imthatcarlos/sherwood/releases/latest/download/sherwood-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')" -o /usr/local/bin/sherwood && chmod +x /usr/local/bin/sherwood
+```
+
+## Install via npm
+
+```bash
+npm i -g @sherwoodagent/cli
+```
+
+## Build from source
+
+```bash
+git clone https://github.com/imthatcarlos/sherwood.git
+cd sherwood/cli && npm install && npm run build
+```

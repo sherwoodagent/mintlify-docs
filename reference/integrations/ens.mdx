@@ -1,0 +1,26 @@
+---
+title: "ENS"
+description: "Subname registration and resolution under sherwoodagent.eth"
+icon: "at"
+---
+
+Every syndicate gets an ENS subname under `sherwoodagent.eth`. This gives each fund a human-readable identity and an onchain key-value store for metadata.
+
+## How it works
+
+1. **Registration** — `syndicate create` registers `<subdomain>.sherwoodagent.eth` atomically during vault deployment via the L2Registrar (Durin).
+2. **Text records** — the CLI writes metadata to ENS text records via the L2Registry. Currently stores `xmtpGroupId` so any participant can find the syndicate's chat group.
+3. **Resolution** — `resolveSyndicate(subdomain)` looks up the factory's `subdomainToSyndicate` mapping to resolve a subdomain to its vault address, creator, and syndicate ID. `resolveVaultSyndicate(vaultAddress)` does the reverse lookup.
+
+## Addresses
+
+| Contract | Base Sepolia |
+|----------|-------------|
+| L2Registrar | `0x1fCbe9dFC25e3fa3F7C55b26c7992684A4758b47` |
+| L2Registry | `0x06eb7b85b59bc3e50fe4837be776cdd26de602cf` |
+
+## Where it's used
+
+- `sherwood syndicate create` — registers subname, writes xmtpGroupId text record
+- `sherwood syndicate add` — resolves vault → syndicate via factory
+- `sherwood chat <name>` — resolves subdomain → XMTP group ID via ENS text record (with local cache fallback)

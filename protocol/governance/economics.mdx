@@ -1,0 +1,147 @@
+---
+title: "Economics"
+description: "Fee structure, early exit, and single-strategy model"
+icon: "coins"
+---
+
+## Early Exit — WOOD/SHARES Liquidity Pools
+
+**Problem:** When a strategy is live, vault redemptions are blocked. Depositors need a way to exit.
+
+**Solution:** One-sided liquidity pools pairing WOOD (protocol token) with each vault's share token.
+
+### How it works
+
+1. Protocol seeds a **WOOD/SHARES** pool for each vault (e.g. WOOD/synUSDC-shares)
+2. When a strategy is live and redemptions are locked, depositors can sell their vault shares into the pool
+3. Buyers get discounted exposure to the vault's strategy outcome
+4. The pool price reflects the market's real-time sentiment on the active strategy
+
+### Pool mechanics
+
+- **Pool type:** Uniswap V3 concentrated liquidity (or V4 hook)
+- **Pair:** WOOD (protocol token) / Vault shares (ERC-20, the ERC-4626 share token)
+- **One-sided seeding:** protocol provides WOOD liquidity; share side comes from depositors selling
+- **WOOD as quote currency:** every vault share pool is denominated in WOOD, creating a unified liquidity layer
+
+### Why WOOD
+
+- Creates utility and demand for the protocol token
+- Every vault share pool is denominated in WOOD — unified liquidity layer
+- Depositors who exit early effectively swap into WOOD (they can hold it or sell for stables)
+- Creates a natural price discovery mechanism for vault shares during strategy execution
+
+### Lifecycle
+
+```
+Strategy NOT live:  Depositors can redeem normally via vault (ERC-4626 withdraw/redeem)
+                    Pool exists but no urgency to use it
+
+Strategy IS live:   Vault redemptions blocked
+                    Depositors who want out → sell shares in WOOD/SHARES pool
+                    Price may trade at discount (reflects locked capital risk)
+
+Cooldown window:    Vault redemptions re-enabled
+                    Depositors can redeem normally OR sell in pool
+```
+
+## Fee Structure
+
+Three fees are distributed from strategy profits at settlement:
+
+| Fee | Recipient | Set by | Purpose |
+|-----|-----------|--------|---------|
+| Protocol fee | `protocolFeeRecipient` | Factory owner (timelocked) | Protocol revenue |
+| Performance fee | Agent (proposer) | Agent at proposal time | Incentivize good strategy proposals |
+| Management fee | Vault owner | Factory (per-vault, configurable) | Incentivize vault operation and curation |
+
+All fees only apply when P&L > 0. On loss, no fees are charged.
+
+### Protocol Fee
+
+A protocol-level fee taken from gross profit **before** agent and management fees. This funds protocol development and operations.
+
+- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps)
+- `protocolFeeRecipient` — address that receives the protocol fee
+- Both are set at the factory level and apply to all vaults
+- Changes are **timelocked** — queued with a delay before taking effect, so vault operators and depositors have visibility
+
+### Fee distribution order
+
+Fees are calculated and distributed in a strict order — protocol fee first, then agent fee, then management fee:
+
+```
+profit = balanceAfter - capitalSnapshot
+if profit > 0:
+  protocolFee   = profit * protocolFeeBps / 10000
+  netProfit     = profit - protocolFee
+  agentFee      = netProfit * performanceFeeBps / 10000
+  managementFee = (netProfit - agentFee) * managementFeeBps / 10000
+  transfer protocolFee to protocolFeeRecipient
+  transfer agentFee to agent              (try/catch)
+  transfer managementFee to vault owner   (try/catch)
+  remaining profit stays in vault (accrues to all shareholders)
+```
+
+The protocol fee is calculated on gross profit. Agent and management fees are calculated on the net profit (after protocol fee). Management fee is calculated on the remaining profit after the agent's cut. This ensures combined fees never exceed profit and maintains a clear priority order.
+
+### Management Fee
+
+The management fee incentivizes vault operation — the owner curates agents, manages parameters, handles emergencies.
+
+- `managementFeeBps` — configurable per-factory (max 10% / 1000 bps)
+- Applied to new vaults at creation time
+- Owner only earns on profit — aligned with depositor outcomes
+
+### Try/catch fee transfers
+
+Fee transfers to the agent and vault owner are wrapped in **try/catch**. If a recipient address is blacklisted by the deposit asset (e.g. USDC blacklist), the transfer fails silently rather than reverting the entire settlement. This ensures:
+
+- Depositor capital is never held hostage by a blacklisted fee recipient
+- Settlement always completes regardless of recipient address status
+- The protocol fee transfer to `protocolFeeRecipient` is also protected
+
+**Safety:** `performanceFeeBps` is capped by `maxPerformanceFeeBps` (governor parameter). `protocolFeeBps` is capped at 1000 bps (10%). `managementFeeBps` is capped at 1000 bps (10%) and set at the factory level.
+
+**Why a management fee?** Without it, there is no incentive to operate a vault — the owner curates agents, manages targets, sets parameters, handles emergencies, but earns nothing. The management fee aligns vault owner incentives with depositor outcomes (owner only earns on profit).
+
+## Single Strategy Per Vault
+
+Only **one strategy can be live (Executed state) per vault at a time.** This simplifies capital accounting, eliminates cross-strategy risk, and makes the redemption lock/cooldown model clean.
+
+- Governor tracks `activeProposal[vault]` — the currently executing proposal ID (0 if none)
+- `executeProposal` reverts if `activeProposal[vault] != 0`
+- `executeProposal` also reverts if the vault is in its cooldown window
+- Multiple proposals can be in Pending/Approved state simultaneously — they queue up
+- Only one can be executed at a time
+
+## Open Design Questions
+
+### Strategy Carry Model
+
+Two possible models:
+
+**A. Per-proposal performance fee (current design)**
+- Agent sets fee when proposing
+- Fee paid on settlement from profits only
+- Simple, clear, hackathon-ready
+
+**B. Protocol-level revenue share (v2)**
+- Strategy creators earn ongoing % of all TVL running their strategy
+- More DeFi-native (like Uniswap LP fees)
+- Needs TVL tracking, streaming payments, strategy template integration
+
+**Recommendation:** Model A for now. Model B is the long-term vision.
+
+### What Happens if a Strategy Loses Money?
+
+- Agent earns nothing (performance fee only applies to profits)
+- Loss is socialized across all shareholders (standard fund behavior)
+- Agent's reputation takes a hit (EAS attestation records the loss)
+- No slashing mechanism in v1
+
+**Future consideration:** Agent bonds / slashing for repeated losses.
+
+### Can Agents Update a Live Proposal?
+
+No. Once submitted, proposal params are immutable. If an agent wants different terms, they cancel and create a new proposal. This keeps voting clean — shareholders know exactly what they are voting on.

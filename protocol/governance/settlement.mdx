@@ -1,0 +1,192 @@
+---
+title: "Execution & Settlement"
+description: "Two settlement paths, cooldown, and P&L calculation"
+icon: "handshake"
+---
+
+## Mandate Execution
+
+When a proposal is approved, the pre-committed calls are executed directly by the vault:
+
+1. Anyone calls `executeProposal(proposalId)` on the governor (no arguments beyond the ID)
+2. Governor verifies: proposal is Approved, within execution window, no other strategy live, cooldown elapsed
+3. Governor calls `vault.lockRedemptions()` — blocks withdraw/redeem
+4. Governor snapshots vault's deposit asset balance (`capitalSnapshot`)
+5. Governor calls `vault.executeBatch(proposal.executeCalls)` — vault runs the execution calls
+6. All DeFi positions (mTokens, LP tokens, borrows) now live on the vault address
+
+**No new input from the agent at execution time.** The calls were locked in at proposal creation and voted on by shareholders. Execution is just replaying what was approved.
+
+**Redemption lock:** When a strategy is live (Executed state), vault redemptions (`withdraw` / `redeem`) are blocked. Depositors who want to exit early can sell their shares on the WOOD/SHARES liquidity pool (see [Economics](/protocol/governance/economics)).
+
+## Strategy Duration & Settlement
+
+Two separate clocks govern the lifecycle:
+
+1. **Execution deadline** — time to *start* executing after approval (`executionWindow`, governor-controlled)
+2. **Strategy duration** — time the position *runs* before settlement (`strategyDuration`, agent-proposed, capped by `maxStrategyDuration`)
+
+```
+|-- voting --|-- exec window --|------ strategy duration ------|-- cooldown --|
+   propose      execute calls      position is live     settlement    withdrawals open
+                                                                      (no new strategies)
+```
+
+## Two Settlement Paths
+
+Since the exact on-chain state at settlement time cannot be predicted (slippage, pool state, interest accrued), pre-committed unwind calls may revert. Two distinct settlement paths handle this:
+
+| Path | Who | When | Calls | Notes |
+|------|-----|------|-------|-------|
+| **Standard settle** | Proposer anytime; anyone after duration | Proposer: anytime after execution. Others: after `strategyDuration` ends | Pre-committed `settlementCalls` from proposal | Uses the voted-on unwind calls |
+| **Emergency settle** | Vault owner | After `strategyDuration` ends | Tries pre-committed calls first, falls back to owner-provided calls | Backstop with try/catch fallback |
+
+<Tabs>
+  <Tab title="Standard Settlement">
+    ### `settleProposal`
+
+    The standard settlement path uses the pre-committed `settlementCalls` that shareholders voted on.
+
+    **Who can call it:**
+    - The **proposer** (agent) can call at any time after execution — they have the most context about when to close
+    - **Anyone** (keeper, depositor, bot) can call after `strategyDuration` expires — no trust required
+
+    This is the happy path. The pre-committed unwind calls close all positions and return capital to the vault. P&L is calculated, fees are distributed, and a PnL attestation is minted.
+
+    **Risk:** Pre-committed calls may revert due to stale parameters (slippage, exact repayment amounts). If this happens, the emergency path is the fallback.
+  </Tab>
+  <Tab title="Emergency Settlement">
+    ### `emergencySettle`
+
+    After `strategyDuration` expires, the **vault owner** can trigger emergency settlement. This is the backstop for when standard settlement fails.
+
+    **How it works:**
+    1. First, the governor **tries executing the pre-committed `settlementCalls`** via try/catch
+    2. If the pre-committed calls succeed, settlement proceeds normally
+    3. If the pre-committed calls **revert**, the governor falls back to the **owner-provided custom calls**
+    4. The owner's custom calls achieve the same goal (close positions, return deposit asset) but with params that work given current market conditions
+
+    **When to use it:**
+    - Standard settlement reverts (stale params, pool state changed)
+    - Agent does not act (disappeared, negligent)
+    - Market conditions require a different unwind path
+
+    The try/catch design means the vault owner always has a way to settle, even when on-chain state has drifted far from what was predicted at proposal time.
+  </Tab>
+</Tabs>
+
+### Why two paths?
+
+Pre-committed unwind calls are a best-effort prediction of future on-chain state. Slippage, interest accrual, pool rebalancing, and oracle updates can all cause them to revert. The two-path model ensures settlement always succeeds:
+
+1. **Standard path** — uses the pre-committed calls that shareholders voted on. The proposer can trigger it early; anyone can trigger it after duration. Zero trust required.
+2. **Emergency path** — vault owner backstop. Tries the pre-committed calls first (via try/catch), then falls back to owner-provided calls. Always works because the owner can craft any calls needed.
+
+<Note>
+**Fee transfers are wrapped in try/catch.** If the agent or vault owner address is blacklisted by the deposit asset (e.g. USDC blacklist), the fee transfer will fail silently rather than blocking the entire settlement. Depositor capital is never held hostage by a blacklisted fee recipient.
+</Note>
+
+## Cooldown Window
+
+After settlement, a **cooldown period** begins before any new strategy can execute on that vault.
+
+- Duration: `cooldownPeriod` (governor parameter, owner-controlled)
+- During cooldown: redemptions are re-enabled, depositors can withdraw
+- During cooldown: proposals can still be submitted and voted on, but `executeProposal` reverts
+- Purpose: gives depositors an exit window between strategies — if they don't like the next approved proposal, they can leave
+
+**Safety bounds:** `cooldownPeriod`: min 1 hour, max 30 days
+
+## P&L Calculation
+
+Since only one strategy runs per vault at a time, P&L is calculated via a simple balance snapshot:
+
+```
+Execute:
+  1. Governor snapshots vault's deposit asset balance → capitalSnapshot
+  2. Vault executes the pre-approved executeCalls
+     (positions now live on the vault address)
+
+During strategy:
+  - Position is live on the vault (e.g. mTokens, LP tokens, borrowed assets)
+  - Agent cannot interact with vault directly — only governor can trigger calls
+  - Redemptions are locked
+
+Settle (two paths):
+  Path 1 — Standard settle (pre-committed calls):
+    1. Proposer calls anytime, or anyone calls after strategyDuration
+    2. Vault executes the pre-committed settlementCalls (unwind)
+    3. P&L = vault.depositAssetBalance() - capitalSnapshot
+    4. If P&L > 0: fees distributed (protocol → agent → management). If P&L <= 0: no fee.
+
+  Path 2 — Emergency settle (vault owner, after duration):
+    1. Governor tries pre-committed settlementCalls via try/catch
+    2. If they revert, falls back to vault owner's custom calls
+    3. P&L calculated, fees distributed normally
+
+  Both paths end with:
+    - Fee transfers wrapped in try/catch (blacklisted recipients don't block settlement)
+    - Redemptions unlocked, cooldown starts
+    - Proposal state → Settled
+```
+
+## PnL Attestation
+
+At settlement, the governor mints an **EAS attestation** recording the proposal's PnL:
+
+```solidity
+// Schema: STRATEGY_PNL
+struct StrategyPnLAttestation {
+    uint256 proposalId;
+    address vault;
+    address agent;
+    int256 pnl;              // profit or loss in deposit asset terms
+    uint256 capitalDeployed;
+    uint256 assetsReturned;
+    uint256 performanceFee;
+    uint256 duration;         // actual duration (execute → settle)
+}
+```
+
+This creates an immutable on-chain track record for every agent. Anyone can query an agent's history of profits and losses before voting on their proposals. No separate reputation system needed — the attestations are the reputation.
+
+## Full Lifecycle in calls[]
+
+The proposal commits the **complete strategy lifecycle** in two separate call arrays — opening calls (`executeCalls`) and closing calls (`settlementCalls`). The agent commits everything upfront:
+
+```
+Example for a Moonwell borrow + Uniswap swap strategy:
+
+executeCalls[] (opening — run at execution):
+  1. approve WETH to Moonwell
+  2. supply WETH as collateral
+  3. borrow USDC
+  4. approve USDC to Uniswap
+  5. swap USDC → target token
+
+settlementCalls[] (closing — run at settlement):
+  6. swap target token → USDC
+  7. repay USDC borrow
+  8. redeem WETH collateral
+  9. swap WETH → USDC (if needed) — convert everything back to deposit asset
+```
+
+Shareholders vote on the entire sequence. They can inspect every step — open and close.
+
+**Execution and settlement use their respective call arrays:**
+
+1. `executeProposal(proposalId)` — runs `executeCalls` (the opening portion)
+2. `settleProposal(proposalId)` — runs `settlementCalls` (the closing portion)
+
+```solidity
+struct StrategyProposal {
+    ...
+    BatchExecutorLib.Call[] executeCalls;     // opening calls
+    BatchExecutorLib.Call[] settlementCalls;  // closing calls
+    ...
+}
+```
+
+**Settlement should return to deposit asset.** After the unwind calls execute, the vault should hold the deposit asset (e.g. USDC) again. If non-deposit-asset tokens remain on the vault after settlement, the owner can manually handle them via `executeBatch` (owner-only).
+
+**Stale parameters:** Since pre-committed unwind calls are a prediction of future state, agents should use generous slippage tolerances. If standard settlement reverts, the vault owner can use `emergencySettle` as a backstop — it tries the pre-committed calls first via try/catch, then falls back to the owner's custom calls.

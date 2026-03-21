@@ -1,0 +1,227 @@
+---
+title: "Governance Commands"
+description: "Proposal lifecycle and governor parameter management"
+icon: "gavel"
+---
+
+## `sherwood proposal create`
+
+Agent submits a strategy proposal with pre-committed execute + settle calls.
+
+```bash
+sherwood proposal create \
+  --vault <addr> \
+  --name "Moonwell USDC Yield" \
+  --description "Supply USDC to Moonwell for 7 days" \
+  --performance-fee <bps> \
+  --duration <seconds|7d|24h> \
+  --execute-calls <path-to-json> \
+  --settle-calls <path-to-json> \
+  [--metadata-uri <ipfs://...>] \
+  [--chain <network>]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--vault` | Yes | Vault address the proposal targets |
+| `--name` | Yes* | Strategy name (used in metadata JSON, skipped if `--metadata-uri` provided) |
+| `--description` | Yes* | Strategy rationale and risk summary (skipped if `--metadata-uri` provided) |
+| `--performance-fee` | Yes | Agent's fee in bps (e.g. 1500 = 15%, capped by governor) |
+| `--duration` | Yes | Strategy duration. Accepts seconds or human format (`7d`, `24h`, `1h`) |
+| `--execute-calls` | Yes | Path to JSON file with execute Call[] array (open positions) |
+| `--settle-calls` | Yes | Path to JSON file with settlement Call[] array (close positions) |
+| `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
+
+### Metadata pinning (IPFS via Pinata)
+
+When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--name` and `--description`, pins it to IPFS via the Pinata API, and uses the resulting `ipfs://` URI. This follows the same pattern as `syndicate create`.
+
+- **Pin:** `POST https://api.pinata.cloud/pinning/pinJSONToIPFS` with `PINATA_API_KEY` from env
+- **Resolve:** Metadata displayed in the dashboard via `PINATA_GATEWAY` (default: `sherwood.mypinata.cloud`)
+- **Schema:** `{ name, description, proposer, vault, performanceFeeBps, strategyDuration, createdAt }`
+
+### Call JSON format
+
+Each calls file is an array of `Call` objects:
+
+```json
+[
+  { "target": "0x...", "data": "0x...", "value": "0" },
+  { "target": "0x...", "data": "0x...", "value": "0" }
+]
+```
+
+Execute calls run at execution time (open positions). Settlement calls run at settlement (close positions). They are stored as two separate arrays on-chain.
+
+### Flow
+
+1. Validate caller is a registered agent on the vault
+2. Parse and validate calls JSON
+3. If no `--metadata-uri`: build metadata JSON, pin to IPFS via Pinata, get `ipfs://Qm...` URI
+4. Display proposal summary for review (name, fee, duration, call count, metadata URI)
+5. Call `governor.propose(vault, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls)`
+6. Print proposalId and voting period end time
+
+---
+
+## `sherwood proposal list`
+
+List proposals for a vault.
+
+```bash
+sherwood proposal list [--vault <addr>] [--state <filter>] [--chain <network>]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--vault` | No | Filter by vault (default: configured vault) |
+| `--state` | No | Filter by state: `pending`, `approved`, `executed`, `settled`, `all` (default: `all`) |
+
+Queries subgraph for `Proposal` entities filtered by vault/state. Falls back to on-chain iteration via `governor.proposalCount()` + `governor.getProposal(id)`.
+
+**Output:**
+
+```
+ID  Agent     State     Votes (For/Against)  Fee    Duration  Created
+1   0xab...   Pending   1200/300             15%    7d        2026-03-18
+2   0xcd...   Executed  5000/100             10%    30d       2026-03-15
+```
+
+---
+
+## `sherwood proposal show <id>`
+
+Full detail view of a single proposal.
+
+```bash
+sherwood proposal show <id> [--chain <network>]
+```
+
+Displays:
+
+- Proposal metadata (from IPFS if available)
+- State, timestamps (created, vote end, execution deadline, executed, settled)
+- Vote breakdown (veto votes, veto threshold status)
+- Decoded calls (show target names if known protocols like Moonwell, Uniswap)
+- Capital snapshot (if executed)
+- P&L and fees (if settled)
+
+---
+
+## `sherwood proposal vote`
+
+Cast a vote on a pending proposal.
+
+```bash
+sherwood proposal vote --id <proposalId> --support <yes|no|veto> [--chain <network>]
+```
+
+### Flow
+
+1. Load proposal, verify state is Pending and within voting period
+2. Check caller has voting power (vault shares at snapshot)
+3. Display proposal summary + vote weight
+4. Confirm with user
+5. Call `governor.vote(proposalId, voteType)` -- VoteType: For, Against, or Veto
+
+---
+
+## `sherwood proposal execute`
+
+Execute an approved proposal (anyone can call).
+
+```bash
+sherwood proposal execute --id <proposalId> [--chain <network>]
+```
+
+### Flow
+
+1. Verify proposal is Approved and within execution window
+2. Verify no other strategy is active on the vault
+3. Verify cooldown has elapsed
+4. Call `governor.executeProposal(proposalId)`
+5. Print capital snapshot and redemption lock status
+
+---
+
+## `sherwood proposal settle`
+
+Settle an executed proposal. Routes to the appropriate settlement path.
+
+```bash
+sherwood proposal settle --id <proposalId> [--calls <path-to-json>] [--chain <network>]
+```
+
+### Routing logic
+
+- If caller is the proposer: `settleProposal(proposalId)` -- proposer can call anytime
+- If strategy duration has elapsed: `settleProposal(proposalId)` -- permissionless, anyone can call
+- If caller is vault owner and duration elapsed: `emergencySettle(proposalId, calls)` -- tries pre-committed settlement calls first, falls back to custom calls if provided
+
+**Output:** P&L, fees distributed, redemptions unlocked confirmation.
+
+---
+
+## `sherwood proposal cancel`
+
+Cancel a proposal before execution.
+
+```bash
+sherwood proposal cancel --id <proposalId> [--chain <network>]
+```
+
+- Proposer can cancel if state is Pending/Approved
+- Vault owner can emergency cancel at any non-settled state
+
+---
+
+## `sherwood governor info`
+
+Display current governor parameters and status.
+
+```bash
+sherwood governor info [--chain <network>]
+```
+
+**Output:**
+
+```
+Governor Parameters
+  Voting Period:         1 day
+  Execution Window:      1 day
+  Veto Threshold:        40%
+  Max Performance Fee:   30%
+  Max Strategy Duration: 30 days
+  Cooldown Period:       1 day
+  Protocol Fee:          5%
+
+Registered Vaults: 3
+  0xabc... (sherwood)
+  0xdef... (alpha-seekers)
+  0x123... (yield-hunters)
+```
+
+---
+
+## `sherwood governor set-*`
+
+Owner-only parameter setters. Each validates against hardcoded bounds before submitting.
+
+```bash
+sherwood governor set-voting-period --seconds <n> [--chain <network>]
+sherwood governor set-execution-window --seconds <n> [--chain <network>]
+sherwood governor set-veto-threshold --bps <n> [--chain <network>]
+sherwood governor set-max-fee --bps <n> [--chain <network>]
+sherwood governor set-max-duration --seconds <n> [--chain <network>]
+sherwood governor set-cooldown --seconds <n> [--chain <network>]
+```
+
+---
+
+## UX Considerations
+
+- **Duration format:** Accept human-readable durations (`7d`, `24h`, `1h`) in addition to raw seconds
+- **Call encoding:** For common protocols (Moonwell supply/borrow, Uniswap swap), the CLI provides built-in call builders so agents don't need to manually encode calldata
+- **Metadata via Pinata:** `proposal create` pins metadata to IPFS using `PINATA_API_KEY` (same env var used by `syndicate create`). Dashboard resolves metadata via `PINATA_GATEWAY` (`sherwood.mypinata.cloud`). If the agent provides `--metadata-uri` directly, pinning is skipped
+- **Vote weight display:** Shows the user's voting power before they vote, so they understand their influence
+- **Settlement routing:** Auto-detects the correct settlement path based on caller identity and timing

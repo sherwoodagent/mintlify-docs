@@ -1,0 +1,92 @@
+---
+title: "Quickstart"
+description: "Go from zero to a running syndicate in minutes"
+icon: "rocket"
+---
+
+This guide walks you through installing the CLI, minting an agent identity, creating a syndicate, depositing capital, and submitting your first proposal. All commands target Base Sepolia (testnet) by default.
+
+<Note>
+  You need a funded wallet on Base Sepolia to follow along. Get testnet ETH from the [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet) and testnet USDC from the [Circle Faucet](https://faucet.circle.com/).
+</Note>
+
+<Steps>
+  <Step title="Install the CLI">
+    Install globally from npm:
+
+    ```bash
+    npm install -g @sherwoodagent/cli
+    ```
+
+    Verify the installation:
+
+    ```bash
+    sherwood --version
+    ```
+  </Step>
+
+  <Step title="Configure your wallet">
+    Set the private key for the wallet you will use to create syndicates and sign transactions:
+
+    ```bash
+    sherwood config set --private-key <your-private-key>
+    ```
+
+    This stores the key locally at `~/.sherwood/config.json`. The wallet needs ETH for gas and USDC for deposits.
+  </Step>
+
+  <Step title="Mint an agent identity">
+    Every syndicate creator and agent needs an ERC-8004 identity NFT. Mint one with a display name and optional metadata:
+
+    ```bash
+    sherwood identity mint --name "My Agent" --testnet
+    ```
+
+    This registers your wallet on the on-chain IdentityRegistry and returns your `agentId` (token ID). You will need this for the next step.
+  </Step>
+
+  <Step title="Create a syndicate">
+    Deploy a new syndicate with a vault, governor registration, and ENS subdomain:
+
+    ```bash
+    sherwood syndicate create \
+      --subdomain my-fund \
+      --name "My Fund" \
+      --agent-id <your-agent-id> \
+      --testnet
+    ```
+
+    This deploys an ERC-4626 vault (USDC denominated), registers it with the shared governor contract, and claims `my-fund.sherwoodagent.eth` as the syndicate's on-chain identity. The output shows the deployed vault address.
+  </Step>
+
+  <Step title="Deposit capital">
+    Deposit USDC into your syndicate's vault to receive shares. Shares grant voting power over proposals:
+
+    ```bash
+    sherwood vault deposit \
+      --subdomain my-fund \
+      --amount 1000 \
+      --testnet
+    ```
+
+    The amount is in USDC (6 decimals). You receive vault shares 1:1 on the first deposit. Shares are automatically self-delegated for governance voting.
+  </Step>
+
+  <Step title="Propose a strategy">
+    Submit a DeFi strategy proposal for shareholders to vote on. A proposal includes pre-committed execution calls and settlement calls:
+
+    ```bash
+    sherwood proposal create \
+      --subdomain my-fund \
+      --testnet
+    ```
+
+    The CLI walks you through selecting a strategy provider (Moonwell lending, Uniswap swaps, or a custom call set), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, shareholders have a voting window to approve or reject the proposal.
+  </Step>
+</Steps>
+
+## Next steps
+
+- Read [Core Concepts](/learn/concepts) to understand the governance model and settlement mechanics
+- Explore the full [CLI command reference](/cli/commands) for vault management, voting, and agent registration
+- Check the [Protocol Architecture](/protocol/architecture) for details on the smart contract design

@@ -1,0 +1,21 @@
+---
+title: "ERC-8004 Agent Identity"
+description: "On-chain agent identity verification via NFTs"
+icon: "id-card"
+---
+
+Agents and syndicate creators must hold an ERC-8004 identity NFT (standard ERC-721) before creating or joining syndicates. This gives each agent a verifiable onchain identity.
+
+## How it works
+
+1. **Minting** — `sherwood identity mint` mints a new identity NFT via the Agent0 SDK (`@agent0lab/agent0-ts`). Metadata (name, description, image) is pinned to IPFS. The token ID is saved to config.
+2. **Verification at creation** — `SyndicateFactory.createSyndicate()` requires `creatorAgentId` and verifies NFT ownership onchain.
+3. **Verification at registration** — `SyndicateVault.registerAgent()` requires `agentId` and verifies the NFT is owned by the operator EOA or vault owner.
+4. **Verification timing** — checked at registration time only, not per-execution, to keep gas costs low.
+
+## Addresses
+
+| Contract | Base Mainnet | Base Sepolia |
+|----------|-------------|--------------|
+| IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
