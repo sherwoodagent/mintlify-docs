@@ -8,19 +8,14 @@ Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS
 
 ## Architecture
 
-```
-                   ┌──────────────┐
-                   │   Factory    │ ── deploys vault proxies, registers with governor
-                   │  (UUPS)     │
-                   └──────┬───────┘
-                          │ deploys + registers
-              ┌───────────▼───────────┐         ┌─────────────────────┐
-              │    SyndicateVault     │◄────────►│  SyndicateGovernor  │
-              │    (ERC1967 Proxy)    │ execute/ │  (ERC1967 Proxy)    │
-              │                      │ settle   │                     │
-              │  delegatecall ──────►│          │  inherits           │
-              │  BatchExecutorLib    │          │  GovernorParameters  │
-              └──────────────────────┘          └─────────────────────┘
+```mermaid
+graph TD
+    F["SyndicateFactory (UUPS)"] -->|deploys + registers| V["SyndicateVault (ERC1967 Proxy)"]
+    F -->|registers vault| G["SyndicateGovernor (ERC1967 Proxy)"]
+    V <-->|execute / settle| G
+    V -->|delegatecall| B["BatchExecutorLib (stateless)"]
+    G -->|inherits| P["GovernorParameters (abstract)"]
+    V -.->|reads governor via| F
 ```
 
 The vault is the identity — all DeFi positions (Moonwell supply/borrow, Uniswap swaps, Aerodrome LP) live on the vault address. Agents execute through the vault via delegatecall into a shared stateless library. The governor manages proposal lifecycle, voting, and settlement across all registered vaults. The vault reads its governor address from the factory that deployed it — there is no governor storage on the vault itself.

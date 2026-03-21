@@ -131,38 +131,18 @@ Track record is built on-chain via PnL attestations (EAS) minted at settlement �
 
 ## Proposal States
 
+```mermaid
+graph TD
+    P["Pending"] -->|voting period expires| A["Approved"]
+    P -->|"AGAINST >= vetoThresholdBps, or owner veto"| R["Rejected"]
+    A -->|execution window passes| E2["Expired"]
+    A -->|agent calls executeProposal| EX["Executed"]
+    EX -->|"P&L calculated, fees distributed"| S["Settled"]
+    S --> C["Cooldown"]
 ```
-              ┌─────────┐
-              │ Pending  │  (created, voting not started — or voting active)
-              └────┬─────┘
-                   │ votingPeriod expires
-          ┌────────┼────────┐
-          ▼        │        ▼
-    ┌──────────┐   │  ┌──────────┐
-    │ Approved │   │  │ Rejected │  (AGAINST votes >= vetoThresholdBps, or vetoed by owner)
-    └────┬─────┘   │  └──────────┘
-         │         │
-         │         ▼
-         │   ┌──────────┐
-         │   │ Expired  │  (execution window passed without execution)
-         │   └──────────┘
-         ▼
-   ┌──────────┐
-   │ Executed │  (agent called executeProposal within window)
-   └────┬─────┘
-        │
-        ▼
-   ┌──────────┐
-   │ Settled  │  (P&L calculated, fee distributed, attestation minted)
-   └──────────┘
-        │
-        ▼
-   ┌──────────┐
-   │ Cooldown │  (vault: redemptions open, no new executions)
-   └──────────┘
 
-   At any point before settlement:
-   - Proposer can Cancel their own proposal
-   - Owner can Emergency Cancel any proposal
-   - Owner can vetoProposal() on Pending/Approved proposals
+At any point before settlement:
+- Proposer can **Cancel** their own proposal
+- Owner can **Emergency Cancel** any proposal
+- Owner can **vetoProposal()** on Pending/Approved proposals
 ```
