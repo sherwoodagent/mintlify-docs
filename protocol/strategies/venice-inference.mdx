@@ -1,25 +1,27 @@
 ---
 title: "Venice Inference"
-description: "Stake VVV for sVVV to enable private AI inference — dual-path strategy with unstake + cooldown claim"
+description: "Loan-model strategy — vault lends asset for VVV staking, agent uses private inference to earn profit and repays"
 icon: "brain"
 ---
 
-The `VeniceInferenceStrategy` stakes VVV for sVVV to a single agent, enabling private AI inference through Venice. It's an ERC-1167 clonable template — any syndicate, any agent, any proposal can use it as a lego block.
+The `VeniceInferenceStrategy` is a loan-model strategy: the vault lends asset to an agent who stakes VVV for sVVV, provisions a Venice API key for private inference, executes off-chain strategies, and repays the vault with principal + profit.
+
+sVVV is **non-transferrable** on Base — it stays with the agent permanently as their inference license.
 
 ## Architecture
 
 ```mermaid
 graph TD
-    V["Vault"] -->|"pull asset"| S["VeniceInferenceStrategy clone"]
+    V["Vault (USDC)"] -->|"loan: pull asset"| S["VeniceInferenceStrategy clone"]
     S -->|"swap via Aerodrome (if needed)"| S
-    S -->|"stake VVV"| A["Agent (holds sVVV)"]
+    S -->|"stake VVV"| A["Agent (holds sVVV permanently)"]
     A -->|"EIP-191 sign → provision API key"| I["Venice Private Inference"]
-    I -->|"trade signals, research"| E["Next Strategy Proposal"]
+    I -->|"research, reasoning, alpha"| T["Off-chain Strategy"]
+    T -->|"earn profit"| R["Agent repays vault"]
 
     subgraph Settlement
-        A -->|"sVVV clawback (pre-approved)"| S2["Strategy"]
-        S2 -->|"initiateUnstake"| C["Cooldown"]
-        C -->|"claimVVV()"| V2["VVV → Vault"]
+        R -->|"asset.transferFrom(agent → vault)"| V2["Vault recovers principal + profit"]
+        V2 -->|"governor P&L"| F["Fee distribution"]
     end
 ```
 
@@ -41,19 +43,17 @@ The strategy supports both paths, determined at initialization by whether `asset
 ## Lifecycle
 
 ```
-Pending → execute() → Executed → settle() → Settled → claimVVV() → VVV returned
+Pending → execute() → Executed → settle() → Settled
 ```
 
 | Phase | What happens | Who calls |
 |-------|-------------|-----------|
 | **Execute** | Pull asset from vault → [swap to VVV if needed] → stake to agent | Governor (proposal execution) |
-| **Settle** | Claw back sVVV from agent → initiate unstake (cooldown begins) | Governor (proposal settlement) |
-| **Claim** | Finalize unstake after cooldown → push VVV back to vault | Anyone (`claimVVV()`) |
+| **Settle** | Agent repays vault in vault asset (principal + profit) | Governor (proposal settlement) |
 
-<Warning>
-Settlement initiates unstaking but does not return VVV immediately. Venice staking has a cooldown period.
-After cooldown elapses, anyone can call `claimVVV()` on the strategy to finalize the unstake and push VVV back to the vault.
-</Warning>
+<Info>
+Unlike the old design, there is no `claimVVV()` step. Settlement is a single transaction: the agent's repayment is pulled directly to the vault. sVVV stays with the agent permanently.
+</Info>
 
 ## Batch Calls
 
@@ -69,69 +69,50 @@ After cooldown elapses, anyone can call `claimVVV()` on the strategy to finalize
 [strategy.settle()]
 ```
 
-### Post-Settlement Claim
-
-```
-strategy.claimVVV()  // after cooldown — callable by anyone
-```
+Settlement calls `IERC20(asset).safeTransferFrom(agent, vault, repaymentAmount)`.
 
 ## InitParams
 
 ```solidity
 struct InitParams {
-    address asset;        // Token pulled from vault (VVV or USDC)
+    address asset;        // Token pulled from vault (VVV or USDC) — the "loan"
     address weth;         // For multi-hop swap (ignored if direct or singleHop)
     address vvv;          // VVV token
     address sVVV;         // Venice staking contract (also ERC-20)
     address aeroRouter;   // Aerodrome router (address(0) if direct)
     address aeroFactory;  // Aerodrome factory (address(0) if direct)
     address agent;        // Agent wallet receiving sVVV
-    uint256 assetAmount;  // Amount of asset to pull
+    uint256 assetAmount;  // Amount of asset to pull (the loan principal)
     uint256 minVVV;       // Min VVV from swap (0 if direct)
     uint256 deadlineOffset; // Swap deadline in seconds (default 300)
     bool singleHop;       // True for direct asset→VVV swap
 }
 ```
 
-### Direct Path Example
+## Agent Repayment
+
+Before settlement, the agent must:
+
+1. **Update `repaymentAmount`** via `updateParams()` to include profit
+2. **Approve** the strategy clone to pull vault asset from their wallet
 
 ```solidity
-VeniceInferenceStrategy.InitParams memory p = VeniceInferenceStrategy.InitParams({
-    asset: vvv,             // asset == vvv → direct path
-    weth: address(0),
-    vvv: vvv,
-    sVVV: sVVV,
-    aeroRouter: address(0), // not needed
-    aeroFactory: address(0),
-    agent: agentWallet,
-    assetAmount: 1000e18,
-    minVVV: 0,              // not needed
-    deadlineOffset: 0,
-    singleHop: false
-});
+// Agent sets repayment to principal + profit
+strategy.updateParams(abi.encode(
+    600e6,  // repaymentAmount: 500 USDC principal + 100 USDC profit
+    0,      // keep current minVVV
+    0       // keep current deadlineOffset
+));
+
+// Agent approves strategy
+IERC20(usdc).approve(strategyClone, 600e6);
 ```
 
-### Swap Path Example
+`repaymentAmount` defaults to `assetAmount` (the principal). If the agent doesn't update it, they repay only the principal (break-even for the vault).
 
-```solidity
-VeniceInferenceStrategy.InitParams memory p = VeniceInferenceStrategy.InitParams({
-    asset: usdc,
-    weth: weth,
-    vvv: vvv,
-    sVVV: sVVV,
-    aeroRouter: 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43,
-    aeroFactory: 0x420DD381b31aEf6683db6B902084cB0FFECe40Da,
-    agent: agentWallet,
-    assetAmount: 500e6,      // 500 USDC
-    minVVV: 900e18,          // slippage floor
-    deadlineOffset: 300,
-    singleHop: false         // USDC → WETH → VVV
-});
-```
-
-## Agent Pre-Approval
-
-The agent **must** call `sVVV.approve(strategy, amount)` before proposal creation. ERC20 `approve` works before holding tokens — the agent doesn't need sVVV to approve the clawback.
+<Warning>
+If the agent cannot repay (insufficient balance or no approval), settlement reverts. The vault owner can use `emergencySettle()` to handle this case.
+</Warning>
 
 ## API Key Provisioning
 
@@ -147,23 +128,22 @@ Venice requires the **signing wallet to hold sVVV**. It does not support EIP-127
 
 ## Tunable Parameters
 
-While in `Executed` state, the proposer can update swap params:
+While in `Executed` state, the proposer can update:
 
 | Parameter | Description |
 |-----------|-------------|
+| `repaymentAmount` | Total amount agent will repay (principal + profit) |
 | `minVVV` | Minimum VVV output from swap (slippage protection) |
 | `deadlineOffset` | Seconds added to `block.timestamp` for swap deadline |
 
 ```solidity
-strategy.updateParams(abi.encode(newMinVVV, newDeadlineOffset));
+strategy.updateParams(abi.encode(newRepayment, newMinVVV, newDeadlineOffset));
 // Pass 0 to keep current value
 ```
 
 ## CLI Commands
 
 ```bash
-sherwood venice fund --vault 0x... --amount 500 --execute        # fund agents directly
-sherwood venice fund --vault 0x... --amount 500 --write-calls .   # export for proposals
 sherwood venice provision                                          # provision API key
 sherwood venice status --vault 0x...                               # check balances + key
 sherwood venice models                                             # list inference models
