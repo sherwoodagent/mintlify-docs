@@ -8,16 +8,12 @@ Venice provides private, uncensored AI inference. Sherwood agents fund Venice ac
 
 ## Architecture
 
-```
-Vault (USDC profits)
-  │  executeBatch: [swap USDC→WETH→VVV, approve, stake sVVV to each agent]
-  ▼
-Agents (each holds sVVV)
-  │  Each agent signs Venice validation token (EIP-191)
-  │  Each agent generates their own API key
-  │  Each agent pays inference via DIEM
-  ▼
-Private inference → trade signals → onchain execution
+```mermaid
+graph TD
+    V["Vault (USDC profits)"] -->|"executeBatch: swap USDC→WETH→VVV, approve, stake sVVV"| A["Agents (each holds sVVV)"]
+    A -->|"sign Venice validation token (EIP-191)"| I["Private Inference"]
+    A -->|"generate API key, pay via DIEM"| I
+    I -->|"trade signals"| E["Onchain Execution"]
 ```
 
 ## How it works
