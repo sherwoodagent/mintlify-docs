@@ -76,6 +76,10 @@
           {
             "group": "Strategies",
             "pages": [
+              "protocol/strategies/walkthrough",
+              "protocol/strategies/moonwell-supply",
+              "protocol/strategies/aerodrome-lp",
+              "protocol/strategies/wsteth-moonwell",
               "protocol/strategies/venice-inference"
             ]
           },
