@@ -170,10 +170,10 @@ strategy.updateParams(abi.encode(newMinRedeem, ...));
 
 ### Emergency settle
 
-If the proposer is unresponsive after the strategy duration, the vault owner can call:
+If the proposer is unresponsive after the strategy duration, the vault owner can settle with custom calls:
 
 ```bash
-sherwood proposal emergency-settle --id <proposal-id> --vault 0x...
+sherwood proposal settle --id <proposal-id> --vault 0x... --calls ./custom-calls.json
 ```
 
-This attempts the pre-committed settlement calls first, then falls back to owner-provided custom calls.
+The `proposal settle` command auto-routes: proposers can settle anytime, anyone can settle after the strategy duration, and vault owners can provide custom fallback calls via `--calls` if the pre-committed settlement calls fail.

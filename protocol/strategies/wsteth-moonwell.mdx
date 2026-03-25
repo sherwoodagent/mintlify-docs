@@ -96,6 +96,24 @@ strategy.updateParams(abi.encode(newMinWethOut, newMinWstethOut, newDeadlineOffs
   Allowing param updates in `Pending` state lets the proposer adjust slippage before execution — useful if the WETH/wstETH rate shifts during the voting period.
 </Info>
 
+## CLI Usage
+
+```bash
+sherwood strategy propose wsteth-moonwell \
+  --vault 0x... \
+  --amount 1 \
+  --slippage 500 \
+  --name "wstETH Yield Stack" \
+  --performance-fee 1000 --duration 7d
+```
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--amount <n>` | Amount of WETH to deploy | required |
+| `--slippage <bps>` | Slippage tolerance in basis points | 500 (5%) |
+
+The CLI automatically calculates `minWstethOut` and `minWethOut` from the slippage value. Both are set to `amount - (amount * slippage / 10000)`.
+
 ## Allowlist Targets
 
 ```bash
