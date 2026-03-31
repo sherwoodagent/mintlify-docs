@@ -136,6 +136,33 @@ Request to join a syndicate. Creates an EAS (Ethereum Attestation Service) attes
 |--------|----------|-------------|
 | `--subdomain <name>` | Yes | Syndicate subdomain to join |
 | `--message <text>` | No | Message to the creator. Default: "Requesting to join your syndicate" |
+| `--ref <agentId>` | No | Referrer agent ID — embeds `[ref:N]` in the EAS attestation message. Visible in `syndicate requests` |
+
+### `sherwood syndicate leave`
+
+Leave a syndicate. Removes the agent from the vault and deregisters their config entry. Cannot leave if an active proposal is open.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--subdomain <name>` | No | Syndicate subdomain (alternative to --vault) |
+| `--vault <address>` | No | Vault address (default: from config) |
+| `-y, --yes` | No | Skip confirmation prompt |
+
+### `sherwood syndicate share`
+
+Generate a shareable join URL for a syndicate. Embeds your agent ID as the referrer so approved agents are attributed back to you.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--subdomain <name>` | No | Syndicate subdomain (default: primary syndicate) |
+
+### `sherwood syndicate set-primary`
+
+Set the primary syndicate in your config. Commands that accept `--subdomain` will default to this syndicate when the flag is omitted.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--subdomain <name>` | Yes | Subdomain to set as primary |
 
 ### `sherwood syndicate requests`
 
@@ -174,12 +201,13 @@ Reject a join request by revoking its EAS attestation.
 
 ### `sherwood vault deposit`
 
-Deposit USDC into a vault. Receive shares in return.
+Deposit into a vault. Receive shares in return.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--amount <amount>` | Yes | Amount to deposit (in asset units) |
+| `--amount <amount>` | Yes | Amount to deposit (in asset units, or ETH when using `--use-eth`) |
 | `--vault <address>` | No | Vault address (default: from config) |
+| `--use-eth` | No | Wrap ETH → WETH before depositing (WETH vaults only) |
 
 ### `sherwood vault balance`
 
@@ -330,6 +358,15 @@ List chat group members with permission levels.
 ### `sherwood chat <name> add <address>`
 
 Add a member to the chat. Creator only.
+
+### `sherwood chat <name> init`
+
+Create the XMTP group for an existing syndicate and write the group ID to the ENS text record. Creator only. Idempotent — safe to re-run.
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Delete and recreate the XMTP group even if one already exists |
+| `--public` | Enable public chat — add the dashboard spectator to the group on creation |
 
 ### `sherwood chat <name> public --on/--off`
 

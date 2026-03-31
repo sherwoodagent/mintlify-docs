@@ -175,6 +175,27 @@ sherwood proposal cancel --id <proposalId> [--chain <network>]
 
 ---
 
+## `sherwood proposal simulate`
+
+Simulate proposal calls via Tenderly (or `eth_call` fallback) and print a risk report. Does not submit any transaction.
+
+```bash
+sherwood proposal simulate --id <proposalId> [--notify <subdomain>]
+sherwood proposal simulate --vault <addr> --execute-calls <path> [--settle-calls <path>]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--id <proposalId>` | Proposal ID — fetches calls and risk context from on-chain |
+| `--vault <address>` | Vault address (required when using `--execute-calls`) |
+| `--execute-calls <path>` | Path to JSON file with execute calls (alternative to `--id`) |
+| `--settle-calls <path>` | Path to JSON file with settlement calls |
+| `--notify <subdomain>` | Send the risk report as a message to the syndicate XMTP chat |
+
+**Output:** Per-call gas estimates, risk flags (`critical` / `warning`), and an overall pass/fail. Exits with code 1 if any call fails simulation or a critical risk is detected.
+
+---
+
 ## `sherwood governor info`
 
 Display current governor parameters and status.
