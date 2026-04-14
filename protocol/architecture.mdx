@@ -169,9 +169,11 @@ Shared stateless library. Vault delegatecalls into it to execute batches of prot
 
 Reusable strategy contracts designed for ERC-1167 Clones (deploy template once, clone per proposal). The vault calls `execute()` and `settle()` via batch calls — the strategy pulls tokens, deploys them into DeFi, and returns them on settlement.
 
-**IStrategy interface:** `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(data)`, `name()`, `vault()`, `proposer()`, `executed()`.
+**IStrategy interface:** `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(data)`, `name()`, `vault()`, `proposer()`, `executed()`, `positionValue()`.
 
-**BaseStrategy (abstract):** Implements `IStrategy` with lifecycle state machine (Pending → Executed → Settled), access control (`onlyVault`, `onlyProposer`), and helper methods (`_pullFromVault`, `_pushToVault`, `_pushAllToVault`). Concrete strategies implement `_initialize`, `_execute`, `_settle`, and `_updateParams` hooks.
+**`positionValue() returns (uint256 value, bool valid)`** — canonical mid-strategy mark-to-market view, denominated in the vault's `asset()` (e.g. 6 decimals for USDC, 18 for WETH). The frontend reads this to display unrealized P&L during the Executed window without hardcoding a detector per strategy type. `valid=false` signals the caller should hide the readout rather than render a misleading $0 — returned before execute, after settle, and for strategies whose position isn't queryable from this contract (external loans, offchain perps, bridged assets without an onchain rate view). Treat as a display value only — never use as a fee or settlement basis; pool spot prices are sandwichable.
+
+**BaseStrategy (abstract):** Implements `IStrategy` with lifecycle state machine (Pending → Executed → Settled), access control (`onlyVault`, `onlyProposer`), and helper methods (`_pullFromVault`, `_pushToVault`, `_pushAllToVault`). Concrete strategies implement `_initialize`, `_execute`, `_settle`, `_updateParams`, and (optionally) `_positionValue` hooks. `BaseStrategy` centralizes state gating for `positionValue()` — returns `(0, false)` outside the Executed window — so concrete strategies only need to implement the Executed-case math.
 
 **MoonwellSupplyStrategy:** Supply USDC to Moonwell's mUSDC market. Execute pulls USDC from vault, mints mUSDC. Settle redeems all mUSDC, pushes USDC back. Tunable params: `supplyAmount`, `minRedeemAmount` (slippage protection).
 
