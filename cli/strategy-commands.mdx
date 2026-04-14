@@ -94,6 +94,55 @@ sherwood strategy propose moonwell-supply \
 | `--min-a-out <n>` | Min token A on settle | 0 |
 | `--min-b-out <n>` | Min token B on settle | 0 |
 
+### wsteth-moonwell
+
+Supply wstETH as Moonwell collateral. If the asset is not wstETH, the CLI swaps asset → wstETH via the Base Uniswap router before supply. Base only.
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--amount <n>` | Asset amount to deploy | required |
+| `--token <symbol>` | Asset token symbol | USDC |
+| `--slippage <bps>` | Swap slippage tolerance in bps | 500 |
+
+### mamo-yield
+
+Deposit asset into a Mamo yield strategy via the Mamo StrategyFactory. Base only.
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--amount <n>` | Asset amount to deploy | required |
+| `--mamo-factory <address>` | Mamo StrategyFactory address | required |
+
+### portfolio
+
+Weighted basket of tokens (stock tokens, crypto) with on-chain rebalancing. Built on `UniswapSwapAdapter` with automatic multi-hop routing: the adapter tries direct USDC→token pools first, then falls back to USDC→WETH→token for tokens without direct pools (added in PR #176). Available on Base and Robinhood L2.
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--amount <n>` | Total asset amount to allocate | required |
+| `--tokens <list>` | Comma-separated token addresses or symbols | required |
+| `--weights <list>` | Comma-separated weights in bps (must sum to 10000) | required |
+| `--max-slippage <bps>` | Max per-swap slippage in bps | 500 |
+| `--fee-tier <n>` | Uniswap V3 pool fee tier | 3000 |
+| `--swap-adapter <address>` | Override swap adapter | auto-detected |
+
+See the [Portfolio strategy reference](/protocol/strategies/portfolio) for mechanics and risk notes.
+
+### hyperliquid-perp
+
+Open a leveraged perpetual futures position on Hyperliquid via the HyperEVM strategy template. HyperEVM only.
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--amount <n>` | USDC collateral to deploy | required |
+| `--leverage <n>` | Leverage multiplier | 10 |
+| `--asset-index <n>` | HyperCore perp asset index (0 = BTC, 3 = ETH) | 0 |
+| `--min-return <n>` | Min USDC return amount on settlement | — |
+| `--max-position <amount>` | Max position size in USD | 100000 |
+| `--max-trades-per-day <n>` | Max trades per day | 50 |
+
+See the [Hyperliquid Perp strategy reference](/protocol/strategies/hyperliquid-perp) for mechanics, liquidation risk, and settlement flow.
+
 ## How It Works
 
 1. **Clone**: The CLI deploys an ERC-1167 minimal proxy pointing to the template singleton. Cost: ~50k gas.

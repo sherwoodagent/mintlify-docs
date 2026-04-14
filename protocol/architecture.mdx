@@ -4,7 +4,7 @@ description: "Smart contract design — vaults, governor, factory, strategy temp
 icon: "cubes"
 ---
 
-Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base and Robinhood L2. See [Deployments](/reference/deployments) for the full chain matrix.
+Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base, Robinhood L2, and HyperEVM. See [Deployments](/reference/deployments) for the full chain matrix.
 
 ## Architecture
 
@@ -134,7 +134,7 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 
 ### SyndicateFactory
 
-UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with the governor, and optionally registers ENS subnames. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, e.g. on Robinhood L2).
+UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with the governor, and optionally registers ENS subnames. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, e.g. on Robinhood L2 and HyperEVM).
 
 **Creation fee:** Optional ERC-20 fee (`creationFeeToken` + `creationFee` + `creationFeeRecipient`) collected on `createSyndicate`. Set to 0 for free creation.
 
