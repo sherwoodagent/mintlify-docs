@@ -1,0 +1,177 @@
+---
+title: "Agent Commands"
+description: "Autonomous trading agent — analyze tokens, run strategies, track performance"
+icon: "robot"
+---
+
+The `sherwood agent` command group runs an autonomous trading agent that uses multi-signal scoring (technical analysis, sentiment, on-chain data) to make paper-trading decisions. Currently operates in **dry-run mode** — no real trades are executed.
+
+## `agent analyze`
+
+Analyze one or more tokens using the multi-signal scoring engine.
+
+```bash
+# Analyze specific tokens
+sherwood agent analyze ethereum bitcoin solana
+
+# Analyze the full default watchlist
+sherwood agent analyze --all
+
+# Output as JSON
+sherwood agent analyze ethereum --json
+```
+
+The analysis combines 5 signal categories:
+- **Technical** (20%) — RSI, MACD, Bollinger Bands, EMA crossovers, ATR, VWAP
+- **Sentiment** (20%) — Fear & Greed index, social sentiment Z-score
+- **On-Chain** (15%) — TVL momentum, DEX flow analysis
+- **Fundamental** (10%) — Token unlock events, funding rates
+- **Smart Money** (25%) — Nansen-style smart money flow (when available)
+
+Each signal produces a score from -1.0 (strong sell) to +1.0 (strong buy). The weighted composite determines the trade action: `STRONG_BUY`, `BUY`, `HOLD`, `SELL`, or `STRONG_SELL`.
+
+## `agent signals`
+
+Show detailed signal breakdown for a single token.
+
+```bash
+sherwood agent signals ethereum
+```
+
+Displays raw technical indicators (RSI, MACD, BB width, EMAs, ATR, VWAP), sentiment data (Fear & Greed, Z-score), and computed signal scores with visual bar charts.
+
+## `agent start`
+
+Start the autonomous trading loop in paper-trading mode.
+
+```bash
+# Default: 4h cycle, dry-run, default watchlist
+sherwood agent start
+
+# Custom configuration
+sherwood agent start \
+  --cycle 1h \
+  --tokens ethereum,bitcoin,solana,aave \
+  --log ~/agent-logs
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--cycle` | `4h` | Analysis cycle interval (`15m`, `1h`, `4h`) |
+| `--dry-run` | `true` | Paper trading mode (default) |
+| `--tokens` | `ethereum,bitcoin,solana,aave,uniswap` | Comma-separated token watchlist |
+| `--log` | none | Path to write cycle log JSONL files |
+| `--mode` | `dry-run` | Execution mode: `dry-run` or `hyperliquid-perp` |
+| `--strategy-clone` | none | Strategy clone address on HyperEVM (required for `hyperliquid-perp`) |
+| `--chain` | `ethereum` | Chain for live execution (`hyperevm`, `hyperevm-testnet`) |
+
+### Live Execution (Hyperliquid Perp)
+
+To run the agent in live mode against a deployed HyperliquidPerpStrategy:
+
+```bash
+SHERWOOD_PROPOSER_KEY=0x... sherwood agent start \
+  --mode hyperliquid-perp \
+  --strategy-clone 0x... \
+  --chain hyperevm \
+  --tokens ethereum \
+  --cycle 1h
+```
+
+The agent will call `updateParams()` on the strategy clone to open/close positions and manage stop-losses. The proposer private key is read from the `SHERWOOD_PROPOSER_KEY` environment variable (never passed as a CLI argument).
+
+The loop loads any persisted risk configuration from `~/.sherwood/agent/config.json` (written by `agent config --set`). Each cycle:
+1. Resets daily/weekly/monthly PnL counters at boundaries
+2. Updates prices for open positions
+3. Checks exit conditions (stop loss, take profit, trailing stop, time-based)
+4. Analyzes each token in the watchlist
+5. Executes paper trades for high-conviction signals
+6. Logs results to disk
+
+Press `Ctrl+C` for graceful shutdown.
+
+## `agent status`
+
+Show current portfolio, open positions, and daily PnL.
+
+```bash
+sherwood agent status
+```
+
+Fetches live prices from CoinGecko to update unrealized PnL for open positions.
+
+## `agent history`
+
+Show trade history and performance metrics.
+
+```bash
+# Last 30 days (default)
+sherwood agent history
+
+# Custom lookback period
+sherwood agent history --days 7
+```
+
+Displays a table of closed trades with entry/exit prices, PnL, and exit reasons, followed by performance metrics: win rate, Sharpe ratio, max drawdown, best/worst trades.
+
+## `agent config`
+
+Show or update risk management parameters.
+
+```bash
+# Show current config
+sherwood agent config
+
+# Set a parameter
+sherwood agent config --set maxSinglePosition=0.15
+sherwood agent config --set dailyLossLimit=0.03
+sherwood agent config --set maxConcurrentTrades=5
+```
+
+Configuration is persisted to `~/.sherwood/agent/config.json` and loaded automatically when `agent start` runs.
+
+| Parameter | Default | Bounds | Description |
+|-----------|---------|--------|-------------|
+| `maxPortfolioRisk` | 15% | 1-50% | Maximum aggregate portfolio risk |
+| `maxSinglePosition` | 10% | 1-25% | Maximum size per position |
+| `maxCorrelatedExposure` | 20% | 5-50% | Max exposure to correlated tokens |
+| `maxConcurrentTrades` | 8 | 1-20 | Maximum open positions |
+| `hardStopPercent` | 12% | 1-30% | Hard stop-loss per position |
+| `trailingStopAtr` | 1.5x | 0.5-5x | Trailing stop distance in ATR multiples |
+| `dailyLossLimit` | 5% | 1-30% | Daily loss limit (pauses trading) |
+| `weeklyLossLimit` | 10% | 1-50% | Weekly loss limit |
+| `monthlyLossLimit` | 15% | 1-60% | Monthly loss limit |
+| `riskPerTrade` | 2% | 0.5-5% | Risk per trade (Kelly-adjacent sizing) |
+
+## `agent backtest`
+
+Backtest strategies on historical CoinGecko data.
+
+```bash
+sherwood agent backtest bitcoin \
+  --from 2024-01-01 \
+  --to 2024-12-31 \
+  --capital 10000 \
+  --cycle 1d
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--from` | `2024-01-01` | Start date (YYYY-MM-DD) |
+| `--to` | `2024-12-31` | End date (YYYY-MM-DD) |
+| `--capital` | `10000` | Initial capital in USD |
+| `--cycle` | `1d` | Candle interval (`1h`, `4h`, `1d`) |
+| `--strategies` | all | Comma-separated strategy filter |
+
+Reports total return, Sharpe ratio, max drawdown, win rate, and an equity curve summary.
+
+## Data Storage
+
+All agent data is stored in `~/.sherwood/agent/`:
+
+| File | Description |
+|------|-------------|
+| `config.json` | Risk configuration overrides |
+| `portfolio.json` | Current portfolio state (positions, cash, PnL) |
+| `trades.json` | Trade history (all closed trades) |
+| `cycles.jsonl` | Cycle logs (if `--log` is set) |

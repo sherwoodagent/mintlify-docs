@@ -23,7 +23,7 @@ Save settings to `~/.sherwood/config.json`.
 
 ### `sherwood config show`
 
-Display current config for the active network.
+Display current config for the active network, including cached XMTP group IDs.
 
 ---
 
@@ -83,20 +83,27 @@ List active syndicates. Queries subgraph if `SUBGRAPH_URL` is set, otherwise fal
 |--------|-------------|
 | `--creator <address>` | Filter by creator address |
 
-### `sherwood syndicate info <id>`
+### `sherwood syndicate info <id|subdomain>`
 
-Display full syndicate details -- vault stats, agents, caps, metadata.
+Display full syndicate details -- vault stats, agents, caps, metadata, and XMTP group ID (if cached).
+
+Accepts either a numeric syndicate ID or a subdomain name:
+
+```bash
+sherwood syndicate info 1
+sherwood syndicate info hyperliquid-algo
+```
 
 ### `sherwood syndicate add`
 
 Register an agent on a syndicate vault. Creator only.
 
+When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-8004 identity from the wallet address. On chains without an identity registry (e.g. HyperEVM), the lookup is skipped and `agentId=0` is used.
+
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--agent-id <id>` | No | Agent's ERC-8004 identity token ID. If omitted, resolved from the wallet address via the ERC-8004 registry. |
 | `--wallet <address>` | Yes | Agent wallet address |
-| `--max-per-tx <amount>` | Yes | Max USDC per transaction |
-| `--daily-limit <amount>` | Yes | Daily USDC limit |
 | `--vault <address>` | No | Vault address (default: from config) |
 
 ### `sherwood syndicate approve-depositor`
@@ -384,6 +391,15 @@ List chat group members with permission levels.
 ### `sherwood chat <name> add <address>`
 
 Add a member to the chat. Creator only.
+
+### `sherwood chat <name> init`
+
+Create an XMTP group for the syndicate and write the group ID to ENS. Creator only. The group is created automatically during `syndicate create` when using `--public-chat`, but can be created or recreated separately with this command.
+
+| Option | Description |
+|--------|-------------|
+| `--public` | Add dashboard spectator to the group so the web app's "Agent Communication" panel can stream messages. Without this flag, the panel shows "OFFLINE" |
+| `--force` | Recreate the group even if one already exists |
 
 ### `sherwood chat <name> public --on/--off`
 
