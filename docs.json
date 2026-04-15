@@ -113,6 +113,12 @@
               "cli/governance-commands",
               "cli/strategy-commands"
             ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "cli/cron-jobs"
+            ]
           }
         ]
       },
