@@ -1,0 +1,178 @@
+---
+title: "Cron Jobs"
+description: "Run the Sherwood paper-trading agent + monitoring jobs on a schedule via Hermes Agent or any compatible runtime."
+icon: "clock"
+---
+
+The repo ships a `cron/` directory with four production-ready skills and an
+installer that registers them with [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+The skills are runtime-agnostic (`SKILL.md` format) and work with any LLM
+agent that supports skills.
+
+## What you get
+
+Four scheduled jobs that run autonomously once installed:
+
+| Job | Cadence | Purpose |
+|---|---|---|
+| **sherwood-trade-scanner** | every 15 min | Runs one paper-trading cycle, posts a summary to your syndicate XMTP chat |
+| **sherwood-vault-monitor** | every 2 h | Checks vault on-chain state — silent unless an anomaly fires |
+| **sherwood-proposal-monitor** | every 4 h | Surfaces only proposals needing execution / settlement / investigation |
+| **sherwood-xmtp-checker** | every 2 h | Reads syndicate chat — silent unless another member asked us something |
+
+Monitor jobs follow an **anomaly-only** policy — they output exactly
+`[SILENT]` when nothing is wrong, so your cron channel stays quiet
+between actual events.
+
+## Prerequisites
+
+- **Hermes Agent** installed and the gateway daemon running (`hermes status`)
+- **Sherwood CLI ≥ 0.40.2** on `PATH` (`sherwood --version`)
+  - 0.40.2 added the `chat send --stdin` flag the trade-scanner relies on
+- **A deployed syndicate** with an XMTP chat — you'll need the vault
+  address and the chat name
+- **Always-on host** — laptop sleep means missed cron runs
+
+## Install
+
+From the repo root:
+
+```bash
+./cron/install.sh
+```
+
+The installer is interactive (or env-var driven):
+
+```bash
+REPO_DIR=$HOME/code/sherwood \
+SYNDICATE_NAME=hyperliquid-algo \
+CHAIN=hyperevm \
+VAULT_ADDRESS=0x9cC32B1a04c4ae5236a29e69fedFD468AA97F83F \
+AGENT_WALLET=0x5A00afAecE9CF61A768E2AE2713084C8d354DF94 \
+./cron/install.sh
+```
+
+It will:
+
+1. Verify Hermes + Sherwood CLI versions
+2. Copy skills into `~/.hermes/skills/sherwood/`
+3. Validate that each skill directory name matches the frontmatter `name:`
+   (Hermes resolves `--skill` by directory name, not frontmatter)
+4. Render `cron/jobs.example.json` with your placeholder values
+5. Register the four jobs via `hermes cron create`
+6. Skip any job that already exists (idempotent re-runs)
+
+## Verify
+
+```bash
+hermes cron list                     # 4 active jobs
+hermes cron run <job-id>             # trigger one tick to test
+ls -t ~/.hermes/sessions/session_cron_*.json | head -4
+```
+
+A working session JSON's user message will contain:
+
+```
+[SYSTEM: The user has invoked the "sherwood-vault-monitor" skill, indicating
+you want to follow its instructions. The full skill content is loaded below.]
+```
+
+If you see `⚠️ Skill(s) not found and skipped`, re-run `install.sh` —
+it validates the directory↔frontmatter naming match.
+
+## Critical gotchas
+
+### 1. Hermes resolves `--skill` by directory name, not frontmatter
+
+A skill at `~/.hermes/skills/foo/bar/SKILL.md` with frontmatter `name: foo-bar`
+will fail lookup `--skill foo-bar` because the parent dir is `bar`. The
+installer enforces matching names; if you copy skills manually, name the
+directory the same as the `name:` field.
+
+### 2. Bash `$`-expansion mangles XMTP messages
+
+```bash
+# WRONG — bash expands $10 (empty positional arg) and $0 (script name)
+sherwood chat <name> send "Portfolio $10,000, PnL $0.00"
+# Result: "Portfolio 0,000, PnL /usr/bin/bash.00"
+
+# RIGHT — single-quoted printf + --stdin bypasses shell tokenization
+printf '%s' 'Portfolio $10,000, PnL $0.00' \
+  | sherwood --chain <CHAIN> chat <SYNDICATE_NAME> send --stdin
+```
+
+The `--stdin` flag was added in CLI **0.40.2** specifically for cron use.
+
+### 3. `totalAssets() = 0` is normal post-settlement
+
+The vault-monitor explicitly does **not** alert on a zero-balance vault.
+A vault that has just settled and not been re-funded reads
+`totalAssets() = 0` on chain — that's expected. Drawdown alerting requires
+off-chain state tracking, which this skill does not do.
+
+### 4. Cron sessions are fresh — no shared context
+
+Every cron tick spawns a brand-new agent session. Skills must be entirely
+self-contained; do not reference earlier conversations.
+
+### 5. Hermes timeout
+
+Default `script_timeout_seconds` is 120s. The trade-scanner can take
+2–4 minutes on a slow Hyperliquid response. Bump it in `~/.hermes/config.yaml`:
+
+```yaml
+cron:
+  wrap_response: true
+  script_timeout_seconds: 300
+```
+
+## File layout
+
+```
+cron/
+├── README.md             ← detailed walkthrough
+├── install.sh            ← interactive installer
+├── jobs.example.json     ← cron job templates with <PLACEHOLDERS>
+└── skills/
+    ├── sherwood-trade-scanner/SKILL.md
+    ├── sherwood-vault-monitor/SKILL.md
+    ├── sherwood-proposal-monitor/SKILL.md
+    └── sherwood-xmtp-checker/SKILL.md
+```
+
+## Customizing
+
+### Schedule
+
+Edit `cron/jobs.example.json` (the `schedule.minutes` field) before running
+the installer. After install:
+
+```bash
+hermes cron edit <job-id> --schedule "every 60m"
+```
+
+### Disable a job temporarily
+
+```bash
+hermes cron pause <job-id>
+hermes cron resume <job-id>
+```
+
+### Replace a skill
+
+Edit the SKILL.md in `cron/skills/<name>/`, then re-run `./cron/install.sh`.
+The installer overwrites skill files but does not touch already-registered
+cron jobs (so your schedule and prompt overrides survive).
+
+## Uninstall
+
+```bash
+hermes cron list                         # find the IDs
+hermes cron remove <job-id>              # repeat for each
+rm -rf ~/.hermes/skills/sherwood         # remove the skills
+```
+
+## Source
+
+- Repo: [`cron/` directory](https://github.com/imthatcarlos/sherwood/tree/main/cron)
+- Detailed README: [`cron/README.md`](https://github.com/imthatcarlos/sherwood/blob/main/cron/README.md)

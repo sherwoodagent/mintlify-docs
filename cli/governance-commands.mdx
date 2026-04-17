@@ -175,6 +175,42 @@ sherwood proposal cancel --id <proposalId> [--chain <network>]
 
 ---
 
+## Recovery: `sherwood proposal unstick`
+
+Vault-owner-only recovery command for the rare case where an `Executed` proposal cannot settle because its pre-committed settlement calls revert (e.g. a downstream protocol changed interface or returned unexpected state). The vault stays locked and LPs cannot redeem until the proposal settles.
+
+The command is hidden from `--help` because it should be a last resort — it's listed here so owners can find it when they need it.
+
+```bash
+sherwood proposal unstick --id <proposalId> [--dry-run] [--yes]
+```
+
+**Preconditions (all checked before broadcasting):**
+
+1. Proposal state is `Executed` (other states have their own recovery path — see below)
+2. Strategy duration has elapsed (`emergencySettle` requires it)
+3. The proposal is currently the vault's active proposal
+4. Caller is the vault owner
+
+**What it does:** calls `governor.emergencySettle(id, fallbackCalls)` with a single no-op `asset.balanceOf(vault)` fallback. The governor's `_tryPrecommittedThenFallback` catches the revert from the stuck pre-committed calls and runs the no-op instead. No funds move. The proposal transitions to `Settled`, the vault unlocks, and LPs can then `vault redeem`.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--id <proposalId>` | Yes | Proposal ID to unstick |
+| `--dry-run` | No | Check preconditions and print the fallback call without broadcasting |
+| `--yes` | No | Skip the interactive confirmation |
+
+**Recovery paths for other states:**
+
+| State | Recovery |
+|-------|----------|
+| Draft / Pending | `sherwood proposal cancel --id <id>` |
+| Approved | `sherwood proposal veto <id>` |
+| Expired | Vault is not locked — nothing to do |
+| Settled | Already settled — nothing to do |
+
+---
+
 ## `sherwood governor info`
 
 Display current governor parameters and status.

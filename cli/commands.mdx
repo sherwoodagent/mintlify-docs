@@ -102,7 +102,7 @@ When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-800
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--agent-id <id>` | No | Agent's ERC-8004 identity token ID (auto-resolved from wallet if omitted) |
+| `--agent-id <id>` | No | Agent's ERC-8004 identity token ID. If omitted, resolved from the wallet address via the ERC-8004 registry. |
 | `--wallet <address>` | Yes | Agent wallet address |
 | `--vault <address>` | No | Vault address (default: from config) |
 
@@ -196,6 +196,16 @@ Show LP share balance and current asset value.
 |--------|-------------|
 | `--vault <address>` | Vault address (default: from config) |
 | `--address <address>` | Address to check (default: your wallet) |
+
+### `sherwood vault redeem`
+
+Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). Blocked while an active proposal locks redemptions; a pre-flight check fails early if the vault is locked or the share balance is insufficient. Share units use `assetDecimals * 2` (12 decimals for USDC).
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--shares <amount>` | No | Shares to redeem in whole-share units. Defaults to your full share balance. |
+| `--receiver <address>` | No | Recipient of the underlying asset (default: your wallet) |
+| `--vault <address>` | No | Vault address (default: from config) |
 
 ### `sherwood vault info`
 
@@ -301,6 +311,50 @@ Show Venice inference status -- sVVV balances per agent, pending VVV rewards, AP
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--vault <address>` | Yes | Vault address |
+
+---
+
+## Agent
+
+Autonomous trading agent — multi-signal scoring, dynamic token selection, and (optionally) live execution on Hyperliquid Perps via HyperEVM.
+
+### `sherwood agent analyze`
+
+Analyze one or more tokens using the agent's multi-signal scoring pipeline (technicals, sentiment, regime detection, correlation guards). Read-only — does not trade.
+
+```bash
+sherwood agent analyze [tokens...] [--all] [--auto] [--x402] [--json] [--telegram] [--proposals]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--all` | Analyze the full default watchlist |
+| `--auto` | Dynamic token selection from Hyperliquid market data |
+| `--x402` | Include paid x402 data (Nansen smart-money, Messari fundamentals). Requires an x402-enabled wallet. |
+| `--json` | Output as JSON |
+| `--telegram` | Format output as a Telegram summary |
+| `--proposals` | Generate trade proposals for high-confidence opportunities |
+
+### `sherwood agent start`
+
+Run the autonomous trading loop on a configurable cycle. Paper-trades by default; live execution on HyperEVM requires `--mode hyperliquid-perp` and a strategy clone.
+
+```bash
+sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--x402] [--tokens <list>]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--cycle <interval>` | Cycle interval (e.g. `15m`, `1h`, `4h`). Default: `4h` |
+| `--dry-run` | Paper trading mode (default: enabled) |
+| `--tokens <list>` | Comma-separated token list |
+| `--auto` | Dynamic token selection (refreshes every 30 min) |
+| `--mode <mode>` | Execution mode: `dry-run` (default) or `hyperliquid-perp` |
+| `--strategy-clone <address>` | Strategy clone address on HyperEVM (required for `hyperliquid-perp`) |
+| `--chain <chain>` | Chain for live execution (`hyperevm`, `hyperevm-testnet`) |
+| `--asset-index <n>` | HyperCore perp asset index (default: 3 = ETH) |
+| `--x402` | Include paid x402 data (Nansen smart-money, Messari fundamentals) |
+| `--log <path>` | Path to write cycle logs |
 
 ---
 

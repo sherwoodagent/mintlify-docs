@@ -1,121 +1,137 @@
 ---
 title: "Hyperliquid Perp"
-description: "On-chain perpetual futures trading via HyperEVM precompiles — no keeper, no off-chain infrastructure"
+description: "Leveraged perpetual futures on Hyperliquid via HyperEVM precompiles"
 icon: "chart-line"
 ---
 
-The `HyperliquidPerpStrategy` opens leveraged perpetual positions on Hyperliquid directly from a syndicate vault. It uses HyperEVM precompiles (`L1Write`, `L1Read`) for all trading actions — no off-chain keeper or relayer needed.
+The `HyperliquidPerpStrategy` lets a syndicate run a leveraged perpetual position on Hyperliquid from an on-chain vault. USDC is pulled from the vault, transferred to HyperCore perp margin via the `L1Write` precompile, and the proposer drives trading actions (open long, update stop-loss, close position) through `updateParams`. Position state is read live from HyperCore via `L1Read.position2()` — nothing is cached on-chain.
+
+HyperEVM mainnet only.
+
+<Warning>
+  This strategy holds leveraged positions on a centralized-matching venue. A liquidation on HyperCore permanently destroys vault equity up to the deposit amount. Use conservative `leverage`, set `maxPositionSize` and `maxTradesPerDay` at init, and monitor the position directly on Hyperliquid.
+</Warning>
 
 ## Architecture
 
 ```mermaid
 graph TD
-    V["Vault (USDC)"] -->|"pull USDC"| S["HyperliquidPerpStrategy clone"]
-    S -->|"L1Write: sendUsdClassTransfer"| HC["HyperCore (Perp Margin)"]
-    S -->|"L1Write: sendLimitOrder (IOC)"| HC
-    S -->|"L1Write: sendLimitOrder (GTC stop-loss)"| HC
-    HC -->|"async USDC return"| S
-    S -->|"sweepToVault()"| V
+    V["Vault (USDC)"] -->|"execute: pull USDC"| S["HyperliquidPerpStrategy clone"]
+    S -->|"sendUpdateLeverage"| C1["L1Write precompile"]
+    S -->|"sendUsdClassTransfer"| C2["HyperCore perp margin"]
 
-    subgraph Proposer Actions
-        P["Proposer"] -->|"updateParams(ACTION_OPEN_LONG)"| S
-        P -->|"updateParams(ACTION_CLOSE_POSITION)"| S
-        P -->|"updateParams(ACTION_UPDATE_STOP_LOSS)"| S
-    end
+    P["Proposer"] -->|"updateParams: openLong / close / setStopLoss"| S
+    S -->|"sendIocOrder / sendGtcOrder"| C3["HyperCore orderbook"]
 
-    subgraph Read
-        S -->|"L1Read: position2()"| HC
-        S -->|"L1Read: spotBalance()"| HC
-        S -->|"L1Read: accountMarginSummary()"| HC
+    subgraph Settlement
+        S2["Strategy clone"] -->|"close + request USD transfer"| C4["HyperCore"]
+        C4 -->|"async arrival"| S3["Strategy clone (EVM side)"]
+        S3 -->|"sweepToVault()"| V2["Vault (USDC + P&L)"]
     end
 ```
 
 ## Lifecycle
 
-<Steps>
-  <Step title="Proposal approved">
-    Governor approves the proposal with encoded init params: `(asset, depositAmount, minReturnAmount, perpAssetIndex, leverage, maxPositionSize, maxTradesPerDay)`.
-  </Step>
-  <Step title="Execute">
-    Vault calls `execute()`. Strategy pulls USDC, sets leverage on HyperCore, and transfers USDC to perp margin via `sendUsdClassTransfer`.
-  </Step>
-  <Step title="Trade">
-    Proposer calls `updateParams()` with action-encoded data to open positions, set stop losses, close positions, or update min return.
-  </Step>
-  <Step title="Settle (Phase 1)">
-    Vault calls `settle()`. Any open position is force-closed (IOC sell at minimum price). All perp margin is swept back to spot via `sendUsdClassTransfer`.
-  </Step>
-  <Step title="Sweep (Phase 2)">
-    Proposer calls `sweepToVault()` in a separate transaction after USDC arrives on EVM side from the async HyperCore transfer. Enforces `minReturnAmount`.
-  </Step>
-</Steps>
+```
+Pending → execute() → Executed → (trade actions) → settle() → Settled → sweep
+```
 
-## Parameters
+| Phase | What happens | Who calls |
+|-------|-------------|-----------|
+| **Execute** | Pull USDC from vault → `sendUpdateLeverage` → `sendUsdClassTransfer` to perp margin | Governor (proposal execution) |
+| **Executed** | Proposer opens/closes positions, updates stop-loss, or lowers `minReturnAmount` via `updateParams` | Proposer only |
+| **Settle** | Close any open position + request async USD transfer back to the EVM side | Governor (proposal settlement) |
+| **Sweep** | `sweepToVault()` pushes USDC to the vault when it arrives. Callable by anyone; repeatable for partial arrivals. | Anyone |
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `asset` | `address` | USDC address on HyperEVM |
-| `depositAmount` | `uint256` | Amount to deposit into perp margin (6 decimals) |
-| `minReturnAmount` | `uint256` | Minimum USDC that must be returned on settlement (enforced on-chain) |
-| `perpAssetIndex` | `uint32` | Hyperliquid perp asset index (e.g., 3 = ETH) |
-| `leverage` | `uint32` | Leverage multiplier (1x - 50x) |
-| `maxPositionSize` | `uint256` | Maximum USDC in a single position |
-| `maxTradesPerDay` | `uint32` | Maximum trading actions per UTC day |
+## Batch Calls
 
-## Action Types
+### Execute
 
-The proposer controls the strategy via `updateParams(bytes data)` where the first ABI-encoded `uint8` is the action:
+```
+[USDC.approve(strategy, depositAmount), strategy.execute()]
+```
 
-| Action | ID | Params | Description |
-|--------|----|--------|-------------|
-| Update Min Return | 0 | `(uint8, uint256)` | Change the minimum return threshold |
-| Open Long | 1 | `(uint8, uint64, uint64, uint64, uint64)` | Place IOC buy + GTC stop-loss |
-| Close Position | 2 | `(uint8, uint64, uint64)` | Cancel stop-loss + IOC sell |
-| Update Stop Loss | 3 | `(uint8, uint64, uint64)` | Cancel old + place new GTC stop-loss |
+### Settle
 
-## Settlement
+```
+[strategy.settle()]
+```
 
-Settlement uses `sendUsdClassTransfer` which is asynchronous (event-based):
+After `settle()`, anyone can call `strategy.sweepToVault()` once the async USD transfer lands. Funds can only flow to the vault.
 
-1. `settle()`: Force-close any position, request USD transfer from perp to spot. Sets `settled = true`.
-2. `sweepToVault()`: Callable by **anyone** after settle. Pushes USDC back to vault. First call enforces `minReturnAmount`. Can be called multiple times to handle partial async arrivals.
+## InitParams
 
-<Warning>
-  `sweepToVault()` will revert with `InvalidAmount` if called before USDC arrives (zero balance), or `InsufficientReturn` on the first sweep if the balance is below `minReturnAmount`.
-</Warning>
+```solidity
+(
+  address asset,            // USDC on HyperEVM
+  uint256 depositAmount,    // USDC to park as perp margin (fits in uint64)
+  uint256 minReturnAmount,  // Min USDC sweep on settlement (InsufficientReturn revert)
+  uint32  perpAssetIndex,   // HyperCore perp asset index (0 = BTC, 3 = ETH)
+  uint32  leverage,         // 1–50
+  uint256 maxPositionSize,  // Max USDC in a single position — on-chain hard cap
+  uint32  maxTradesPerDay   // Rate limit on trading actions per day
+)
+```
 
-## On-Chain Risk Parameters
+On-chain risk caps:
 
-The strategy enforces two risk limits on-chain, immutable per proposal:
+- `leverage` must be 1–50
+- Opening a position where `sz * limitPx / 1e6 > maxPositionSize` reverts with `PositionTooLarge`
+- Exceeding `maxTradesPerDay` (counted per UTC day) reverts with `MaxTradesExceeded`
+- At settlement, `sweepToVault()` reverts with `InsufficientReturn` if the arrived USDC is below `minReturnAmount`
 
-| Parameter | Description |
-|-----------|-------------|
-| `maxPositionSize` | Maximum USDC value in a single position. Reverts with `PositionTooLarge` if exceeded. |
-| `maxTradesPerDay` | Maximum trading actions (open/close/update) per UTC day. Reverts with `MaxTradesExceeded` if exceeded. Counter resets at midnight UTC. |
+## Proposer Actions (Executed state)
 
-These provide a safety floor regardless of off-chain agent configuration.
+Encoded as `updateParams(abi.encode(action, ...))`:
 
-## Order Tracking (CLOIDs)
+| Action | Encoding | Description |
+|--------|----------|-------------|
+| `0` — update min return | `(uint8, uint256 newMinReturn)` | Lower the settlement floor. Does not count against daily trade limit. |
+| `1` — open long | `(uint8, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | IOC long + optional GTC stop-loss. Stop-loss uses a fixed CLOID so each new one replaces the previous. |
+| `2` — close position | `(uint8, uint64 limitPx, uint64 sz)` | IOC close — current design is long-only. |
+| `3` — update stop-loss | `(uint8, uint64 triggerPx, uint64 sz)` | Cancel the current stop-loss and place a new GTC order. |
 
-The strategy uses a single fixed CLOID for the GTC stop-loss order. Only one stop-loss is ever live — each new one cancels the previous before placing a replacement. This keeps gas cost O(1) regardless of trade history.
+Position state is **not** tracked on-chain. Before acting, the proposer must read HyperCore directly (`L1Read.position2`). Funds never leave margin on trade actions — only `settle()` initiates the USD transfer back.
 
-## View Functions
+## Risk Notes
 
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `getPosition()` | `Position` | Current perp position from HyperCore |
-| `getSpotBalance()` | `SpotBalance` | USDC spot balance on HyperCore |
-| `getMarginSummary()` | `AccountMarginSummary` | Account margin summary |
+- **Liquidation:** HyperCore liquidates positions that breach maintenance margin. The on-chain contract has no view into liquidation state — settlement and sweep still work, but returned USDC may be well below `depositAmount`.
+- **Async settlement:** `settle()` does not immediately return funds. The USD transfer from HyperCore to EVM is asynchronous; `sweepToVault()` may need to be called multiple times for partial arrivals.
+- **No off-chain keeper:** All actions are on-chain through precompiles. There is no bot watching price — set stop-losses explicitly via action `3` if you want automated exits.
+- **Long-only:** The current template opens and closes longs only. Short exposure requires a future template revision.
 
-## Deployment
-
-The strategy template is deployed on HyperEVM (chain 999) via `DeployTemplates.s.sol`. It is ERC-1167 clonable — each proposal creates a fresh clone with its own storage.
+## CLI Usage
 
 ```bash
 sherwood strategy propose hyperliquid-perp \
   --vault 0x... \
-  --amount 10000 \
-  --min-return 9900 \
+  --amount 5000 \
+  --leverage 5 \
   --asset-index 3 \
-  --leverage 5
+  --min-return 4500 \
+  --max-position 20000 \
+  --max-trades-per-day 20 \
+  --chain hyperevm \
+  --name "ETH Perp 5x" \
+  --performance-fee 2000 --duration 7d
 ```
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--amount <n>` | USDC collateral to deploy | required |
+| `--leverage <n>` | Leverage multiplier (1–50) | 10 |
+| `--asset-index <n>` | HyperCore perp asset index | 0 (BTC) |
+| `--min-return <n>` | Min USDC on sweep — reverts below this | — |
+| `--max-position <amount>` | Max USD in a single position | 100000 |
+| `--max-trades-per-day <n>` | Daily trading action limit | 50 |
+
+After the proposal executes, drive trades with `sherwood proposal update-params` using the action encodings above.
+
+## Addresses (HyperEVM)
+
+| Contract | Address |
+|----------|---------|
+| HyperliquidPerpStrategy template | `0x1E831aB61Dc423bF678a2Ff8d9ce768E1e6D2338` |
+| USDC | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` |
+| SyndicateFactory | `0x4085EEa1E6d3D20E84D8Ae14964FAb8b899DA40a` |
+| SyndicateGovernor | `0x7B4a2f3480FE101f88b2e3547A1bCf3eaaDE46bc` |

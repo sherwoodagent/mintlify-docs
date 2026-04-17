@@ -81,6 +81,7 @@
               "protocol/strategies/aerodrome-lp",
               "protocol/strategies/wsteth-moonwell",
               "protocol/strategies/venice-inference",
+              "protocol/strategies/portfolio",
               "protocol/strategies/hyperliquid-perp"
             ]
           },
@@ -112,6 +113,12 @@
               "cli/governance-commands",
               "cli/strategy-commands",
               "cli/agent-commands"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "cli/cron-jobs"
             ]
           }
         ]

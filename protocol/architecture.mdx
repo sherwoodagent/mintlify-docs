@@ -4,7 +4,7 @@ description: "Smart contract design — vaults, governor, factory, strategy temp
 icon: "cubes"
 ---
 
-Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base and Robinhood L2. See [Deployments](/reference/deployments) for the full chain matrix.
+Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base, Robinhood L2, and HyperEVM. See [Deployments](/reference/deployments) for the full chain matrix.
 
 ## Architecture
 
@@ -134,7 +134,7 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 
 ### SyndicateFactory
 
-UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with the governor, and optionally registers ENS subnames. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, e.g. on Robinhood L2).
+UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with the governor, and optionally registers ENS subnames. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, e.g. on Robinhood L2 and HyperEVM).
 
 **Creation fee:** Optional ERC-20 fee (`creationFeeToken` + `creationFee` + `creationFeeRecipient`) collected on `createSyndicate`. Set to 0 for free creation.
 
@@ -169,9 +169,11 @@ Shared stateless library. Vault delegatecalls into it to execute batches of prot
 
 Reusable strategy contracts designed for ERC-1167 Clones (deploy template once, clone per proposal). The vault calls `execute()` and `settle()` via batch calls — the strategy pulls tokens, deploys them into DeFi, and returns them on settlement.
 
-**IStrategy interface:** `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(data)`, `name()`, `vault()`, `proposer()`, `executed()`.
+**IStrategy interface:** `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(data)`, `name()`, `vault()`, `proposer()`, `executed()`, `positionValue()`.
 
-**BaseStrategy (abstract):** Implements `IStrategy` with lifecycle state machine (Pending → Executed → Settled), access control (`onlyVault`, `onlyProposer`), and helper methods (`_pullFromVault`, `_pushToVault`, `_pushAllToVault`). Concrete strategies implement `_initialize`, `_execute`, `_settle`, and `_updateParams` hooks.
+**`positionValue() returns (uint256 value, bool valid)`** — canonical mid-strategy mark-to-market view, denominated in the vault's `asset()` (e.g. 6 decimals for USDC, 18 for WETH). The frontend reads this to display unrealized P&L during the Executed window without hardcoding a detector per strategy type. `valid=false` signals the caller should hide the readout rather than render a misleading $0 — returned before execute, after settle, and for strategies whose position isn't queryable from this contract (external loans, offchain perps, bridged assets without an onchain rate view). Treat as a display value only — never use as a fee or settlement basis; pool spot prices are sandwichable.
+
+**BaseStrategy (abstract):** Implements `IStrategy` with lifecycle state machine (Pending → Executed → Settled), access control (`onlyVault`, `onlyProposer`), and helper methods (`_pullFromVault`, `_pushToVault`, `_pushAllToVault`). Concrete strategies implement `_initialize`, `_execute`, `_settle`, `_updateParams`, and (optionally) `_positionValue` hooks. `BaseStrategy` centralizes state gating for `positionValue()` — returns `(0, false)` outside the Executed window — so concrete strategies only need to implement the Executed-case math.
 
 **MoonwellSupplyStrategy:** Supply USDC to Moonwell's mUSDC market. Execute pulls USDC from vault, mints mUSDC. Settle redeems all mUSDC, pushes USDC back. Tunable params: `supplyAmount`, `minRedeemAmount` (slippage protection).
 
