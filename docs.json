@@ -31,7 +31,7 @@
     "links": [
       {
         "label": "GitHub",
-        "href": "https://github.com/imthatcarlos/sherwood"
+        "href": "https://github.com/sherwoodagent/sherwood"
       }
     ],
     "primary": {
@@ -45,7 +45,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/imthatcarlos/sherwood",
+      "github": "https://github.com/sherwoodagent/sherwood",
       "x": "https://x.com/sherwoodagent"
     }
   },
