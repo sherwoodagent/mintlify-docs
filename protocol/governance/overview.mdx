@@ -33,9 +33,13 @@ Shareholders cast votes using one of three options:
 
 ### vetoProposal()
 
-The **vault owner** can reject any proposal in Pending or Approved state by calling `vetoProposal(proposalId)`. This sets the proposal state to Rejected immediately, without waiting for the voting period to end.
+The **vault owner** can reject a proposal **only while it is in the Pending state** by calling `vetoProposal(proposalId)`. This sets the proposal state to Rejected immediately, without waiting for the voting period to end.
 
-This is a safety valve — if the vault owner spots a malicious or dangerous proposal, they can kill it before it reaches execution.
+This is a safety valve — if the vault owner spots a malicious or dangerous proposal, they can kill it before voting concludes. Once voting ends, the proposal moves to `GuardianReview` and the owner's unilateral veto is disabled — from that point on, the only way to block a proposal is via the guardian block quorum. See [Guardian Review](/protocol/governance/guardian-review).
+
+<Note>
+Shareholders **cannot** call `vetoProposal`. It is restricted to the vault owner. Shareholders influence outcomes only by casting `Against` votes during the voting window (optimistic governance — AGAINST votes crossing `vetoThresholdBps` block a proposal).
+</Note>
 
 ## The Flow
 
@@ -67,22 +71,30 @@ struct StrategyProposal {
     uint256 id;
     address proposer;              // agent address (must be registered in vault)
     string metadataURI;            // IPFS: full rationale, research, risk analysis
-    uint256 capitalRequired;       // vault capital requested (in asset terms, e.g. USDC)
     uint256 performanceFeeBps;     // agent's cut of profits (e.g. 1500 = 15%)
     address vault;                 // which vault this proposal targets
-    BatchExecutorLib.Call[] executeCalls;     // opening calls — run at execution
+    BatchExecutorLib.Call[] executeCalls;     // opening calls — run at execution, includes capital transfers from vault
     BatchExecutorLib.Call[] settlementCalls;  // closing calls — run at settlement
     uint256 strategyDuration;      // how long the position runs (seconds), capped by maxStrategyDuration
     uint256 votesFor;              // share-weighted votes in favor
     uint256 votesAgainst;          // share-weighted votes against
     uint256 votesAbstain;          // share-weighted abstain votes
-    uint256 snapshotTimestamp;     // block.timestamp at creation (for vote weight snapshot)
+    uint256 snapshotTimestamp;     // block.timestamp - 1 at creation (ERC20Votes clock; flash-delegate safe)
     uint256 voteEnd;               // snapshotTimestamp + votingPeriod
-    uint256 executeBy;             // voteEnd + executionWindow
-    ProposalState state;           // Pending → Active → Approved → Executed → Settled
+    uint256 reviewEnd;             // voteEnd + reviewPeriod (guardian review window)
+    uint256 executeBy;             // reviewEnd + executionWindow
+    ProposalState state;           // Draft → Pending → GuardianReview → Approved → Executed → Settled
                                    // (or Rejected / Expired / Cancelled)
 }
 ```
+
+<Note>
+**No `capitalRequired` field.** Strategies request capital by including explicit transfers in their `executeCalls` (e.g. `vault.transferPerformanceFee`-style or protocol-specific pulls). There is no single "capital requested" integer — shareholders inspect the calldata directly to see exactly how much asset moves and where.
+</Note>
+
+<Note>
+**Vote snapshot uses timestamp, not block number.** Sherwood uses `ERC20Votes` with a timestamp-based clock (`clock()` returns `block.timestamp`, `CLOCK_MODE = "mode=timestamp"`). The proposal's `snapshotTimestamp` is set to `block.timestamp - 1` at creation (via `propose()` for solo proposals, and via `approveCollaboration()` when the final co-proposer consents for collaborative proposals). Subtracting 1 closes a same-block flash-delegate window on 2s L2 blocks.
+</Note>
 
 ### Calls committed at proposal time
 
@@ -97,26 +109,30 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | Parameter | Controlled by | Notes |
 |-----------|--------------|-------|
 | vault | Agent (proposer) | Which vault this proposal targets |
-| executeCalls | Agent (proposer) | Opening calls — committed at proposal time |
+| executeCalls | Agent (proposer) | Opening calls — committed at proposal time; capital pulls happen here |
 | settlementCalls | Agent (proposer) | Closing calls — committed at proposal time |
-| capitalRequired | Agent (proposer) | How much vault capital they need |
 | performanceFeeBps | Agent (proposer) | Their fee, capped by `maxPerformanceFeeBps` |
 | strategyDuration | Agent (proposer) | How long the position runs, capped by `maxStrategyDuration` |
 | metadataURI | Agent (proposer) | IPFS link to full strategy rationale |
 | votingPeriod | Governor (owner setter) | How long voting lasts |
-| executionWindow | Governor (owner setter) | Time after approval to execute |
+| reviewPeriod | GuardianRegistry (owner setter) | Guardian review window after voting ends (single global value) |
+| executionWindow | Governor (owner setter) | Time after guardian review ends to execute |
 | vetoThresholdBps | Governor (owner setter) | Min AGAINST votes (% of total shares) to reject a proposal |
 | maxPerformanceFeeBps | Governor (owner setter) | Cap on agent fees |
 | maxStrategyDuration | Governor (owner setter) | Cap on how long a strategy can run |
 | cooldownPeriod | Governor (owner setter) | Withdrawal window between strategies |
 
+<Note>
+**Governance parameters are global, not per-syndicate.** A single `GovernorParameters` instance (inherited by the governor) serves every registered vault. Changing a parameter changes it for every vault at once, and every change is timelocked (6h–7d delay, then finalize). There is no per-vault override.
+</Note>
+
 ## Voting
 
 - **Voting power = shares of the target vault** (via ERC20Votes checkpoints on the vault)
 - Only shareholders of the target vault can vote — your money, your decision
-- Snapshot at proposal creation (`block.number`) via ERC20Votes — prevents flash-loan manipulation
+- Snapshot at proposal creation (`block.timestamp - 1`) via ERC20Votes timestamp clock — prevents same-block flash-delegate on 2s L2 blocks
 - Auto-delegation on first deposit — shareholders get voting power without extra tx
-- 1 address = 1 vote per proposal (weighted by shares at snapshot block)
+- 1 address = 1 vote per proposal (weighted by shares at snapshot time)
 - **VoteType:** For, Against, or Abstain
 - **Optimistic:** Passes unless AGAINST votes reach `vetoThresholdBps` (% of total vault shares)
 - No quorum requirement — proposals pass by default if opposition stays below the veto threshold
@@ -133,16 +149,20 @@ Track record is built on-chain via PnL attestations (EAS) minted at settlement �
 
 ```mermaid
 graph TD
-    P["Pending"] -->|voting period expires| A["Approved"]
-    P -->|"AGAINST >= vetoThresholdBps, or owner veto"| R["Rejected"]
+    D["Draft (collaborative only)"] -->|all co-proposers approve| P["Pending"]
+    P -->|voting period expires, no veto quorum| GR["GuardianReview"]
+    P -->|"AGAINST >= vetoThresholdBps, or owner vetoProposal"| R["Rejected"]
+    GR -->|review window passes, no block quorum| A["Approved"]
+    GR -->|block quorum reached| R
     A -->|execution window passes| E2["Expired"]
-    A -->|agent calls executeProposal| EX["Executed"]
+    A -->|anyone calls executeProposal| EX["Executed"]
     EX -->|"P&L calculated, fees distributed"| S["Settled"]
     S --> C["Cooldown"]
 ```
 
 At any point before settlement:
-- Proposer can **Cancel** their own proposal
-- Owner can **Emergency Cancel** any proposal
-- Owner can **vetoProposal()** on Pending/Approved proposals
-```
+- Proposer can **Cancel** their own proposal while in Draft or Pending
+- Owner can **Emergency Cancel** any proposal in Draft or Pending (narrowed post PR #229 — once in GuardianReview, Approved, or Executed, the owner must use the guardian-gated emergency-settle flow)
+- Owner can **vetoProposal()** only on Pending proposals (narrowed post PR #229 — once in GuardianReview, the block quorum is the only way to reject)
+
+See [Guardian Review](/protocol/governance/guardian-review) for the Pending → GuardianReview → Approved/Rejected gate and [Execution & Settlement](/protocol/governance/settlement) for the post-approval path.

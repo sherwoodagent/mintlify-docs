@@ -1,0 +1,178 @@
+---
+title: "Guardian Review"
+description: "Staked, slashable third-party review layer between voting and execution"
+icon: "shield-halved"
+---
+
+PR #229 introduces a guardian review layer between a proposal's voting window and its execution window. Guardians are staked, slashable third-party reviewers who vote `Approve` or `Block` on the exact calldata shareholders just approved. Vault owners also post a slashable WOOD bond before their vault can accept proposals, and that bond is slashed if they abuse the emergency-settle escape hatch.
+
+This page documents the on-chain primitives. The design spec lives at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` in the main repo — read it for rationale, alternatives considered, and cold-start policy.
+
+## Lifecycle change
+
+```
+Before PR #229:
+  Draft → Pending → Approved → Executed → Settled
+                        │           │
+                        └ Rejected  └ (emergencySettle with arbitrary calldata — unbounded owner power)
+
+V1 (PR #229):
+  Draft → Pending → GuardianReview → Approved → Executed → Settled
+                          │                          │
+                          ├ Rejected (block quorum)  ├ Settled (settleProposal / unstick)
+                          │   └ early Approvers slashed
+                          │                          └ EmergencySettleReview → Settled
+                          └ Rejected (owner veto — Pending state only)    │
+                                                                          └ Rejected (block quorum)
+                                                                              └ owner bond slashed
+```
+
+Key invariants enforced by the registry + governor:
+
+- Guardians cannot act before `voteEnd` — they review the already-approved calldata, not drafts.
+- Owner's unilateral `vetoProposal` is narrowed to `Pending`. Once in `GuardianReview`, only the guardian block quorum can reject.
+- Owner's `emergencyCancel` is narrowed to `Draft` and `Pending`.
+- Post-execution, `unstick(proposalId)` is owner-instant for stuck vaults (pre-committed calls only). Any *custom* calldata goes through `EmergencySettleReview`.
+
+## GuardianRegistry — contract surface
+
+UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single instance per deployment; governor and factory both point at it and that wiring is stamped at init (no setters).
+
+### Guardian role
+
+| Function | Who | What |
+|---|---|---|
+| `stakeAsGuardian(amount, agentId)` | Anyone | Pull WOOD, register caller as active guardian. Requires `amount ≥ minGuardianStake`. `agentId` is the caller's ERC-8004 identity NFT (`ownerOf(agentId) == msg.sender`), stored for future EAS reputation. |
+| `requestUnstakeGuardian()` | Guardian | Begins cool-down; voting power drops immediately (stake removed from `_totalGuardianStake`). |
+| `cancelUnstakeGuardian()` | Guardian | Reverses a pending unstake request. |
+| `claimUnstakeGuardian()` | Guardian | After `coolDownPeriod`, releases WOOD. |
+| `openReview(proposalId)` | Permissionless | Callable once `block.timestamp >= proposal.voteEnd`. Snapshots `_totalGuardianStake` into `Review.totalStakeAtOpen`. Cold-start gate: if the snapshot is below `MIN_COHORT_STAKE_AT_OPEN`, the review is marked `cohortTooSmall` and resolves `blocked=false` unconditionally. |
+| `voteOnProposal(proposalId, support)` | Active guardian | Vote `Approve` or `Block`, weighted by stake at first vote. Allowed only while `voteEnd <= now < reviewEnd`. Vote-change allowed in the early window; locked out in the final 10% (`LATE_VOTE_LOCKOUT_BPS`). |
+| `resolveReview(proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum, slashes Approvers if blocked, credits Block-side epoch weight. Idempotent, `nonReentrant`, CEI-ordered. |
+
+**Guardian vote enum** is separate from the governor's `VoteType`: `GuardianVoteType = { None, Approve, Block }`. Keeping them distinct prevents enum-variant confusion across the governor/registry ABI boundary.
+
+### Vault owner role
+
+Vault owners post a WOOD bond at vault creation. Without a bound stake, the factory rejects `createSyndicate`, and on an existing vault, `emergencySettleWithCalls` reverts with `OwnerBondInsufficient`.
+
+| Function | Who | What |
+|---|---|---|
+| `prepareOwnerStake(amount)` | Prospective owner | Pull WOOD into the registry; does not yet bind to a vault. Must be ≥ `minOwnerStake`. |
+| `cancelPreparedStake()` | Prospective owner | Refund if not yet bound. |
+| `bindOwnerStake(owner, vault)` | `onlyFactory` | Consumes prepared stake + binds to a newly-created vault. Atomic with `createSyndicate`. |
+| `transferOwnerStakeSlot(vault, newOwner)` | `onlyFactory` | Called from `SyndicateFactory.rotateOwner` to reassign the slot after a prior owner was slashed or unstaked. New owner must have prepared ≥ `requiredOwnerBond(vault)`. |
+| `requestUnstakeOwner(vault)` | Vault owner | Begins cool-down; blocked while the vault has an active proposal (Pending → Executed). |
+| `claimUnstakeOwner(vault)` | Vault owner | After cool-down, releases WOOD. Vault enters a grace period — no new proposals until a fresh bond is bound. |
+
+### Emergency-settle review
+
+Guarded calldata override for broken pre-committed settlement:
+
+| Function | Who | What |
+|---|---|---|
+| `openEmergencyReview(proposalId, callsHash)` | `onlyGovernor` | Called from `emergencySettleWithCalls` on the governor. Commits the hash + opens a review window. |
+| `voteBlockEmergencySettle(proposalId)` | Active guardian | Adds stake weight to `blockStakeWeight`. Single-sided: no Approve votes needed — absence of Block = implicit allow. |
+| `resolveEmergencyReview(proposalId)` | Permissionless | Finalizes after `reviewEnd`. Slashes owner bond if blocked. |
+
+The governor-side counterparts are `emergencySettleWithCalls`, `cancelEmergencySettle`, and `finalizeEmergencySettle`. See [Execution & Settlement — Settlement Paths](/protocol/governance/settlement#settlement-paths).
+
+### Epoch-based Block-side rewards
+
+Guardians who vote `Block` on a proposal that resolves blocked accrue weight in an epoch bucket (`EPOCH_DURATION = 7 days`). At epoch end they claim pro-rata from whatever WOOD the protocol funded that epoch.
+
+| Function | Who | What |
+|---|---|---|
+| `fundEpoch(epochId, amount)` | Owner or Minter | Pull WOOD, credit to `epochBudget[epochId]`. Current, future, or empty past epochs. |
+| `claimEpochReward(epochId)` | Guardian | After `(epochId + 1) * EPOCH_DURATION` elapses, claim `epochBudget[epochId] * guardianWeight / totalWeight`. `nonReentrant`; state-mark before transfer. Reverts `NothingToClaim` if payout is zero (covers both "no weight" and "unfunded epoch" — critical to preserve claim slot until funding lands). |
+| `sweepUnclaimed(epochId)` | Permissionless after `SWEEP_DELAY = 12 weeks` | Moves residual budget from an old epoch to the current epoch. |
+| `pendingEpochReward(guardian, epochId)` | View | Returns claimable amount (0 if epoch not ended, already claimed, or no weight). |
+
+<Note>
+**No correct-Approve reward in V1.** The on-chain reward track rewards only the *active-defence* action (Block) — that is the one that materially prevented an LP loss. Correct-Approve rewards (for honest guardians who Approved and were proven right at settlement) are deferred to V1.5 alongside the EAS attestation schema. Guardians should model V1 as: cost of gas per review, zero upside from routine Approves, slashed stake if Approve a malicious proposal.
+</Note>
+
+### Slashing
+
+Slashing is on-chain and final — slashed WOOD is **burned** to `0x...dEaD`, not sent to treasury. Chosen over treasury because:
+
+- Cleaner regulatory posture — slash is not protocol-controlled revenue.
+- Aligns with WOOD scarcity narrative.
+- Removes any treasury-capture incentive to over-slash.
+
+Slash paths:
+
+- **Approvers slashed** inside `resolveReview` when `blocked == true`. Stake zeroed, `_totalGuardianStake` decremented, single bulk `wood.transfer` at the end (CEI). If the transfer reverts, the amount is recorded to `_pendingBurn[address(this)]` and anyone can later call `flushBurn()` to retry. State transition already committed.
+- **Owner slashed** inside `resolveEmergencyReview` when `blocked == true`. Same CEI + pull-burn pattern.
+- **Cap:** `_slashApprovers` is bounded by `MAX_APPROVERS_PER_PROPOSAL = 100` to keep gas deterministic. Blockers are **uncapped** (no token transfer per blocker, only epoch-weight updates) — capping would be a DoS vector against honest defence.
+
+### Appeal path
+
+Slashing is final at the protocol layer; appeals are handled as **treasury-funded refunds**, not on-chain slash reversals. Flow:
+
+1. Slashed party opens a forum case within 30 days with simulation / calldata analysis / reasoning.
+2. veWOOD voters vote on the appeal (quorum / threshold set by tokenomics governance).
+3. If upheld, the protocol multisig calls `refundSlash(recipient, amount)` — permissioned, drawing from the dedicated `slashAppealReserve`.
+4. Hard-coded per-epoch cap: `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%). A compromised multisig cannot drain the reserve in a single call.
+5. `fundSlashAppealReserve(amount)` tops up the reserve; owner-only, not timelocked since additions are always safe.
+
+All refunds emit `SlashAppealRefunded(recipient, amount, epochId)`.
+
+### Pause + 7-day deadman
+
+The registry has a circuit breaker — `pause()` and `unpause()` gated by the multisig owner, with a **7-day deadman auto-unpause**. If the multisig pauses and then goes silent, anyone can call `unpause()` after `DEADMAN_UNPAUSE_DELAY = 7 days` elapse.
+
+Pause freezes: `voteOnProposal`, `openReview`, `resolveReview`, `resolveEmergencyReview`, `voteBlockEmergencySettle`, `claimEpochReward`, `flushBurn`, and the slashing call sites.
+
+Pause does **not** freeze: `stakeAsGuardian`, `requestUnstake*`, `claimUnstake*`, `prepareOwnerStake` — positions must always be exitable.
+
+## Parameters (initial values)
+
+All timelocked via the same queue/finalize pattern as `GovernorParameters` (6h–7d delay).
+
+| Parameter | Default | Bounds | Notes |
+|---|---|---|---|
+| `minGuardianStake` | 10,000 WOOD | ≥ 1 WOOD | Mainnet floor via timelock; `≥ 1 WOOD` is a testnet-only lower bound. |
+| `minOwnerStake` | 10,000 WOOD | ≥ 1,000 WOOD | Flat floor; `requiredOwnerBond(vault) == minOwnerStake`. |
+| `coolDownPeriod` | 7 days | 1–30 days | |
+| `reviewPeriod` | 24 hours | 6h–7 days | Single global value. No per-proposal override in V1. |
+| `blockQuorumBps` | 3000 (30%) | 1000–10000 | Below 50% so a motivated minority can block; high enough random dissent doesn't grief. |
+
+Hard-coded constants (not timelocked — load-bearing safety bounds):
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `EPOCH_DURATION` | 7 days | Matches the Minter emissions epoch. |
+| `MIN_COHORT_STAKE_AT_OPEN` | 50,000 WOOD | Cold-start fallback — reviews opened below this resolve `blocked=false` unconditionally. |
+| `MAX_APPROVERS_PER_PROPOSAL` | 100 | Bounds `_slashApprovers` gas. `ApproverCapReached` event fires at the cap. |
+| `SWEEP_DELAY` | 12 weeks | Minimum time after epoch end before `sweepUnclaimed` is callable. |
+| `LATE_VOTE_LOCKOUT_BPS` | 1000 (10%) | Final 10% of the review window is vote-change locked. |
+| `MAX_REFUND_PER_EPOCH_BPS` | 2000 (20%) | Per-epoch cap on `refundSlash`. |
+| `DEADMAN_UNPAUSE_DELAY` | 7 days | Anyone can unpause if the owner goes silent. |
+
+## Cold-start: guardian-of-last-resort
+
+During weeks 1–12 after mainnet launch, honest cohort size is small and reviews may open below `MIN_COHORT_STAKE_AT_OPEN`. The mechanical guarantee is: reviews below the threshold resolve `blocked=false` automatically, and the only defence falls back to the vault owner's narrowed `vetoProposal`.
+
+To close the fail-open window, the Sherwood protocol multisig commits to:
+
+- Running a guardian agent that votes on **every** proposal across every registered vault.
+- Publishing weekly guardian-coverage reports in the Sherwood forum.
+- Staking ≥ `minGuardianStake` from protocol treasury.
+- Funding `epochBudget` weekly during the bootstrap window — `fundEpoch(currentEpoch, X)` at the start of each epoch, sized above expected guardian gas costs.
+
+After week 12, protocol-team guardian participation becomes optional and cohort health is measured against the §10 success metrics in the spec.
+
+## Known attack surfaces (V1-accepted)
+
+Documented so new guardians understand the honeymoon period:
+
+- **Blocker free-ride / DoS.** Block voters have no stake at risk (slashing only hits Approvers). A 30%-stake cartel can Block every proposal across every vault at zero cost. Mitigations — correct-Approve rewards, shareholder challenge, reputation-weighted quorum — are deferred to V1.5 / V2.
+- **Keeper incentive for `resolveReview`.** The function is permissionless but gas-expensive (~500k gas at the 100-approver cap). V1 acceptance: the next `executeProposal` call forces resolution and the proposer pays — proposer becomes an unwilling keeper. V2 can add a small gas rebate from the burn amount.
+- **Approver cap saturation on popular proposals.** A guardian who voted Block early and wants to switch to Approve on a proposal with 100 existing Approvers reverts with `NewSideFull`. Block side is uncapped, so switching the other direction is always available.
+
+## Integrator guidance
+
+- **Don't poll `getProposalState(id)` to detect `Rejected`.** After `voteEnd` the view returns `GuardianReview` until on-chain resolution runs. Subscribe to the `GuardianReviewResolved(proposalId, blocked)` event, or call `registry.resolveReview(id)` yourself (permissionless) to force resolution.
+- **Execute path still `state == Approved`.** No integrator-visible change to `executeProposal` — the new gate is earlier.
+- **Timing:** `reviewEnd = voteEnd + reviewPeriod`, `executeBy = reviewEnd + executionWindow`. All stamped at proposal creation — no mid-flight drift.

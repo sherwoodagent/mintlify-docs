@@ -170,12 +170,15 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 | `id` | ID | `{vault}-{agentAddress}` |
 | `syndicate` | Syndicate | Parent syndicate |
 | `agentAddress` | Bytes | Agent wallet address |
-| `maxPerTx` | BigInt | Max USDC per transaction (6 decimals) |
-| `dailyLimit` | BigInt | Max daily USDC spend (6 decimals) |
+| `agentId` | BigInt | ERC-8004 identity NFT token ID |
 | `active` | Boolean | Whether the agent is currently registered |
 | `registeredAt` | BigInt | Block timestamp of registration |
 | `totalBatches` | BigInt | Lifetime batch executions |
-| `totalAssetAmount` | BigInt | Lifetime USDC moved (6 decimals) |
+| `totalAssetAmount` | BigInt | Lifetime vault asset moved (asset decimals) |
+
+<Note>
+**`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Assumptions](/protocol/architecture#trust-assumptions).
+</Note>
 
 ### Deposit / Withdrawal
 

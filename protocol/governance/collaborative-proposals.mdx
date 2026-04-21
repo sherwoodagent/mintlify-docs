@@ -45,12 +45,12 @@ The lead proposer's split is implicit: `10000 - sum(coProposer.splitBps)`. In th
 
 ### Validation Rules
 
-1. **Splits must sum to 10000 BPS (100%).** Lead proposer's implicit share + all co-proposer splits = 10000.
+1. **The sum of co-proposer splits must be ≤ 9000 BPS (≤ 90%).** The lead proposer's split is *not* passed in — it is derived as `10000 - totalCoSplitBps` at validation time. So the lead automatically gets the remainder (≥ 10%). A co-split total above 9000 reverts with `LeadSplitTooLow`.
 2. **All co-proposers must be registered agents** in the vault (`ISyndicateVault.isAgent()`).
-3. **No duplicate addresses.** Lead proposer cannot appear in the co-proposers array.
-4. **Minimum split: 100 BPS (1%).** Prevents dust splits that waste gas on settlement.
-5. **Maximum co-proposers: 5.** Bounds the gas cost of fee distribution at settlement. (Lead + 5 = 6 total recipients max.)
-6. **Lead proposer retains at least 1000 BPS (10%).** The submitter must have meaningful skin in the game.
+3. **No duplicate addresses.** Lead proposer cannot appear in the co-proposers array, and co-proposers cannot repeat.
+4. **Minimum split: 100 BPS (1%).** Prevents dust splits that waste gas on settlement (enforced via `MIN_SPLIT_BPS`).
+5. **Maximum co-proposers:** the governor enforces a hard ceiling of `ABSOLUTE_MAX_CO_PROPOSERS = 10`, and the runtime `maxCoProposers` parameter (timelocked, 1–10) gates the currently-allowed value — deployed value is `5` at launch. The deployed cap can be raised up to 10 via the standard parameter timelock; above 10 would require a governor upgrade. (Lead + `maxCoProposers` = total recipients at settlement.)
+6. **Lead proposer retains at least 1000 BPS (10%)** — via rule #1, since `totalCoSplitBps ≤ 9000`.
 
 ### Co-Proposer Consent
 
@@ -67,7 +67,7 @@ Co-proposers **must explicitly consent** before a collaborative proposal goes to
     Once **all** co-proposers have approved, the proposal automatically transitions to **Pending** — the voting countdown begins.
   </Step>
   <Step title="Rejection or expiry cancels">
-    If any co-proposer calls `rejectCollaboration(proposalId)`, the proposal is cancelled. If the `collaborationWindow` (configurable, default 48 hours) expires with missing approvals, the proposal is automatically cancelled (anyone can call `expireCollaboration(proposalId)` to trigger cleanup).
+    If any co-proposer calls `rejectCollaboration(proposalId)`, the proposal is cancelled immediately. If the `collaborationWindow` (configurable, default 48 hours) expires with missing approvals, the proposal is resolved as `Cancelled` lazily — there is **no** `expireCollaboration(proposalId)` helper. Expired drafts simply cannot transition to `Pending`; the `Cancelled` state is surfaced by `_resolveStateView` on the next state read (UI query, `executeProposal` attempt, etc.). No cleanup transaction is required.
   </Step>
 </Steps>
 
@@ -90,17 +90,19 @@ Collaborative: Draft → Pending → Approved → Executed → Settled
               Cancelled   (if any reject or window expires)
 ```
 
-| Action | Current (single) | Collaborative |
-|--------|-------------------|---------------|
+| Action | Solo | Collaborative |
+|--------|------|---------------|
 | Submit | `proposer` only | Lead proposer submits with `coProposers[]` — Draft state |
-| Consent | N/A | Each co-proposer calls `approveCollaboration()` |
-| Vote | All share holders | No change (starts after all consent) |
-| Execute | `proposer` only | Lead proposer only (single point of accountability) |
-| Settle | `proposer` only | Lead proposer only |
-| Cancel | `proposer` or owner | Lead proposer, any co-proposer (via reject), or owner |
-| Fee distribution | 100% to `proposer` | Split per `coProposers[]` + lead remainder |
+| Consent | N/A | Each co-proposer calls `approveCollaboration()`; the final consent moves the proposal to `Pending` |
+| Vote | Shareholders | No change (starts after all consent) |
+| Execute (`executeProposal`) | **Permissionless** — anyone can trigger an Approved proposal's `executeCalls` | **Permissionless** — same as solo; any caller can trigger `executeCalls` once the proposal is Approved and the execution window is open |
+| Settle (`settleProposal`) | Proposer anytime; anyone after `strategyDuration` | Lead proposer anytime; anyone after `strategyDuration`. Co-proposers do not get independent settle rights, but the anyone-after-duration fallback still applies |
+| Cancel | Proposer or owner while in Pending | Proposer or any co-proposer (via `rejectCollaboration` while Draft); owner via `emergencyCancel` in Draft / Pending only |
+| Fee distribution | 100% to `proposer` | Split per `coProposers[]` at settlement; lead gets `10000 - sum(splitBps)` remainder |
 
-**Key decision: only the lead proposer can execute and settle.** This keeps accountability clear — one agent is responsible for the strategy's execution, even if others contributed to its design. Co-proposers are compensated for their contribution but do not have operational control.
+<Note>
+**`executeProposal` is permissionless, not lead-only.** Once a proposal is `Approved` (voting ended with no veto quorum **and** guardian review cleared — see [Guardian Review](/protocol/governance/guardian-review)), anyone — keeper, depositor, the lead proposer, a co-proposer, a bot — can call `executeProposal(proposalId)` during the execution window. The calls were locked in at proposal creation and already voted on; execution is a replay, not a decision. Docs prior to PR #229 incorrectly claimed execute was lead-only.
+</Note>
 
 ## Settlement Fee Distribution
 

@@ -4,46 +4,27 @@ description: "Fee structure, early exit, and single-strategy model"
 icon: "coins"
 ---
 
-## Early Exit — WOOD/SHARES Liquidity Pools
+## Redemption Lock During Active Strategy
 
-**Problem:** When a strategy is live, vault redemptions are blocked. Depositors need a way to exit.
+When a strategy is live (proposal in `Executed` state), the vault's `redemptionsLocked()` returns `true` and `withdraw` / `redeem` / `deposit` / `rescueERC20` all revert. Depositors can exit only after settlement, during the cooldown window.
 
-**Solution:** One-sided liquidity pools pairing WOOD (protocol token) with each vault's share token.
+<Note>
+**WOOD/SHARES early-exit pool — aspirational, not live in V1.** An earlier design proposed one-sided liquidity pools pairing WOOD with each vault's share token, letting depositors swap out of locked vaults at a market-discovered discount. That design is not implemented in the shipped contracts; today the only exit path is waiting for settlement + cooldown. Early-exit liquidity is tracked for a future release.
+</Note>
 
-### How it works
+## WOOD Tokenomics (ve(3,3) stack)
 
-1. Protocol seeds a **WOOD/SHARES** pool for each vault (e.g. WOOD/synUSDC-shares)
-2. When a strategy is live and redemptions are locked, depositors can sell their vault shares into the pool
-3. Buyers get discounted exposure to the vault's strategy outcome
-4. The pool price reflects the market's real-time sentiment on the active strategy
+The protocol ships a full ve(3,3)-style token economy (`VotingEscrow`, `Voter`, `SyndicateGauge`, `Minter`, `VoteIncentive`, `RewardsDistributor`, `VaultRewardsDistributor`) in addition to the governance + fee logic on this page. The surface is live in `contracts/src/` but the public documentation is deliberately deferred — the surface is still stabilising around PR #229 (guardian rewards) and the early-exit design above.
 
-### Pool mechanics
+<Note>
+**Expanded ve(3,3) docs are forthcoming.** See the in-repo reference `docs/tokenomics-wood.md` for the current internal description of lock mechanics, gauge weights, bribe flows, rebase math, and Minter emissions. A dedicated tokenomics section will be added to these public docs once the guardian-reward epoch wiring (`fundEpoch`) and the Minter → registry integration land in V1.5.
+</Note>
 
-- **Pool type:** Uniswap V3 concentrated liquidity (or V4 hook)
-- **Pair:** WOOD (protocol token) / Vault shares (ERC-20, the ERC-4626 share token)
-- **One-sided seeding:** protocol provides WOOD liquidity; share side comes from depositors selling
-- **WOOD as quote currency:** every vault share pool is denominated in WOOD, creating a unified liquidity layer
-
-### Why WOOD
-
-- Creates utility and demand for the protocol token
-- Every vault share pool is denominated in WOOD — unified liquidity layer
-- Depositors who exit early effectively swap into WOOD (they can hold it or sell for stables)
-- Creates a natural price discovery mechanism for vault shares during strategy execution
-
-### Lifecycle
-
-```
-Strategy NOT live:  Depositors can redeem normally via vault (ERC-4626 withdraw/redeem)
-                    Pool exists but no urgency to use it
-
-Strategy IS live:   Vault redemptions blocked
-                    Depositors who want out → sell shares in WOOD/SHARES pool
-                    Price may trade at discount (reflects locked capital risk)
-
-Cooldown window:    Vault redemptions re-enabled
-                    Depositors can redeem normally OR sell in pool
-```
+Known gaps flagged in that reference that LPs and integrators should be aware of until the public expansion lands:
+- `SyndicateGauge.claimLPRewards` always reverts (`_calculateLPReward` is stubbed). Gauge LP reward accrual is tracked but not claimable.
+- Price and lock-ratio circuit breakers in `Minter` are manual (multisig) today, not triggered automatically.
+- No WOOD/SHARES Uniswap V3 early-exit pool is deployed; the design in older drafts is not live.
+- Guardian Block-side rewards (`fundEpoch` + `claimEpochReward` on `GuardianRegistry`) are wired, but Minter → registry auto-funding is V1.5; V1 relies on multisig-funded epochs (see [Guardian Review](/protocol/governance/guardian-review)).
 
 ## Fee Structure
 
@@ -63,8 +44,8 @@ A protocol-level fee taken from gross profit **before** agent and management fee
 
 - `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps)
 - `protocolFeeRecipient` — address that receives the protocol fee
-- Both are set at the factory level and apply to all vaults
-- Changes are **timelocked** — queued with a delay before taking effect, so vault operators and depositors have visibility
+- Both live on the governor and apply to every registered vault
+- **Both `setProtocolFeeBps` and `setProtocolFeeRecipient` are timelocked** through the same queue → delay → finalize pattern as every other governance parameter (6h–7d delay). Neither can be changed instantly. Historically `setProtocolFeeRecipient` was owner-instant; finding **G-C5** in the pre-mainnet review closed the gap by routing the recipient change through `_queueChange` / `_applyChange` (address encoded as `uint160`). Vault operators and depositors now always have visibility into a pending recipient rotation.
 
 ### Fee distribution order
 
@@ -77,9 +58,9 @@ if profit > 0:
   netProfit     = profit - protocolFee
   agentFee      = netProfit * performanceFeeBps / 10000
   managementFee = (netProfit - agentFee) * managementFeeBps / 10000
-  transfer protocolFee to protocolFeeRecipient
-  transfer agentFee to agent              (try/catch)
-  transfer managementFee to vault owner   (try/catch)
+  transfer protocolFee to protocolFeeRecipient (try/catch → escrow on fail)
+  transfer agentFee to agent                   (try/catch → escrow on fail)
+  transfer managementFee to vault owner        (try/catch → escrow on fail)
   remaining profit stays in vault (accrues to all shareholders)
 ```
 
@@ -93,13 +74,23 @@ The management fee incentivizes vault operation — the owner curates agents, ma
 - Applied to new vaults at creation time
 - Owner only earns on profit — aligned with depositor outcomes
 
-### Try/catch fee transfers
+### Try/catch fee transfers + unclaimed-fee escrow
 
-Fee transfers to the agent and vault owner are wrapped in **try/catch**. If a recipient address is blacklisted by the deposit asset (e.g. USDC blacklist), the transfer fails silently rather than reverting the entire settlement. This ensures:
+Every fee transfer — protocol fee, agent / co-proposer performance fee, and vault owner management fee — is wrapped in **try/catch** around `vault.transferPerformanceFee(asset, recipient, amount)`. If the transfer reverts (USDC blacklist, paused token, contract recipient with a failing receive, etc.) the governor:
 
-- Depositor capital is never held hostage by a blacklisted fee recipient
-- Settlement always completes regardless of recipient address status
-- The protocol fee transfer to `protocolFeeRecipient` is also protected
+1. Credits the owed amount to an on-chain `_unclaimedFees[recipient][token]` escrow mapping
+2. Emits `FeeTransferFailed(recipient, token, amount, reason)` so indexers can surface the stuck fee
+3. Continues settlement without reverting
+
+Affected recipients pull their escrow later with `claimUnclaimedFees(vault, token)` once the failure condition is cleared (they un-blacklist, rotate the recipient, unpause, etc.). Read via `unclaimedFees(recipient, token)`.
+
+This ensures:
+
+- Depositor capital is never held hostage by a blacklisted fee recipient — settlement always completes
+- Fees are not lost — they are escrowed on the governor and pullable by the rightful recipient
+- Every recipient gets the same protection (protocol, agent, co-proposers, vault owner)
+
+Tracked as item **W-1** in the pre-mainnet punch list; regression coverage in `test/governor/FeeBlacklistResilience.t.sol`.
 
 **Safety:** `performanceFeeBps` is capped by `maxPerformanceFeeBps` (governor parameter). `protocolFeeBps` is capped at 1000 bps (10%). `managementFeeBps` is capped at 1000 bps (10%) and set at the factory level.
 
@@ -137,8 +128,8 @@ Two possible models:
 
 - Agent earns nothing (performance fee only applies to profits)
 - Loss is socialized across all shareholders (standard fund behavior)
-- Agent's reputation takes a hit (EAS attestation records the loss)
-- No slashing mechanism in v1
+- Loss is recorded on-chain via the `ProposalSettled(proposalId, pnl, totalFee)` event emitted by `_finishSettlement` — indexers can aggregate into per-agent track records. A dedicated `STRATEGY_PNL` EAS attestation for richer agent reputation is planned for V1.5 and is NOT shipped in V1.
+- No slashing mechanism in V1 for agents — see [Guardian Review](/protocol/governance/guardian-review) for the separate guardian / vault-owner slashing layer.
 
 **Future consideration:** Agent bonds / slashing for repeated losses.
 

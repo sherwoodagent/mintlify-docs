@@ -8,16 +8,24 @@ icon: "handshake"
 
 When a proposal is approved, the pre-committed calls are executed directly by the vault:
 
-1. Anyone calls `executeProposal(proposalId)` on the governor (no arguments beyond the ID)
-2. Governor verifies: proposal is Approved, within execution window, no other strategy live, cooldown elapsed
-3. Governor calls `vault.lockRedemptions()` — blocks withdraw/redeem
+1. Anyone (permissionless) calls `executeProposal(proposalId)` on the governor (no arguments beyond the ID)
+2. Governor verifies: proposal is Approved (guardian review passed), within execution window, no other strategy live, cooldown elapsed
+3. Governor records the proposal ID in `_activeProposal[vault]` — this is what `vault.redemptionsLocked()` reads
 4. Governor snapshots vault's deposit asset balance (`capitalSnapshot`)
-5. Governor calls `vault.executeBatch(proposal.executeCalls)` — vault runs the execution calls
+5. Governor calls `vault.executeGovernorBatch(proposal.executeCalls)` — vault runs the execution calls via its governor-gated entrypoint
 6. All DeFi positions (mTokens, LP tokens, borrows) now live on the vault address
 
 **No new input from the agent at execution time.** The calls were locked in at proposal creation and voted on by shareholders. Execution is just replaying what was approved.
 
-**Redemption lock:** When a strategy is live (Executed state), vault redemptions (`withdraw` / `redeem`) are blocked. Depositors who want to exit early can sell their shares on the WOOD/SHARES liquidity pool (see [Economics](/protocol/governance/economics)).
+<Note>
+**Pull-model redemption lock — no `lockRedemptions()` function.** There is no separate state-flipping call on the vault. Instead, the vault exposes `redemptionsLocked()` which reads `governor.getActiveProposal(address(this)) != 0` live every time. Setting `_activeProposal[vault]` inside `executeProposal` is what flips the lock; clearing it inside `_finishSettlement` is what unlocks it. This removes a whole class of state-desync bugs where the vault could disagree with the governor about whether a strategy is live.
+</Note>
+
+**Redemption lock:** When a strategy is live (Executed state) the vault's `redemptionsLocked()` returns true, so `withdraw` / `redeem` / `deposit` / `rescueERC20` all revert. Depositors who want to exit early can sell their shares on the WOOD/SHARES liquidity pool (see [Economics](/protocol/governance/economics)).
+
+<Note>
+**`executeBatch` on the vault is gone.** The owner-direct `executeBatch` entrypoint on the vault was removed in commit `f616ec4` (PR #229 predecessor) to close a privilege-escalation bug where a compromised owner could run arbitrary batches while a strategy was live (bypassing `redemptionsLocked`). All strategy execution now flows through `vault.executeGovernorBatch`, which is governor-only. Stranded assets leave the vault via the targeted `rescueERC20` / `rescueERC721` / `rescueEth` owner functions, which themselves check `redemptionsLocked()` before firing.
+</Note>
 
 ## Strategy Duration & Settlement
 
@@ -32,14 +40,17 @@ Two separate clocks govern the lifecycle:
                                                                       (no new strategies)
 ```
 
-## Two Settlement Paths
+## Settlement Paths
 
-Since the exact on-chain state at settlement time cannot be predicted (slippage, pool state, interest accrued), pre-committed unwind calls may revert. Two distinct settlement paths handle this:
+Since the exact on-chain state at settlement time cannot be predicted (slippage, pool state, interest accrued), pre-committed unwind calls may revert. Sherwood provides the standard path plus a four-function emergency split introduced in PR #229:
 
-| Path | Who | When | Calls | Notes |
+| Function | Who | When | Calls | Notes |
 |------|-----|------|-------|-------|
-| **Standard settle** | Proposer anytime; anyone after duration | Proposer: anytime after execution. Others: after `strategyDuration` ends | Pre-committed `settlementCalls` from proposal | Uses the voted-on unwind calls |
-| **Emergency settle** | Vault owner | After `strategyDuration` ends | Tries pre-committed calls first, falls back to owner-provided calls | Backstop with try/catch fallback |
+| **`settleProposal`** | Proposer anytime; anyone after duration | Proposer: anytime after execution. Others: after `strategyDuration` ends | Pre-committed `settlementCalls` from proposal | The happy path; zero trust |
+| **`unstick`** | Vault owner | After `strategyDuration` ends | Pre-committed `settlementCalls` only — no custom calldata, no fallback | Force-triggers a settlement that the proposer is not finalizing |
+| **`emergencySettleWithCalls`** | Vault owner | After `strategyDuration` ends | Commits the hash of owner-provided custom calls and opens a guardian review window | Owner's bond must cover `requiredOwnerBond(vault)` at call time; reverts otherwise |
+| **`cancelEmergencySettle`** | Vault owner | Before `reviewEnd` | — | Self-recall of an `emergencySettleWithCalls` the owner wants to retract (e.g. wrong calldata) |
+| **`finalizeEmergencySettle`** | Vault owner | After `reviewEnd` | Re-submits the exact calls whose hash was committed | Reverts (and slashes owner bond) if guardian block quorum reached; otherwise executes via `vault.executeGovernorBatch` and transitions to Settled |
 
 <Tabs>
   <Tab title="Standard Settlement">
@@ -51,39 +62,50 @@ Since the exact on-chain state at settlement time cannot be predicted (slippage,
     - The **proposer** (agent) can call at any time after execution — they have the most context about when to close
     - **Anyone** (keeper, depositor, bot) can call after `strategyDuration` expires — no trust required
 
-    This is the happy path. The pre-committed unwind calls close all positions and return capital to the vault. P&L is calculated, fees are distributed, and a PnL attestation is minted.
+    This is the happy path. The pre-committed unwind calls close all positions and return capital to the vault. P&L is calculated and fees are distributed.
 
-    **Risk:** Pre-committed calls may revert due to stale parameters (slippage, exact repayment amounts). If this happens, the emergency path is the fallback.
+    **Risk:** Pre-committed calls may revert due to stale parameters (slippage, exact repayment amounts). If this happens, the owner uses `unstick` or `emergencySettleWithCalls` as the fallback.
   </Tab>
-  <Tab title="Emergency Settlement">
-    ### `emergencySettle`
+  <Tab title="unstick (owner-instant, pre-committed calls)">
+    ### `unstick(proposalId)`
 
-    After `strategyDuration` expires, the **vault owner** can trigger emergency settlement. This is the backstop for when standard settlement fails.
-
-    **How it works:**
-    1. First, the governor **tries executing the pre-committed `settlementCalls`** via try/catch
-    2. If the pre-committed calls succeed, settlement proceeds normally
-    3. If the pre-committed calls **revert**, the governor falls back to the **owner-provided custom calls**
-    4. The owner's custom calls achieve the same goal (close positions, return deposit asset) but with params that work given current market conditions
+    Owner-only, callable after `strategyDuration` expires. Runs the proposal's pre-committed `settlementCalls` with **no custom calldata and no fallback**. Reverts if the pre-committed calls revert.
 
     **When to use it:**
-    - Standard settlement reverts (stale params, pool state changed)
-    - Agent does not act (disappeared, negligent)
-    - Market conditions require a different unwind path
+    - Proposer is unresponsive / has disappeared
+    - Pre-committed calls are correct and still work, they just need to be force-triggered
 
-    The try/catch design means the vault owner always has a way to settle, even when on-chain state has drifted far from what was predicted at proposal time.
+    `unstick` does **not** require an active owner bond — the pre-committed calls have already been approved via normal governance + guardian review, so an owner whose bond was slashed on another proposal can still `unstick` legitimately-approved settlements here.
+  </Tab>
+  <Tab title="emergencySettleWithCalls (guardian-reviewed custom calls)">
+    ### `emergencySettleWithCalls(proposalId, calls) → review → finalize`
+
+    When pre-committed calls are broken (stale params, pool state shifted, a target contract is paused), the owner can propose custom settlement calldata — but only through a guardian-reviewed window.
+
+    **Flow:**
+    1. Owner calls `emergencySettleWithCalls(proposalId, calls)` with the custom call array. The governor reverts with `OwnerBondInsufficient` if `registry.ownerStake(vault) < registry.requiredOwnerBond(vault)`. Assuming the bond check passes, the governor hashes the calls, stores `keccak256(abi.encode(calls))`, calls `registry.openEmergencyReview(proposalId, callsHash)`, and emits `EmergencySettleProposed`. **Calls do not execute yet.**
+    2. During the review window (`reviewEnd`), active guardians can call `voteBlockEmergencySettle(proposalId)`. Each vote adds the guardian's stake weight. The owner may also call `cancelEmergencySettle(proposalId)` to self-recall — this closes the window without slashing.
+    3. After `reviewEnd`, the owner calls `finalizeEmergencySettle(proposalId, calls)` — the governor re-hashes `calls`, checks it equals the committed hash, then calls `registry.resolveEmergencyReview(proposalId)`:
+        - If the block quorum was reached → owner's bond is slashed (WOOD burned) and `finalizeEmergencySettle` reverts. The owner must fall back to `unstick`, post a fresh bond, or propose different calls.
+        - If not blocked → governor runs `vault.executeGovernorBatch(calls)` and transitions the proposal to Settled. Fees distributed normally.
+
+    The bond recheck at `emergencySettleWithCalls` time closes the "stake at TVL=0, drain at TVL=10M" attack — the bond must be sufficient for the vault's *current* size.
   </Tab>
 </Tabs>
 
-### Why two paths?
+### Why this split?
 
-Pre-committed unwind calls are a best-effort prediction of future on-chain state. Slippage, interest accrual, pool rebalancing, and oracle updates can all cause them to revert. The two-path model ensures settlement always succeeds:
+Pre-committed unwind calls are a best-effort prediction of future on-chain state. Slippage, interest accrual, pool rebalancing, and oracle updates can all cause them to revert. The split covers every failure mode without giving the owner an unbounded escape hatch:
 
-1. **Standard path** — uses the pre-committed calls that shareholders voted on. The proposer can trigger it early; anyone can trigger it after duration. Zero trust required.
-2. **Emergency path** — vault owner backstop. Tries the pre-committed calls first (via try/catch), then falls back to owner-provided calls. Always works because the owner can craft any calls needed.
+1. **`settleProposal`** — happy path. Zero trust required; anyone can call after duration.
+2. **`unstick`** — pre-committed calls are still correct, just need a push. No new calldata → no bond required, no guardian review.
+3. **`emergencySettleWithCalls` → review → finalize** — custom calldata requires a bonded owner and survives a 24h guardian review. An abusive owner gets slashed; an honest owner gets their funds back plus a successful settlement.
+4. **`cancelEmergencySettle`** — safety valve for an honest owner who submitted the wrong calldata and wants to retract before the window closes.
+
+Together these replace the single `emergencySettle(proposalId, calls)` function from pre-PR-#229. The old function combined "execute arbitrary calldata if pre-committed calls revert" into a single owner-gated call — unbounded trust in a compromised owner was the primary escalation vector.
 
 <Note>
-**Fee transfers are wrapped in try/catch.** If the agent or vault owner address is blacklisted by the deposit asset (e.g. USDC blacklist), the fee transfer will fail silently rather than blocking the entire settlement. Depositor capital is never held hostage by a blacklisted fee recipient.
+**Fee transfers are wrapped in try/catch, with a pull-claim escrow for blacklisted recipients.** Inside `_distributeFees`, every `vault.transferPerformanceFee(...)` call (protocol fee, agent / co-proposers, management fee) is wrapped in `try/catch`. On any failure — including USDC blacklisting the recipient — the governor credits the owed amount to `_unclaimedFees[recipient][token]`, emits `FeeTransferFailed(recipient, token, amount, reason)`, and continues. `settleProposal` therefore never reverts on a single bad recipient. Once the failure condition is cleared (recipient rotated, unblocked, etc.), the recipient calls `claimUnclaimedFees(vault, token)` to pull their escrowed balance. View helper: `unclaimedFees(recipient, token)`. This closes item **W-1** in the pre-mainnet punch list.
 </Note>
 
 ## Cooldown Window
@@ -104,51 +126,42 @@ Since only one strategy runs per vault at a time, P&L is calculated via a simple
 ```
 Execute:
   1. Governor snapshots vault's deposit asset balance → capitalSnapshot
-  2. Vault executes the pre-approved executeCalls
+  2. Vault executes the pre-approved executeCalls via executeGovernorBatch
      (positions now live on the vault address)
 
 During strategy:
   - Position is live on the vault (e.g. mTokens, LP tokens, borrowed assets)
   - Agent cannot interact with vault directly — only governor can trigger calls
-  - Redemptions are locked
+  - Redemptions are locked (via redemptionsLocked() pull-check against governor)
 
-Settle (two paths):
+Settle:
   Path 1 — Standard settle (pre-committed calls):
     1. Proposer calls anytime, or anyone calls after strategyDuration
-    2. Vault executes the pre-committed settlementCalls (unwind)
+    2. Vault executes the pre-committed settlementCalls via executeGovernorBatch
     3. P&L = vault.depositAssetBalance() - capitalSnapshot
     4. If P&L > 0: fees distributed (protocol → agent → management). If P&L <= 0: no fee.
 
-  Path 2 — Emergency settle (vault owner, after duration):
-    1. Governor tries pre-committed settlementCalls via try/catch
-    2. If they revert, falls back to vault owner's custom calls
-    3. P&L calculated, fees distributed normally
+  Path 2 — Owner unstick (pre-committed calls, owner-forced):
+    1. Owner calls unstick(proposalId) after strategyDuration
+    2. Same pre-committed settlementCalls, same P&L math
+    3. No bond requirement, no guardian review
 
-  Both paths end with:
-    - Fee transfers wrapped in try/catch (blacklisted recipients don't block settlement)
-    - Redemptions unlocked, cooldown starts
+  Path 3 — Emergency settle with custom calls (owner-bonded, guardian-reviewed):
+    1. Owner calls emergencySettleWithCalls(proposalId, calls) — bond rechecked, calls hash committed
+    2. 24h guardian review window; guardians can block; owner can cancel
+    3. Owner calls finalizeEmergencySettle(proposalId, calls) after reviewEnd
+    4. If guardians blocked: owner bond slashed, function reverts
+    5. Otherwise: vault executes calls via executeGovernorBatch, same P&L math
+
+  All paths end with:
+    - _activeProposal[vault] cleared (redemptions unlock automatically)
+    - Cooldown starts
     - Proposal state → Settled
 ```
 
-## PnL Attestation
-
-At settlement, the governor mints an **EAS attestation** recording the proposal's PnL:
-
-```solidity
-// Schema: STRATEGY_PNL
-struct StrategyPnLAttestation {
-    uint256 proposalId;
-    address vault;
-    address agent;
-    int256 pnl;              // profit or loss in deposit asset terms
-    uint256 capitalDeployed;
-    uint256 assetsReturned;
-    uint256 performanceFee;
-    uint256 duration;         // actual duration (execute → settle)
-}
-```
-
-This creates an immutable on-chain track record for every agent. Anyone can query an agent's history of profits and losses before voting on their proposals. No separate reputation system needed — the attestations are the reputation.
+<Note>
+**No PnL EAS attestation in V1.** Earlier designs proposed a `STRATEGY_PNL` EAS schema minted by the governor at settlement to create an immutable on-chain track record. That feature is **not implemented** in the current codebase and is deferred. The on-chain record today is the `ProposalSettled(uint256 proposalId, int256 pnl, uint256 totalFee)` event emitted by `_finishSettlement`, which indexers can consume. A richer EAS-based agent reputation layer is planned for V1.5 alongside the full guardian reward + reputation track.
+</Note>
 
 ## Full Lifecycle in calls[]
 

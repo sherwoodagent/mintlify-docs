@@ -42,17 +42,23 @@ Proposals also include metadata such as a strategy duration and a description. G
 
 The governor is a single contract that manages the full proposal lifecycle across all syndicate vaults. It handles proposal submission, voting periods, execution authorization, and settlement. Rather than deploying a separate governor per syndicate, Sherwood uses one shared governor that maps proposals to their respective vaults.
 
-Governance follows an optimistic model. Proposals pass by default unless shareholders actively veto them. Shareholders can call `vetoProposal` during the voting window, and a proposal is only blocked if the cumulative veto votes reach the configured `vetoThresholdBps`. This design minimizes friction for routine strategies while preserving shareholder control over risky proposals.
+Governance follows an optimistic model. Proposals pass by default unless shareholders actively oppose them. Shareholders cast `Against` votes during the voting window, and a proposal is only rejected on the voting path if cumulative AGAINST votes reach the configured `vetoThresholdBps`. This design minimizes friction for routine strategies while preserving shareholder control over risky proposals.
 
-Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are configurable per syndicate but protected by a timelock mechanism. Any parameter change must be queued, wait through a configurable delay period, and then be finalized in a separate transaction. This prevents sudden governance manipulation.
+Shareholders cast votes; they do **not** call `vetoProposal`. That function is restricted to the vault owner and can only be called while the proposal is in the `Pending` state. Once voting ends, the proposal enters a `GuardianReview` window where staked guardians — a separate, economically incentivized third-party layer — can block malicious proposals by reaching a stake-weighted quorum. See [Guardian Review](/protocol/governance/guardian-review).
+
+Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **global across all syndicates** — a single `GovernorParameters` instance serves every registered vault. Every change is protected by a timelock: the owner queues the change, waits through a configurable delay (6h–7d), then calls `finalizeParameterChange` to apply. Parameters are re-validated at finalize time and the owner can cancel a queued change at any point. This prevents sudden governance manipulation while keeping parameter curation simple.
 
 ## Settlement
 
-Settlement is the process of closing out a strategy's positions, returning capital to the vault, and calculating profit or loss. Sherwood provides two settlement paths:
+Settlement is the process of closing out a strategy's positions, returning capital to the vault, and calculating profit or loss. Sherwood provides two families of settlement paths.
 
-1. **Standard settlement** (`settleProposal`) can be called by the proposer at any time, or by anyone once the strategy duration has elapsed. It closes positions using the pre-committed settlement calls.
+1. **Standard settlement** (`settleProposal`) can be called by the proposer at any time, or by anyone once the strategy duration has elapsed. It runs the pre-committed `settlementCalls` that shareholders voted on.
 
-2. **Emergency settlement** (`emergencySettle`) is a safety valve. The vault owner can trigger it after the strategy duration expires. It first tries the pre-committed settlement calls and falls back to custom calls if provided, giving an escape hatch when pre-committed calls are no longer viable.
+2. **Emergency settlement** is a four-function split introduced in PR #229 — `unstick`, `emergencySettleWithCalls`, `cancelEmergencySettle`, and `finalizeEmergencySettle`. The vault owner posts a slashable WOOD bond and can force pre-committed settlement calls (`unstick`), or propose custom calldata that enters a guardian-reviewed window and is only executable if guardians do not reach a block quorum. See [Execution & Settlement](/protocol/governance/settlement).
+
+## Guardian
+
+Guardians are a staked, slashable third-party review layer. Anyone can stake WOOD in the `GuardianRegistry` to become a guardian. After a proposal's voting window ends, the proposal enters a `GuardianReview` window (default 24h) during which active guardians vote `Approve` or `Block` on the exact calldata shareholders just voted on. If the stake-weighted `Block` vote crosses `blockQuorumBps` (default 30% of total guardian stake at review open), the proposal is rejected and guardians who voted `Approve` are slashed. Vault owners must also post a slashable WOOD bond (`minOwnerStake`) before their vault can create proposals, and that bond is slashed if they abuse the emergency-settle path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
 
 ## Cooldown
 

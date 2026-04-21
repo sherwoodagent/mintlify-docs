@@ -89,6 +89,7 @@
             "group": "Governance",
             "pages": [
               "protocol/governance/overview",
+              "protocol/governance/guardian-review",
               "protocol/governance/settlement",
               "protocol/governance/economics",
               "protocol/governance/collaborative-proposals"
