@@ -21,7 +21,7 @@ The protocol ships a full ve(3,3)-style token economy (`VotingEscrow`, `Voter`, 
 </Note>
 
 Known gaps flagged in that reference that LPs and integrators should be aware of until the public expansion lands:
-- `SyndicateGauge.claimLPRewards` always reverts (`_calculateLPReward` is stubbed). Gauge LP reward accrual is tracked but not claimable.
+- `SyndicateGauge.claimLPRewards` always reverts (`_calculateLPReward` is stubbed). Gauge LP reward accrual is tracked but not claimable. Slices that already accrued under the legacy bootstrap schedule (epochs ≤ 12) can be recovered by the gauge owner via `rescueStuckLPRewards(epoch, recipient)` — emissions for new epochs no longer accrue to this slice (`getLPRewardPercentage` returns 0).
 - Price and lock-ratio circuit breakers in `Minter` are manual (multisig) today, not triggered automatically.
 - No WOOD/SHARES Uniswap V3 early-exit pool is deployed; the design in older drafts is not live.
 - Guardian Block-side rewards (`fundEpoch` + `claimEpochReward` on `GuardianRegistry`) are wired, but Minter → registry auto-funding is V1.5; V1 relies on multisig-funded epochs (see [Guardian Review](/protocol/governance/guardian-review)).

@@ -204,9 +204,15 @@ UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with t
 
 Shared stateless library. Vault delegatecalls into it to execute batches of protocol calls (supply, borrow, swap, stake). Each call's target must be in the vault's allowlist.
 
+### StrategyFactory
+
+Atomic clone + initialize wrapper for strategy templates. `cloneAndInit(template, vault, proposer, data)` deploys an ERC-1167 minimal proxy of the template and runs `initialize(vault, proposer, data)` in the same transaction. The deterministic variant `cloneAndInitDeterministic(template, vault, proposer, data, salt)` exposes a predictable clone address.
+
+Strategy templates use a custom `_initialized` flag (not OZ Initializable) and run `initialize` from an `external` function, so deploying a clone via `Clones.clone(template)` followed by a separate `initialize` tx exposes a front-running window where an attacker can race the init and bind the clone to their own vault. `StrategyFactory` collapses that window into a single tx.
+
 ### Strategy Templates
 
-Reusable strategy contracts designed for ERC-1167 Clones (deploy template once, clone per proposal). The vault calls `execute()` and `settle()` via batch calls — the strategy pulls tokens, deploys them into DeFi, and returns them on settlement.
+Reusable strategy contracts designed for ERC-1167 Clones (deploy template once, clone per proposal — production deployments should use `StrategyFactory.cloneAndInit` to avoid the init front-run). The vault calls `execute()` and `settle()` via batch calls — the strategy pulls tokens, deploys them into DeFi, and returns them on settlement.
 
 **IStrategy interface:** `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(data)`, `name()`, `vault()`, `proposer()`, `executed()`, `positionValue()`.
 
@@ -217,6 +223,8 @@ Reusable strategy contracts designed for ERC-1167 Clones (deploy template once, 
 **MoonwellSupplyStrategy:** Supply USDC to Moonwell's mUSDC market. Execute pulls USDC from vault, mints mUSDC. Settle redeems all mUSDC, pushes USDC back. Tunable params: `supplyAmount`, `minRedeemAmount` (slippage protection).
 
 **AerodromeLPStrategy:** Provide liquidity on Aerodrome (Base) and optionally stake LP in a Gauge for AERO rewards. Execute pulls tokenA + tokenB, adds liquidity, stakes LP in gauge. Settle unstakes, claims AERO rewards, removes liquidity, pushes all tokens back. Supports both stable and volatile pools. Tunable params: `minAmountAOut`, `minAmountBOut` (settlement slippage).
+
+**MamoYieldStrategy:** Deposit into a Mamo strategy (auto-routed across Moonwell core + Morpho vaults) for optimized yield. Execute pulls the vault's full underlying balance, calls `mamoFactory.createStrategyForUser(this)`, optionally pins the resulting strategy's bytecode hash, and deposits. Settle calls `withdrawAll`, validates `minRedeemAmount`, and pushes underlying back. **Init ABI:** `(address underlying, address mamoFactory, uint256 minRedeemAmount, bytes32 allowedStrategyCodehash)` — pass `bytes32(0)` to skip the codehash check (NOT recommended for mainnet; pinning blocks a compromised Mamo factory from swapping in attacker bytecode).
 
 Batch calls from governor (typical pattern):
 - Execute: `[tokenA.approve(strategy, amount), tokenB.approve(strategy, amount), strategy.execute()]`

@@ -117,7 +117,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | votingPeriod | Governor (owner setter) | How long voting lasts |
 | reviewPeriod | GuardianRegistry (owner setter) | Guardian review window after voting ends (single global value) |
 | executionWindow | Governor (owner setter) | Time after guardian review ends to execute |
-| vetoThresholdBps | Governor (owner setter) | Min AGAINST votes (% of total shares) to reject a proposal |
+| vetoThresholdBps | Governor (owner setter) | Min AGAINST votes (% of total shares) to reject a proposal. Capped at `MAX_VETO_THRESHOLD_BPS = 5000` (50%) — values above 50% would let a minority of FOR votes block any rejection regardless of opposition |
 | maxPerformanceFeeBps | Governor (owner setter) | Cap on agent fees |
 | maxStrategyDuration | Governor (owner setter) | Cap on how long a strategy can run |
 | cooldownPeriod | Governor (owner setter) | Withdrawal window between strategies |
