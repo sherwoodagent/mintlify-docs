@@ -39,7 +39,7 @@ Pending → execute() → Executed → (trade actions) → settle() → Settled 
 | Phase | What happens | Who calls |
 |-------|-------------|-----------|
 | **Execute** | Pull USDC from vault → `sendUpdateLeverage` → `sendUsdClassTransfer` to perp margin | Governor (proposal execution) |
-| **Executed** | Proposer opens/closes positions, updates stop-loss, or lowers `minReturnAmount` via `updateParams` | Proposer only |
+| **Executed** | Proposer opens/closes positions, updates stop-loss via `updateParams` | Proposer only |
 | **Settle** | Close any open position + request async USD transfer back to the EVM side | Governor (proposal settlement) |
 | **Sweep** | `sweepToVault()` pushes USDC to the vault when it arrives. Callable by anyone; repeatable for partial arrivals. | Anyone |
 
@@ -65,7 +65,6 @@ After `settle()`, anyone can call `strategy.sweepToVault()` once the async USD t
 (
   address asset,            // USDC on HyperEVM
   uint256 depositAmount,    // USDC to park as perp margin (fits in uint64)
-  uint256 minReturnAmount,  // Min USDC sweep on settlement (InsufficientReturn revert)
   uint32  perpAssetIndex,   // HyperCore perp asset index (0 = BTC, 3 = ETH)
   uint32  leverage,         // 1–50
   uint256 maxPositionSize,  // Max USDC in a single position — on-chain hard cap
@@ -78,7 +77,7 @@ On-chain risk caps:
 - `leverage` must be 1–50
 - Opening a position where `sz * limitPx / 1e6 > maxPositionSize` reverts with `PositionTooLarge`
 - Exceeding `maxTradesPerDay` (counted per UTC day) reverts with `MaxTradesExceeded`
-- At settlement, `sweepToVault()` reverts with `InsufficientReturn` if the arrived USDC is below `minReturnAmount`
+- `sweepToVault()` is permissionless and accepts any positive balance — a strategy that loses money on HyperCore must still be able to return whatever USDC arrives back to the vault (no settlement floor that would permanently strand funds on lossy outcomes)
 
 ## Proposer Actions (Executed state)
 
@@ -86,7 +85,6 @@ Encoded as `updateParams(abi.encode(action, ...))`:
 
 | Action | Encoding | Description |
 |--------|----------|-------------|
-| `0` — update min return | `(uint8, uint256 newMinReturn)` | Lower the settlement floor. Does not count against daily trade limit. |
 | `1` — open long | `(uint8, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | IOC long + optional GTC stop-loss. Stop-loss uses a fixed CLOID so each new one replaces the previous. |
 | `2` — close position | `(uint8, uint64 limitPx, uint64 sz)` | IOC close — current design is long-only. |
 | `3` — update stop-loss | `(uint8, uint64 triggerPx, uint64 sz)` | Cancel the current stop-loss and place a new GTC order. |
@@ -108,7 +106,6 @@ sherwood strategy propose hyperliquid-perp \
   --amount 5000 \
   --leverage 5 \
   --asset-index 3 \
-  --min-return 4500 \
   --max-position 20000 \
   --max-trades-per-day 20 \
   --chain hyperevm \
@@ -121,7 +118,6 @@ sherwood strategy propose hyperliquid-perp \
 | `--amount <n>` | USDC collateral to deploy | required |
 | `--leverage <n>` | Leverage multiplier (1–50) | 10 |
 | `--asset-index <n>` | HyperCore perp asset index | 0 (BTC) |
-| `--min-return <n>` | Min USDC on sweep — reverts below this | — |
 | `--max-position <amount>` | Max USD in a single position | 100000 |
 | `--max-trades-per-day <n>` | Daily trading action limit | 50 |
 
