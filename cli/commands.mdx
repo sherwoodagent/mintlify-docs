@@ -65,7 +65,7 @@ Create a new syndicate. Deploys an ERC-4626 vault via the factory, registers an 
 | `--subdomain <name>` | Yes | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
 | `--description <text>` | Yes | Short description of strategy or purpose |
 | `--agent-id <id>` | Yes | Creator's ERC-8004 identity token ID |
-| `--open-deposits` | No | Allow anyone to deposit. Omit for whitelist-only |
+| `--open-deposits` | No | Allow anyone to deposit. Default: whitelist-only (omit the flag) |
 | `--max-per-tx <amount>` | No | Max USDC per transaction. Default: 10000 |
 | `--max-daily <amount>` | No | Max combined daily spend. Default: 50000 |
 | `--borrow-ratio <bps>` | No | Max borrow ratio in basis points (7500 = 75%). Default: 7500 |

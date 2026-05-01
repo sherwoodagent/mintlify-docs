@@ -81,7 +81,7 @@
               "protocol/strategies/aerodrome-lp",
               "protocol/strategies/wsteth-moonwell",
               "protocol/strategies/venice-inference",
-              "protocol/strategies/portfolio",
+              "protocol/strategies/uniswap",
               "protocol/strategies/hyperliquid-perp"
             ]
           },
