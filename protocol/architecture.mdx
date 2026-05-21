@@ -154,7 +154,7 @@ Abstract contract inherited by `SyndicateGovernor`. Houses the four post-executi
 
 UUPS upgradeable contract (owned by the Sherwood protocol multisig). The **sole WOOD custodian** for the guardian layer — guardian stake, DPoS delegation, vault-owner bonds, vote checkpoints, and all slashing execution live here. Introduced by the sWOOD staking-split refactor, which lifted this machinery out of `GuardianRegistry` to reclaim EIP-170 bytecode headroom and give each contract a single job.
 
-sWOOD follows the **vote-escrow** model (veCRV, Cosmos bonded stake): the staked position is **non-transferable** — `transfer` / `transferFrom` revert — because it carries slashing liability and governance power, which must stay welded to one accountable identity. sWOOD may expose an ERC20 `balanceOf` facade (= own stake) and OZ `IVotes` views purely for wallet display and Snapshot compatibility; governance weight is the bespoke checkpoint API, not OZ `ERC20Votes` delegation.
+sWOOD follows the **vote-escrow** model (veCRV, Cosmos bonded stake): the staked position carries slashing liability and governance power, which must stay welded to one accountable identity. sWOOD is **not a token** — it exposes no ERC-20 transfer surface (`balanceOf`, `transfer`, `transferFrom`, `approve` do not exist) and no OZ `IVotes` views; it is non-transferable by construction. Governance weight is read through a bespoke checkpoint API — `getPastVotes(guardian, timestamp)`, `getPastTotalVotes(timestamp)`, `guardianStake`, `isActiveGuardian` — not an OZ `ERC20Votes` / `IVotes` surface.
 
 **Responsibilities:**
 - Guardian staking / unstaking with cool-down (`stakeAsGuardian`, `requestUnstakeGuardian`, `cancelUnstakeGuardian`, `claimUnstakeGuardian`)
