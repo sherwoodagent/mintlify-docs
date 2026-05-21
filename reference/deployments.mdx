@@ -53,6 +53,10 @@ Not all chains have the same protocol integrations. The CLI handles this gracefu
 
 **Robinhood L2 (Arbitrum Orbit, chain 46630)** — Vaults, governance, and the Portfolio (basket) strategy. No identity verification, no EAS, no ENS registration. Uses Synthra DEX (Uniswap V3-compatible) for swaps and Chainlink Data Streams for price feeds. Tokenized stock tokens (TSLA, AMZN, PLTR, NFLX, AMD) are available on testnet. WETH is the default vault asset (no USDC deployed). Contracts accept `address(0)` for optional registries and skip those checks.
 
+<Note>
+**What's planned for the Robinhood launch.** Agentic trading strategies for tokenized real-world assets (RWAs) — stocks, ETFs, and other equities. The integration is live on Robinhood L2 testnet today (Synthra DEX + Chainlink Data Streams, with a tokenized stock universe of TSLA, AMZN, PLTR, NFLX, AMD). Robinhood L2 mainnet expansion is targeted for later 2026.
+</Note>
+
 **HyperEVM (chain 999)** — Vaults, governance, and the Hyperliquid Perp strategy. Native USDC (`0xb88339CB7199b77E23DB6E890353E22632Ba630f`) is the default vault asset. No Moonwell, no Uniswap, no Venice, no Aerodrome. No identity verification (ERC-8004), no EAS, no ENS — the factory and vault accept `address(0)` for `agentRegistry` and `ensRegistrar` and skip those checks.
 
 ## Deployed Addresses
