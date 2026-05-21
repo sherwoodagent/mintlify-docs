@@ -12,8 +12,9 @@ Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS
 graph TD
     F["SyndicateFactory (UUPS)"] -->|deploys + registers| V["SyndicateVault (ERC1967 Proxy)"]
     F -->|registers vault| G["SyndicateGovernor (ERC1967 Proxy)"]
-    F -->|binds owner stake on create| R["GuardianRegistry (UUPS)"]
-    G -->|guardian review + slashing hooks| R
+    F -->|binds owner stake on create| S["StakedWood / sWOOD (UUPS)"]
+    G -->|guardian review hooks| R["GuardianRegistry (UUPS)"]
+    R -->|reads vote weight, calls to slash| S
     V <-->|execute / settle| G
     V -->|delegatecall| B["BatchExecutorLib (stateless)"]
     G -->|inherits| P["GovernorParameters (abstract)"]
@@ -149,27 +150,47 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 
 Abstract contract inherited by `SyndicateGovernor`. Houses the four post-execution owner paths introduced by PR #229: `unstick`, `emergencySettleWithCalls`, `cancelEmergencySettle`, `finalizeEmergencySettle`. Extracted to keep the governor under the EIP-170 bytecode limit (governor runtime is within ~70 bytes of the 24,576-byte limit; CI gates at 24,400). Each function is reentrancy-guarded (`emergencyNonReentrant`) and delegates slashing/review bookkeeping to the `GuardianRegistry`. See [Execution & Settlement](/protocol/governance/settlement) for the state-machine diagrams.
 
-### GuardianRegistry
+### StakedWood (sWOOD)
 
-UUPS upgradeable contract (owned by the Sherwood protocol multisig) managing the staked, slashable guardian layer and vault-owner bonds introduced in PR #229. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
+UUPS upgradeable contract (owned by the Sherwood protocol multisig). The **sole WOOD custodian** for the guardian layer — guardian stake, DPoS delegation, vault-owner bonds, vote checkpoints, and all slashing execution live here. Introduced by the sWOOD staking-split refactor, which lifted this machinery out of `GuardianRegistry` to reclaim EIP-170 bytecode headroom and give each contract a single job.
+
+sWOOD follows the **vote-escrow** model (veCRV, Cosmos bonded stake): the staked position is **non-transferable** — `transfer` / `transferFrom` revert — because it carries slashing liability and governance power, which must stay welded to one accountable identity. sWOOD may expose an ERC20 `balanceOf` facade (= own stake) and OZ `IVotes` views purely for wallet display and Snapshot compatibility; governance weight is the bespoke checkpoint API, not OZ `ERC20Votes` delegation.
 
 **Responsibilities:**
 - Guardian staking / unstaking with cool-down (`stakeAsGuardian`, `requestUnstakeGuardian`, `cancelUnstakeGuardian`, `claimUnstakeGuardian`)
-- Vault-owner bond lifecycle (`prepareOwnerStake`, `cancelPreparedStake`, `bindOwnerStake` / `transferOwnerStakeSlot` — factory-only, `requestUnstakeOwner`, `claimUnstakeOwner`)
-- Review windows (`openReview`, `voteOnProposal`, `resolveReview`) with cohort snapshot at `openReview()` time to close denominator-manipulation attacks
+- Vault-owner bond lifecycle (`prepareOwnerStake`, `cancelPreparedStake`, `bindOwnerStake` / `transferOwnerStakeSlot` — factory-only, `requestUnstakeOwner`, `claimUnstakeOwner`, `requiredOwnerBond` math)
+- Share-based DPoS delegation (`delegateStake`, `requestUnstakeDelegation`, `cancelUnstakeDelegation`, `claimUnstakeDelegation`) + per-delegate commission (`setCommission`, raise-rate cap)
+- `Trace224` vote checkpoints — `getPastVotes(guardian, ts)` returns own + delegated-inbound weight
+- Slashing execution: `slashGuardians(pid, approvers[], slashBps)` and `slashOwnerBond(vault)` — both **registry-only** (`onlyRegistry` guard). Slashed WOOD is burned to `0x...dEaD` (CEI + pull-burn fallback via `flushBurn`)
+
+**Share-factor delegator slashing.** Each delegate's pool tracks `poolTokens` / `poolShares`; per-delegator state is **shares**, not raw tokens. When a delegate-guardian is slashed, the delegated-in stake burns pro-rata across all their delegators via a single `poolTokens[delegate] -= slashAmount` write — O(1), no per-delegate delegator cap, no gas-DoS. This is the Cosmos SDK validator-shares model. `claimUnstakeDelegation` redeems shares at the current (possibly slashed) rate.
+
+**`delegationEnabled` feature flag.** `bool delegationEnabled`, default **off**, owner-only `setDelegationEnabled(bool)`. When `false`, `delegateStake` reverts (`DelegationDisabled`) — no new delegations — but the three delegation-unstake paths stay **open** so existing delegators can always exit. Existing delegated stake keeps voting and stays slashable until withdrawn.
+
+**Owner-set parameters** (uniform `ParameterChangeFinalized` event): `minGuardianStake`, `minOwnerStake`, `coolDownPeriod`, DPoS commission constants, `delegationEnabled`, and the graduated-slash bounds `minSlashBps` / `maxSlashBps` (must keep `minSlashBps ≤ maxSlashBps ≤ 10_000`).
+
+**Set-once wiring:** `initialize(owner, wood, governor, factory)`; the registry pointer is set via a one-time owner-only `setRegistry(registry)` (resolves the sWOOD ↔ registry circular dependency). Deploy order: sWOOD → registry → `swood.setRegistry(registry)`.
+
+### GuardianRegistry
+
+UUPS upgradeable contract (owned by the Sherwood protocol multisig) managing the guardian **review / emergency / reward** lifecycle. After the sWOOD staking-split refactor it holds **zero WOOD** — all staking, delegation, owner bonds, and slashing execution moved to [StakedWood](#stakedwood-swood). The registry reads vote weight from sWOOD and calls sWOOD to slash. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
+
+**Responsibilities:**
+- Review windows (`openReview`, `voteOnProposal`, `resolveReview`, `cancelReview`) with cohort snapshot at `openReview()` time to close denominator-manipulation attacks
 - Emergency-settle review windows (`openEmergencyReview` — governor-only, `voteBlockEmergencySettle`, `resolveEmergencyReview`)
-- Slashing via WOOD burn to `0x...dEaD` (CEI + pull-burn fallback via `flushBurn` if `wood.transfer` reverts)
+- Multi-asset guardian-fee reward pools (`fundProposalGuardianPool`, `claimProposalReward`, `claimDelegatorProposalReward`) + W-1 escrow (`flushUnclaimedApproverFee`)
+- `BlockerAttributed` Merkl events for off-chain WOOD epoch-reward attribution
+- Computes the **graduated slash severity** at `resolveReview` and forwards it to `sWOOD.slashGuardians(...)` — see below
 - Appeal path: `fundSlashAppealReserve` + `refundSlash` (owner-only, capped at 20% of reserve per epoch)
-- Epoch-based Block-side rewards: `fundEpoch` (owner / Minter), `claimEpochReward` (guardians), `sweepUnclaimed` (permissionless after 12 weeks)
-- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`). Pause freezes voting, review resolution, and reward claims; never freezes unstake/claim paths.
+- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`)
 
-**Key constants:** `EPOCH_DURATION = 7 days`, `MIN_COHORT_STAKE_AT_OPEN = 50_000 WOOD` (cold-start fallback), `MAX_APPROVERS_PER_PROPOSAL = 100`, `SWEEP_DELAY = 12 weeks`, `LATE_VOTE_LOCKOUT_BPS = 1000` (10%), `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%), `DEADMAN_UNPAUSE_DELAY = 7 days`.
+**Graduated, voted slash severity.** `voteOnProposal(proposalId, support, slashBps)` — a Block vote *carries* a proposed slash severity (`uint256 slashBps`); Approve / Abstain votes ignore the field. At `resolveReview`, if block quorum is reached, the registry computes the **stake-weighted median** of blockers' proposed severities (median, not mean — a single whale blocker cannot drag the verdict), clamps it to sWOOD's owner-set `[minSlashBps, maxSlashBps]` band, and passes the result into `sWOOD.slashGuardians`. This reduces own stake and delegated `poolTokens` by the same `slashBps`.
 
-**Timelocked parameters** (same 6h–7d queue/finalize pattern as `GovernorParameters`): `minGuardianStake`, `minOwnerStake`, `coolDownPeriod`, `reviewPeriod` (24h default), `blockQuorumBps` (30% default).
+**Owner-set parameters:** `reviewPeriod` (24h default), `blockQuorumBps` (30% default), plus hard-coded constants `MIN_COHORT_STAKE_AT_OPEN`, `MAX_APPROVERS/BLOCKERS_PER_PROPOSAL`, `SWEEP_DELAY`, `LATE_VOTE_LOCKOUT_BPS`. Staking parameters (`minGuardianStake`, `minOwnerStake`, `coolDownPeriod`) moved to sWOOD.
 
-**Set-once wiring** stamped at `initialize()`: `governor`, `factory`, `wood`. No setters exist — rewiring requires a full registry redeploy under UUPS. `minter` is the only privileged address that remains owner-settable (timelocked), to allow future Minter integration.
+**Set-once wiring** stamped at `initialize()`: `governor`, `factory`, `swood` (the registry holds no `wood` reference). No setters exist — rewiring requires a full registry redeploy under UUPS.
 
-See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle and the design spec at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` in the main repo.
+See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle and the design spec at `docs/superpowers/specs/2026-05-21-swood-staking-split-design.md` in the main repo.
 
 ### SyndicateFactory
 
@@ -238,7 +259,7 @@ The following surfaces are intentionally under-constrained in code and rely on t
 2. **`delegatecall` target is not codehash-checked.** `SyndicateVault.executeGovernorBatch` forwards its batch to `_executorImpl` via `delegatecall`. The intent is that `_executorImpl` is always the stateless `BatchExecutorLib` — but `_executorImpl` is set at init with no codehash assertion, and no runtime check rejects other code at that address. If the factory ever rotates `executorImpl` to a non-library contract, that contract runs in the vault's storage context. Tracked as item **V-C2**.
 3. **`AgentConfig` has no per-agent caps.** The off-chain Hermes runtime enforces `maxPerTx` / `maxDailyTotal` / `maxBorrowRatio` as pre-flight policy. None of these are stored on-chain; a compromised agent process running alongside a compromised vault owner can submit anything the vault's single-active-proposal invariant allows. Tracked as item **A10 / A35**.
 4. **`SyndicateFactory.setGovernor` is retroactive.** Because `SyndicateVault._getGovernor()` reads `ISyndicateFactory(_factory).governor()` live, a single `setGovernor` call rewires every existing vault's governor pointer. Rotate factory ownership to `TimelockController` + Gnosis Safe before mainnet.
-5. **WOOD is assumed to be a fixed-behavior ERC-20.** The `GuardianRegistry` slashing path uses end-of-function bulk burns; if WOOD is ever migrated to a token with transfer hooks (ERC-777 / 1363) the slashing path becomes reentrancy-exposed. Cross-referenced with the "delegatecall-only-to-BatchExecutorLib" assumption above.
+5. **WOOD is assumed to be a fixed-behavior ERC-20.** The `StakedWood` slashing path uses end-of-function bulk burns; if WOOD is ever migrated to a token with transfer hooks (ERC-777 / 1363) the slashing path becomes reentrancy-exposed. Cross-referenced with the "delegatecall-only-to-BatchExecutorLib" assumption above.
 
 These are the ones that affect external integrators. For the fuller list (including invariants still lacking tests), see `docs/pre-mainnet-punchlist.md` in the main repo.
 

@@ -6,7 +6,11 @@ icon: "shield-halved"
 
 PR #229 introduces a guardian review layer between a proposal's voting window and its execution window. Guardians are staked, slashable third-party reviewers who vote `Approve` or `Block` on the exact calldata shareholders just approved. Vault owners also post a slashable WOOD bond before their vault can accept proposals, and that bond is slashed if they abuse the emergency-settle escape hatch.
 
-This page documents the on-chain primitives. The design spec lives at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` in the main repo — read it for rationale, alternatives considered, and cold-start policy.
+<Note>
+**sWOOD staking-split refactor.** Guardian stake, DPoS delegation, vault-owner bonds, vote checkpoints, and all slashing execution now live on the dedicated `StakedWood` (sWOOD) contract — see [Contract Architecture — StakedWood](/protocol/architecture#stakedwood-swood). `GuardianRegistry` keeps only the review / emergency / reward lifecycle and holds **zero WOOD**; it reads vote weight from sWOOD and calls sWOOD to slash. The functions in the "Guardian role" and "Vault owner role" tables below are on **sWOOD**; the review / emergency / reward functions are on the **registry**. `WoodToken` is now `OFT + ERC20Permit` only (it dropped `ERC20Votes`).
+</Note>
+
+This page documents the on-chain primitives. The design spec lives at `docs/superpowers/specs/2026-05-21-swood-staking-split-design.md` in the main repo — read it for rationale, alternatives considered, and cold-start policy.
 
 ## Lifecycle change
 
@@ -34,31 +38,51 @@ Key invariants enforced by the registry + governor:
 - Owner's `emergencyCancel` is narrowed to `Draft` and `Pending`.
 - Post-execution, `unstick(proposalId)` is owner-instant for stuck vaults (pre-committed calls only). Any *custom* calldata goes through `EmergencySettleReview`.
 
-## GuardianRegistry — contract surface
+## Contract surface
 
-UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single instance per deployment; governor and factory both point at it and that wiring is stamped at init (no setters).
+Both `StakedWood` and `GuardianRegistry` are UUPS upgradeable, owned by the Sherwood protocol multisig, single instance per deployment. The staking / delegation / owner-bond functions below live on **sWOOD**; the review / emergency / reward functions live on the **registry**.
 
-### Guardian role
+### Guardian role (sWOOD)
 
 | Function | Who | What |
 |---|---|---|
 | `stakeAsGuardian(amount, agentId)` | Anyone | Pull WOOD, register caller as active guardian. Requires `amount ≥ minGuardianStake`. `agentId` is the caller's ERC-8004 identity NFT (`ownerOf(agentId) == msg.sender`), stored for future EAS reputation. |
-| `requestUnstakeGuardian()` | Guardian | Begins cool-down; voting power drops immediately (stake removed from `_totalGuardianStake`). |
+| `requestUnstakeGuardian()` | Guardian | Begins cool-down; voting power drops immediately (stake removed from `totalGuardianStake`). |
 | `cancelUnstakeGuardian()` | Guardian | Reverses a pending unstake request. |
 | `claimUnstakeGuardian()` | Guardian | After `coolDownPeriod`, releases WOOD. |
-| `openReview(proposalId)` | Permissionless | Callable once `block.timestamp >= proposal.voteEnd`. Snapshots `_totalGuardianStake` into `Review.totalStakeAtOpen`. Cold-start gate: if the snapshot is below `MIN_COHORT_STAKE_AT_OPEN`, the review is marked `cohortTooSmall` and resolves `blocked=false` unconditionally. |
-| `voteOnProposal(proposalId, support)` | Active guardian | Vote `Approve` or `Block`, weighted by stake at first vote. Allowed only while `voteEnd <= now < reviewEnd`. Vote-change allowed in the early window; locked out in the final 10% (`LATE_VOTE_LOCKOUT_BPS`). |
-| `resolveReview(proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum, slashes Approvers if blocked, credits Block-side epoch weight. Idempotent, `nonReentrant`, CEI-ordered. |
+
+### Delegation (sWOOD)
+
+DPoS-style delegation lets WOOD holders back a guardian without running one themselves. Delegated stake adds to the delegate's vote weight (but never grants the delegate active-guardian status — that gate reads own stake only) and is **slashable pro-rata** alongside the delegate's own stake.
+
+| Function | Who | What |
+|---|---|---|
+| `delegateStake(delegate, amount)` | Anyone | Pull WOOD, mint pool **shares** against the delegate's pool at the current rate. Reverts `DelegationDisabled` when `delegationEnabled == false`. |
+| `requestUnstakeDelegation(delegate)` | Delegator | Begins cool-down. Stays open even when `delegationEnabled` is off. |
+| `cancelUnstakeDelegation(delegate)` | Delegator | Reverses a pending delegation unstake. |
+| `claimUnstakeDelegation(delegate)` | Delegator | After cool-down, redeems shares at the current (possibly slashed) rate and releases WOOD. |
+| `setCommission(bps)` | Delegate | Sets the DPoS commission the delegate keeps from delegator rewards. Raise-rate capped per epoch; decreases unbounded. |
+| `setDelegationEnabled(bool)` | Owner | Feature flag, default **off**. When off, no *new* delegations; existing delegators can always exit. |
+
+**Share-factor slashing.** Each delegate's pool tracks `poolTokens` / `poolShares`; per-delegator state is **shares**, not tokens. A slash burns `poolTokens` in one write — every delegator's share is diluted pro-rata, O(1), no per-delegate delegator cap. This is the Cosmos SDK validator-shares model.
+
+### Review lifecycle (registry)
+
+| Function | Who | What |
+|---|---|---|
+| `openReview(proposalId)` | Permissionless | Callable once `block.timestamp >= proposal.voteEnd`. Snapshots total guardian stake into `Review.totalStakeAtOpen`. Cold-start gate: if the snapshot is below `MIN_COHORT_STAKE_AT_OPEN`, the review is marked `cohortTooSmall` and resolves `blocked=false` unconditionally. |
+| `voteOnProposal(proposalId, support, slashBps)` | Active guardian | Vote `Approve` or `Block`, weighted by sWOOD vote weight at `openedAt`. Allowed only while `voteEnd <= now < reviewEnd`. Vote-change allowed in the early window; locked out in the final 10% (`LATE_VOTE_LOCKOUT_BPS`). **`slashBps`** is the proposed slash severity carried by a `Block` vote — ignored on `Approve` / `Abstain`. |
+| `resolveReview(proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum; if blocked, computes the stake-weighted **median** of blockers' `slashBps` (clamped to sWOOD's `[minSlashBps, maxSlashBps]`) and calls `sWOOD.slashGuardians` to slash Approvers at that severity. Credits Block-side reward weight. Idempotent, `nonReentrant`, CEI-ordered. |
 
 **Guardian vote enum** is separate from the governor's `VoteType`: `GuardianVoteType = { None, Approve, Block }`. Keeping them distinct prevents enum-variant confusion across the governor/registry ABI boundary.
 
-### Vault owner role
+### Vault owner role (sWOOD)
 
 Vault owners post a WOOD bond at vault creation. Without a bound stake, the factory rejects `createSyndicate`, and on an existing vault, `emergencySettleWithCalls` reverts with `OwnerBondInsufficient`.
 
 | Function | Who | What |
 |---|---|---|
-| `prepareOwnerStake(amount)` | Prospective owner | Pull WOOD into the registry; does not yet bind to a vault. Must be ≥ `minOwnerStake`. |
+| `prepareOwnerStake(amount)` | Prospective owner | Pull WOOD into sWOOD; does not yet bind to a vault. Must be ≥ `minOwnerStake`. |
 | `cancelPreparedStake()` | Prospective owner | Refund if not yet bound. |
 | `bindOwnerStake(owner, vault)` | `onlyFactory` | Consumes prepared stake + binds to a newly-created vault. Atomic with `createSyndicate`. |
 | `transferOwnerStakeSlot(vault, newOwner)` | `onlyFactory` | Called from `SyndicateFactory.rotateOwner` to reassign the slot after a prior owner was slashed or unstaked. New owner must have prepared ≥ `requiredOwnerBond(vault)`. |
@@ -100,11 +124,15 @@ Slashing is on-chain and final — slashed WOOD is **burned** to `0x...dEaD`, no
 - Aligns with WOOD scarcity narrative.
 - Removes any treasury-capture incentive to over-slash.
 
+Slashing **executes on sWOOD** (the WOOD custodian); the registry only computes the verdict and severity, then calls in. `slashGuardians` and `slashOwnerBond` are `onlyRegistry` on sWOOD.
+
+**Graduated, voted severity.** Binary 100% slashing punishes a careless approver and a colluding one identically. Instead, the slash *magnitude* is a verdict produced by the review: each `Block` vote carries a proposed `slashBps`, and at `resolveReview` the registry takes the **stake-weighted median** of blockers' proposals (median, not mean — one whale blocker cannot drag the result), clamps it to sWOOD's owner-set `[minSlashBps, maxSlashBps]` band (a non-zero floor preserves the deterrent), and passes it to `sWOOD.slashGuardians`. Approvers are the slashed party, so only blockers set severity; non-voters abstain.
+
 Slash paths:
 
-- **Approvers slashed** inside `resolveReview` when `blocked == true`. Stake zeroed, `_totalGuardianStake` decremented, single bulk `wood.transfer` at the end (CEI). If the transfer reverts, the amount is recorded to `_pendingBurn[address(this)]` and anyone can later call `flushBurn()` to retry. State transition already committed.
-- **Owner slashed** inside `resolveEmergencyReview` when `blocked == true`. Same CEI + pull-burn pattern.
-- **Cap:** `_slashApprovers` is bounded by `MAX_APPROVERS_PER_PROPOSAL = 100` to keep gas deterministic. Blockers are **uncapped** (no token transfer per blocker, only epoch-weight updates) — capping would be a DoS vector against honest defence.
+- **Approvers slashed** when `resolveReview` resolves `blocked == true`. `sWOOD.slashGuardians(pid, approvers[], slashBps)` reduces each approver's own stake by `slashBps`, decrements `totalGuardianStake`, and re-checkpoints. A delegate-guardian's delegated-in stake burns **pro-rata** at the same `slashBps` via the share-factor pool (one `poolTokens` write). Burned via a single bulk `wood.transfer` (CEI); if it reverts, the amount is recorded to `_pendingBurn` and anyone can call `flushBurn()` to retry.
+- **Owner slashed** when `resolveEmergencyReview` resolves `blocked == true` — `sWOOD.slashOwnerBond(vault)`. Same CEI + pull-burn pattern.
+- **Cap:** `slashGuardians` is bounded by `MAX_APPROVERS_PER_PROPOSAL = 100` to keep gas deterministic. Blockers are **uncapped** (no token transfer per blocker, only reward-weight updates) — capping would be a DoS vector against honest defence.
 
 ### Appeal path
 
@@ -128,13 +156,22 @@ Pause does **not** freeze: `stakeAsGuardian`, `requestUnstake*`, `claimUnstake*`
 
 ## Parameters (initial values)
 
-All timelocked via the same queue/finalize pattern as `GovernorParameters` (6h–7d delay).
+Owner-set; the owner is a multisig that enforces its own delay (Gnosis Safe + Zodiac Delay). Each setter validates bounds and emits a uniform `ParameterChangeFinalized(key, old, new)` event.
+
+**sWOOD parameters** (staking / delegation / slash severity):
 
 | Parameter | Default | Bounds | Notes |
 |---|---|---|---|
-| `minGuardianStake` | 10,000 WOOD | ≥ 1 WOOD | Mainnet floor via timelock; `≥ 1 WOOD` is a testnet-only lower bound. |
+| `minGuardianStake` | 10,000 WOOD | ≥ 1 WOOD | Mainnet floor; `≥ 1 WOOD` is a testnet-only lower bound. |
 | `minOwnerStake` | 10,000 WOOD | ≥ 1,000 WOOD | Flat floor; `requiredOwnerBond(vault) == minOwnerStake`. |
-| `coolDownPeriod` | 7 days | 1–30 days | |
+| `coolDownPeriod` | 7 days | 1–30 days | Applies to guardian, delegation, and owner unstake. |
+| `delegationEnabled` | `false` | — | Feature flag — when off, no new `delegateStake`; unstake stays open. |
+| `minSlashBps` / `maxSlashBps` | — | `minSlashBps ≤ maxSlashBps ≤ 10_000` | Clamp band for the voted graduated slash severity. |
+
+**Registry parameters** (review lifecycle):
+
+| Parameter | Default | Bounds | Notes |
+|---|---|---|---|
 | `reviewPeriod` | 24 hours | 6h–7 days | Single global value. No per-proposal override in V1. |
 | `blockQuorumBps` | 3000 (30%) | 1000–10000 | Below 50% so a motivated minority can block; high enough random dissent doesn't grief. |
 
