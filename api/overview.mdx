@@ -1,0 +1,155 @@
+---
+title: "HTTP API"
+description: "Drive Sherwood without installing the CLI — agents that can fetch JSON can prepare onchain calldata, sign locally, and broadcast."
+---
+
+The Sherwood HTTP API exposes the same calldata encoders and read helpers the CLI uses, behind a small JSON surface. Use it when you can't install Node packages — browser agents, Lambda runtimes, MCP servers in restricted sandboxes — or when you want a hosted gateway you can pin against.
+
+The API never sees your private key. Every state-changing endpoint returns *unsigned* calldata; you sign and broadcast with whatever wallet you already control.
+
+**Base URL:** `https://api.sherwood.sh`
+
+## Response envelope
+
+Every response — success or failure, every endpoint — uses the same shape:
+
+```json
+{
+  "success": true,
+  "data": { /* endpoint payload */ },
+  "meta": {
+    "command": "prepare.deposit",
+    "chainId": 8453,
+    "timestamp": "2026-05-15T14:56:14.292Z"
+  }
+}
+```
+
+On error: `success: false`, `data` omitted, `error` string present. `meta.chainId` is `null` when validation fired before chain resolution (so a malformed request never lies about which chain it would have hit).
+
+`bigint` fields (balances, block numbers, governor parameters) serialize as decimal strings — JSON numbers can't safely carry uint256.
+
+## Error codes
+
+| HTTP | Meaning |
+|---|---|
+| 400 | `USAGE` — malformed input. `UNSUPPORTED` — well-formed input we don't support (unknown chain, asset not deployed). |
+| 404 | `NOT_FOUND` — resource doesn't exist (e.g. unknown proposal id). Idempotent "does it exist?" probes get a clean 404, not a 500. |
+| 429 | Per-IP rate limit (60 req/min). |
+| 500 | `INTERNAL` — server-side bug. We log + alert. |
+| 503 | `UNAVAILABLE` — upstream RPC outage. Retry. |
+
+## Calldata endpoints (POST)
+
+Each endpoint returns a `PreparedAction`:
+
+```ts
+interface PreparedAction {
+  txs: Array<{
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value: `0x${string}`;     // hex-encoded (matches EIP-5792 / wallet_sendCalls)
+    chainId: number;
+  }>;
+  preconditions: Array<           // things to verify before broadcasting
+    | { type: "balance"; asset; assetSymbol; min; minDecimal }
+    | { type: "allowance"; token; spender; min; minDecimal }
+    | { type: "vault-not-locked"; vault }
+    | { type: "depositor-approved"; vault; depositor }
+  >;
+  description: string;
+  note?: string;
+}
+```
+
+Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if an `approve` is needed) and broadcast in order via your own RPC.
+
+| Endpoint | Body | Equivalent CLI |
+|---|---|---|
+**Both verbs supported.** Every `/prepare/*` route accepts `GET` (query string) and `POST` (JSON body) and returns identical calldata — except `/prepare/propose`, which is POST-only because nested `executeCalls[] / settlementCalls[] / coProposers[]` arrays don't query-encode cleanly. GET is the easier one-liner; POST is preserved for backward compatibility and complex payloads.
+
+| Endpoint | Args | Equivalent CLI |
+|---|---|---|
+| `GET\|POST /v1/prepare/deposit` | `chainId, vault, receiver, amount\|amountDecimal` | `sherwood vault deposit` |
+| `GET\|POST /v1/prepare/redeem` | `chainId, vault, receiver, owner, shares` | `sherwood vault redeem` |
+| `GET\|POST /v1/prepare/request-redeem` | `chainId, vault, owner, shares` | (queue path; no CLI yet) |
+| `POST /v1/prepare/propose` | `chainId, vault, strategy, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers?` | `sherwood proposal create` |
+| `GET\|POST /v1/prepare/vote` | `chainId, proposalId, vote: "For"\|"Against"\|"Abstain"` | `sherwood proposal vote` |
+| `GET\|POST /v1/prepare/execute` | `chainId, proposalId` | `sherwood proposal execute` |
+| `GET\|POST /v1/prepare/settle` | `chainId, proposalId` | `sherwood proposal settle` |
+| `GET\|POST /v1/prepare/cancel` | `chainId, proposalId` | `sherwood proposal cancel` |
+| `GET\|POST /v1/prepare/veto` | `chainId, proposalId` | `sherwood proposal veto` |
+| `GET\|POST /v1/prepare/create-syndicate` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood syndicate create` |
+| `GET\|POST /v1/prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood syndicate approve-depositor` |
+| `GET\|POST /v1/prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood syndicate add` |
+| `GET\|POST /v1/prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
+| `GET\|POST /v1/prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim", delegate?` | `sherwood guardian unstake` |
+| `GET\|POST /v1/prepare/guardian-delegate` | `chainId, delegate, amount` | `sherwood guardian delegate` |
+| `GET\|POST /v1/prepare/guardian-claim` | `chainId, proposalId, delegate?` | `sherwood guardian claim` |
+
+## Read endpoints (GET)
+
+Edge-cacheable reads return state on the fly — no key required.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /v1` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://www.sherwood.sh/api/v1` or simply `https://api.sherwood.sh/` (the subdomain rewrites root → `/api/v1`). |
+| `GET /v1/chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
+| `GET /v1/syndicates?chain=8453&limit=25` | Active syndicates on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/v1/vaults/:address` for richer data. |
+| `GET /v1/governor?chain=8453` | Live governor parameters (voting period, veto bps, fees). |
+| `GET /v1/vaults/:address?chain=8453` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
+| `GET /v1/proposals?chain=8453&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. |
+| `GET /v1/proposals/:id?chain=8453` | Single proposal: votes, voter snapshot, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. |
+| `GET /v1/health` | Shallow probe — always 200 if the worker is up. |
+| `GET /v1/health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
+
+## Worked example: deposit 100 USDC into a Base vault
+
+```bash
+# 1. Look up the vault to confirm it's open + read the asset
+curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=8453' | jq
+
+# 2. Prepare the calldata (returns 1–2 txs depending on current allowance)
+#    GET form (one-liner) — returns identical calldata to POST below.
+curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=8453&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=100' | jq
+
+# Or POST form — useful when args are dynamic / programmatically built.
+curl -sX POST https://api.sherwood.sh/prepare/deposit \
+  -H 'content-type: application/json' \
+  -d '{
+    "chainId": 8453,
+    "vault": "0xVaultAddress",
+    "receiver": "0xYourAddress",
+    "amountDecimal": "100"
+  }' | jq
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "txs": [
+      { "to": "0x833589...02913", "data": "0x095ea7b3...", "value": "0x0", "chainId": 8453 },
+      { "to": "0xVaultAddress",   "data": "0x6e553f65...", "value": "0x0", "chainId": 8453 }
+    ],
+    "preconditions": [
+      { "type": "balance",   "asset": "0x833589...", "assetSymbol": "USDC", "min": "100000000", "minDecimal": "100" },
+      { "type": "allowance", "token": "0x833589...", "spender": "0xVaultAddress", "min": "100000000", "minDecimal": "100" },
+      { "type": "vault-not-locked",  "vault": "0xVaultAddress" },
+      { "type": "depositor-approved","vault": "0xVaultAddress", "depositor": "0xYourAddress" }
+    ],
+    "description": "Approve USDC for 0xVaultAddress, then deposit 100 USDC.",
+    "note": "Both txs are gated by vault state. If `redemptionsLocked()` is true the deposit reverts unless live NAV is available; check the vault read endpoint before broadcasting."
+  },
+  "meta": { "command": "prepare.deposit", "chainId": 8453, "timestamp": "..." }
+}
+```
+
+3. Sign each tx with viem / ethers / your wallet.
+4. Broadcast in order. Wait for receipt of tx[0] before broadcasting tx[1] — sequence matters.
+
+## Versioning
+
+The HTTP API is on `/v1` and the response envelope is stable. Breaking changes go to `/v2`. Field additions are non-breaking — agents must ignore unknown fields. The companion TypeScript SDK ([@sherwoodagent/sdk](/api/sdk)) tracks the same encoders and is the recommended consumer when you can install it.

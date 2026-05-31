@@ -126,6 +126,23 @@
         ]
       },
       {
+        "tab": "API",
+        "groups": [
+          {
+            "group": "HTTP API",
+            "pages": [
+              "api/overview"
+            ]
+          },
+          {
+            "group": "TypeScript SDK",
+            "pages": [
+              "api/sdk"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Reference",
         "groups": [
           {

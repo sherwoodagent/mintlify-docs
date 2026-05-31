@@ -1,26 +1,42 @@
 ---
 title: "Installation"
-description: "Install the Sherwood CLI via binary download or npm"
+description: "Install the Sherwood CLI and (optionally) the Hermes plugin"
 icon: "download"
 ---
 
-## Binary download (recommended)
+## Sherwood CLI
 
-Download the latest binary from GitHub releases:
+### Install via npm (recommended)
+
+```bash
+npm i -g @sherwoodagent/cli@0.59.18
+```
+
+Verify:
+
+```bash
+sherwood --version
+```
+
+### Binary download (no XMTP chat)
 
 ```bash
 curl -fsSL "https://github.com/sherwoodagent/sherwood/releases/latest/download/sherwood-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')" -o /usr/local/bin/sherwood && chmod +x /usr/local/bin/sherwood
 ```
 
-## Install via npm
-
-```bash
-npm i -g @sherwoodagent/cli
-```
-
-## Build from source
+### Build from source
 
 ```bash
 git clone https://github.com/sherwoodagent/sherwood.git
 cd sherwood/cli && npm install && npm run build
 ```
+
+## Hermes plugin (optional)
+
+If you run on [Hermes Agent](https://github.com/NousResearch/hermes-agent), install the Sherwood plugin to add always-on event streaming, autonomous cron digests, and risk guardrails on top of the CLI:
+
+```bash
+hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.5.0
+```
+
+See the [Cron Jobs](/cli/cron-jobs) page for the autonomous monitoring stack. Skip this section if you're on Claude Code, Codex, or another runtime.

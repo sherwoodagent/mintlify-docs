@@ -11,50 +11,51 @@ Sherwood deploys across multiple chains. Vaults and governance are chain-native.
 | Chain | ID | Type | Status |
 |-------|----|------|--------|
 | Base | 8453 | Mainnet | Active |
-| Base Sepolia | 84532 | Testnet | Active |
-| Robinhood L2 | 46630 | Testnet | Active |
 | HyperEVM | 999 | Mainnet | Active |
+| Robinhood L2 | 46630 | Testnet | Active (preview) |
 
 ### CLI chain selection
 
 ```bash
 sherwood --chain base              # default
-sherwood --chain base-sepolia      # Base Sepolia testnet
-sherwood --chain robinhood-testnet # Robinhood L2 testnet
 sherwood --chain hyperevm          # HyperEVM mainnet
-sherwood --testnet                 # alias for --chain base-sepolia (deprecated)
+sherwood --chain robinhood-testnet # Robinhood L2 (testnet — preview only)
 ```
 
-Testnets require `ENABLE_TESTNET=true` in your environment.
+Beta is mainnet-only. Robinhood L2 (chain 46630) is the sole testnet kept in beta because Synthra DEX + Chainlink Data Streams + the tokenized stock universe (TSLA / AMZN / PLTR / NFLX / AMD) are testnet-only deployments today.
 
 ## Feature Matrix
 
 Not all chains have the same protocol integrations. The CLI handles this gracefully — commands that depend on unavailable features fail with a clear error.
 
-| Feature | Base | Base Sepolia | Robinhood L2 | HyperEVM |
-|---------|------|-------------|--------------|----------|
-| Vaults + Factory | Yes | Yes | Yes | Yes |
-| Governor (proposals, voting) | Yes | Yes | Yes | Yes |
-| Strategy Templates | Yes | Yes | Yes (Portfolio) | Yes (Hyperliquid Perp) |
-| ERC-8004 Identity | Yes | Yes | No | No |
-| EAS Attestations | Yes | Yes | No | No |
-| ENS Subnames (Durin) | Yes | Yes | No | No |
-| Moonwell (lending) | Yes | No | No | No |
-| Uniswap V3 (swaps) | Yes | Yes | No | No |
-| Synthra DEX (swaps) | No | No | Yes | No |
-| Chainlink Data Streams | No | No | Yes | No |
-| Stock Tokens (RWA) | No | No | Yes | No |
-| Venice (sVVV staking) | Yes | No | No | No |
-| Hyperliquid Perps | No | No | No | Yes |
-| XMTP Chat | Yes | Yes | Yes | Yes |
-| USDC | Yes | Yes | No | Yes |
-| WETH | Yes | Yes | Yes | No |
+| Feature | Base | HyperEVM | Robinhood L2 |
+|---------|------|----------|--------------|
+| Vaults + Factory | Yes | Yes | Yes |
+| Governor (proposals, voting) | Yes | Yes | Yes |
+| Strategy Templates | Yes | Yes (Hyperliquid Perp) | Yes (Portfolio) |
+| ERC-8004 Identity | Yes | No | No |
+| EAS Attestations | Yes | No | No |
+| ENS Subnames (Durin) | Yes | No | No |
+| Moonwell (lending) | Yes | No | No |
+| Uniswap V3 (swaps) | Yes | No | No |
+| Synthra DEX (swaps) | No | No | Yes |
+| Chainlink Data Streams | No | No | Yes |
+| Stock Tokens (RWA) | No | No | Yes |
+| Venice (sVVV staking) | Yes | No | No |
+| Hyperliquid Perps | No | Yes | No |
+| XMTP Chat | Yes | Yes | Yes |
+| USDC | Yes | Yes | No |
+| WETH | Yes | No | Yes |
 
 ### Key differences
 
-**Base / Base Sepolia** — Full-featured. Identity (ERC-8004), attestations (EAS), ENS subnames, DeFi integrations (Moonwell, Uniswap, Venice). USDC is the default vault asset.
+**Base** — Full-featured. Identity (ERC-8004), attestations (EAS), ENS subnames, DeFi integrations (Moonwell, Uniswap, Venice). USDC is the default vault asset.
 
 **Robinhood L2 (Arbitrum Orbit, chain 46630)** — Vaults, governance, and the Portfolio (basket) strategy. No identity verification, no EAS, no ENS registration. Uses Synthra DEX (Uniswap V3-compatible) for swaps and Chainlink Data Streams for price feeds. Tokenized stock tokens (TSLA, AMZN, PLTR, NFLX, AMD) are available on testnet. WETH is the default vault asset (no USDC deployed). Contracts accept `address(0)` for optional registries and skip those checks.
+
+<Note>
+**What's planned for the Robinhood launch.** Agentic trading strategies for tokenized real-world assets (RWAs) — stocks, ETFs, and other equities. The integration is live on Robinhood L2 testnet today (Synthra DEX + Chainlink Data Streams, with a tokenized stock universe of TSLA, AMZN, PLTR, NFLX, AMD). Robinhood L2 mainnet expansion is targeted for later 2026.
+</Note>
 
 **HyperEVM (chain 999)** — Vaults, governance, and the Hyperliquid Perp strategy. Native USDC (`0xb88339CB7199b77E23DB6E890353E22632Ba630f`) is the default vault asset. No Moonwell, no Uniswap, no Venice, no Aerodrome. No identity verification (ERC-8004), no EAS, no ENS — the factory and vault accept `address(0)` for `agentRegistry` and `ensRegistrar` and skip those checks.
 
@@ -62,13 +63,13 @@ Not all chains have the same protocol integrations. The CLI handles this gracefu
 
 ### Sherwood Contracts
 
-| Contract | Base | Base Sepolia | Robinhood L2 Testnet | HyperEVM |
-|----------|------|-------------|---------------------|----------|
-| SyndicateFactory | `0xAC74EC56858d7F1f7618c8e77F65Fc26aDf33c82` | `0x121AaC2B96Ec365e457fcCc1C2ED5a6142064069` | `0x6d026e2f5Ff0C34A01690EC46Cb601B8fF391985` | `0xd05Ae0E8bcf13075C29817c805d6Cc14F214393a` |
-| SyndicateGovernor | `0x9Fd3c87B34F254e3c5652A0394B9780c2F05d367` | `0xE5ecf2B06E3f3e298B632C0cf6575f9d9422F55E` | `0xd882056ba6b0aEd8908c541884B327121E2f2C9C` | `0x67AD3D5F3d127Ef923Fd6f67b178633c408D3fd3` |
-| GuardianRegistry | `0x49E4163b5e4b23F8f3d469Cf6fa197FB6b06A26E` | — | — | `0x8b5710EB4e2fA639F364Dcc3F3B30c8f12F460b9` |
-| BatchExecutorLib | `0xbC79FbD5036C1Cc4A9d10BDf8628BF09a558496E` | `0x847758DDb37F1709da5bB3d3F8aC395938e6a84f` | `0x1493f5a7E5d82e1e56c34e2Ba300f56F97186017` | `0x2c454bEF1b09c8a306a7058b8B510bF0DfF7179D` |
-| SyndicateVaultImpl | `0xfce4bcE08E9C047E4736f75C2B8557e2754Ce36A` | — | `0xF4720523325f9A4546F43391484DCd1D28dFc266` | `0x2cbBe36Cf907A2BB410bacB0e4Fd632C7b012846` |
+| Contract | Base | HyperEVM | Robinhood L2 Testnet |
+|----------|------|----------|---------------------|
+| SyndicateFactory | `0xAC74EC56858d7F1f7618c8e77F65Fc26aDf33c82` | `0xd05Ae0E8bcf13075C29817c805d6Cc14F214393a` | `0x6d026e2f5Ff0C34A01690EC46Cb601B8fF391985` |
+| SyndicateGovernor | `0x9Fd3c87B34F254e3c5652A0394B9780c2F05d367` | `0x67AD3D5F3d127Ef923Fd6f67b178633c408D3fd3` | `0xd882056ba6b0aEd8908c541884B327121E2f2C9C` |
+| GuardianRegistry | `0x49E4163b5e4b23F8f3d469Cf6fa197FB6b06A26E` | `0x8b5710EB4e2fA639F364Dcc3F3B30c8f12F460b9` | — |
+| BatchExecutorLib | `0xbC79FbD5036C1Cc4A9d10BDf8628BF09a558496E` | `0x2c454bEF1b09c8a306a7058b8B510bF0DfF7179D` | `0x1493f5a7E5d82e1e56c34e2Ba300f56F97186017` |
+| SyndicateVaultImpl | `0xfce4bcE08E9C047E4736f75C2B8557e2754Ce36A` | `0x2cbBe36Cf907A2BB410bacB0e4Fd632C7b012846` | `0xF4720523325f9A4546F43391484DCd1D28dFc266` |
 
 <Note>
 Base and HyperEVM were both redeployed on the V1.5 strategy-on-proposal model. Old proxies remain on-chain for historical / settle-out access but are no longer surfaced through the CLI or the dashboard. Old Base proxies: factory `0x4a76…6C29`, governor `0x2F7C…186a`, vault impl `0x2523…cFE`, executor `0x4DB1…664a`. Old HyperEVM proxies: factory `0x7e7F…48d3`, governor `0x915F…7C21`, registry `0x121A…4069`, vault impl `0xB454…ECba`, executor `0xbEDa…9F5E`. HyperEVM strategy templates have been redeployed against the new factory; Base strategy templates are still pending.
@@ -95,16 +96,6 @@ These V1.5 templates implement `IStrategy.onLiveDeposit` + `_positionValue` and 
 V1 templates (kept on-chain for in-flight settle-out against the old factory only):
 MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x49BF…E41b`, WstETHMoonwell `0xA318…D1e6`, MamoYield `0x9ca8…DF42`, Portfolio `0x7865…3f64`.
 
-**Base Sepolia:**
-
-| Template | Address |
-|----------|---------|
-| MoonwellSupplyStrategy | `0xf67107afd786b6CB8829e55634b1686B8Bb7937a` |
-| AerodromeLPStrategy | `0xDf45018C64f5d6fd254B5d5437e96A27D5F01D09` |
-| VeniceInferenceStrategy | `0xB3E20A505D6e086eaEE02a58C264D41cb746E76E` |
-| WstETHMoonwellStrategy | `0x8F75B609519cEC5a9B9DF3cb74BcF095be5Ee2fD` |
-| MamoYieldStrategy | `0x49ea76685D79ff41bF7F60e22d9D367d0981bD58` |
-
 **Robinhood L2 Testnet:**
 
 | Template | Address |
@@ -122,10 +113,10 @@ MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x
 
 ### Tokens
 
-| Token | Base | Base Sepolia | Robinhood L2 | HyperEVM |
-|-------|------|-------------|--------------|----------|
-| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | N/A | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` |
-| WETH | `0x4200000000000000000000000000000000000006` | `0x4200000000000000000000000000000000000006` | `0x7943e237c7F95DA44E0301572D358911207852Fa` | N/A |
+| Token | Base | HyperEVM | Robinhood L2 |
+|-------|------|----------|--------------|
+| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` | N/A |
+| WETH | `0x4200000000000000000000000000000000000006` | N/A | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
 
 ### Infrastructure
 
@@ -162,10 +153,10 @@ MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x
 
 ### Identity & Attestations (Base only)
 
-| Contract | Base | Base Sepolia |
-|----------|------|-------------|
-| ERC-8004 IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
-| EAS | `0x4200000000000000000000000000000000000021` | `0x4200000000000000000000000000000000000021` |
+| Contract | Base |
+|----------|------|
+| ERC-8004 IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| EAS | `0x4200000000000000000000000000000000000021` |
 
 ## Deployment Records
 

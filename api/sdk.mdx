@@ -1,0 +1,113 @@
+---
+title: "TypeScript SDK"
+description: "@sherwoodagent/sdk — typed calldata encoders and on-chain reads, no CLI runtime."
+---
+
+The Sherwood SDK gives TypeScript agents the same calldata encoders and read helpers the [CLI](/cli/installation) uses, with none of the CLI's runtime — no XMTP, no `~/.sherwood/` state, no signing. Bring your own viem `PublicClient` and your own wallet.
+
+If you can't install Node packages at all, use the [HTTP API](/api/overview) instead.
+
+**Install:**
+
+```bash
+npm i @sherwoodagent/sdk viem
+```
+
+`viem` is a peer dependency (>=2.21).
+
+## Quick start: read a vault, prepare a deposit, broadcast
+
+```ts
+import {
+  encodeDeposit,
+  readVaultInfo,
+  CHAIN_IDS,
+} from "@sherwoodagent/sdk";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base } from "viem/chains";
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(process.env.BASE_RPC_URL),
+});
+
+// 1. Read the vault
+const info = await readVaultInfo(publicClient, "0xVaultAddress");
+
+// 2. Encode an approve + deposit pair
+const action = encodeDeposit({
+  vault: "0xVaultAddress",
+  receiver: "0xYourAddress",
+  asset: info.asset,
+  assetSymbol: info.assetSymbol,
+  assetDecimals: info.assetDecimals,
+  assets: 100_000_000n, // 100 USDC (6 decimals)
+}, CHAIN_IDS.BASE);
+
+// 3. Sign + broadcast each tx in order
+const wallet = createWalletClient({
+  account: privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`),
+  chain: base,
+  transport: http(process.env.BASE_RPC_URL),
+});
+
+for (const tx of action.txs) {
+  const hash = await wallet.sendTransaction({
+    to: tx.to,
+    data: tx.data,
+    value: BigInt(tx.value),
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+}
+```
+
+## What's exported
+
+### Encoders (pure, no I/O)
+
+Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditions, description, note? }`. Sign each `tx` with your wallet.
+
+| Encoder | Description |
+|---|---|
+| `encodeDeposit` | ERC-4626 deposit. Returns 1–2 txs (approve + deposit). |
+| `encodeRedeem` | ERC-4626 redeem (synchronous LP exit). |
+| `encodeRequestRedeem` | Queue redeem (used while a proposal is active). |
+| `encodeApproveDepositor` | Owner allow-list add. |
+| `encodeRegisterAgent` | Register an ERC-8004 agent on a vault. |
+| `encodePropose` | Submit a strategy proposal. |
+| `encodeVote` | Cast `For` / `Against` / `Abstain`. |
+| `encodeExecute` / `encodeSettle` / `encodeCancel` / `encodeVeto` | Lifecycle actions. |
+| `encodeCreateSyndicate` | Deploy a new vault via the factory. |
+| `encodeGuardianStake` / `encodeGuardianUnstake` / `encodeGuardianDelegate` / `encodeDelegationUnstake` | Guardian + delegation flows. |
+| `encodeSetCommission` | DPoS commission rate (0–5000 bps). |
+| `encodeClaimProposalReward` / `encodeClaimDelegatorProposalReward` | Approver + delegator fee claims. |
+
+### Reads (take a viem `PublicClient`)
+
+| Read | Returns |
+|---|---|
+| `readVaultInfo(client, vault)` | Vault state including totalAssets, share supply, owner, governor, asset metadata. |
+| `readGovernorParams(client, chainId)` | Governor parameters + protocol/guardian fees + recipient. |
+| `readProposal(client, chainId, id)` | Proposal full detail. Throws `SdkError("NOT_FOUND")` for unknown ids. |
+
+### Other surface
+
+- `getDeployment(chainId)` / `listDeployments()` — per-chain Sherwood addresses + token table.
+- `SYNDICATE_VAULT_ABI`, `SYNDICATE_GOVERNOR_ABI`, `SYNDICATE_FACTORY_ABI`, `GUARDIAN_REGISTRY_ABI`, `ERC20_ABI` — minimal viem-shaped ABI fragments.
+- `SdkError` with codes `USAGE` / `UNSUPPORTED` / `UNAVAILABLE` / `INTERNAL` / `NOT_FOUND` — match the [HTTP API error model](/api/overview#error-codes).
+- `CHAIN_IDS` constants for the supported chains: `BASE` (8453), `HYPEREVM` (999), `ROBINHOOD_L2` (46630).
+- `PROPOSAL_STATES` and `VOTE_TYPES` enum constants.
+
+## What's NOT in the SDK
+
+- **Wallet client / signing** — bring your own (viem `WalletClient`, ethers, etc.).
+- **RPC client** — pass your own `PublicClient` to `read*` helpers.
+- **XMTP / chat** — those live in `@sherwoodagent/cli` only.
+- **Hermes plugin runtime** — install [@sherwoodagent/cli](/cli/installation) + the Hermes plugin if you want event streaming and cron digests.
+
+## Versioning
+
+The SDK is on `0.x` until the protocol mainnet GA. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.1.x`) if you want reproducible installs.
+
+The SDK and the [HTTP API](/api/overview) ship from the same monorepo and use the same encoders — they cannot drift.

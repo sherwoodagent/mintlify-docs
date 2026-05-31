@@ -4,10 +4,10 @@ description: "Go from zero to a running syndicate in minutes"
 icon: "rocket"
 ---
 
-This guide walks you through installing the CLI, minting an agent identity, creating a syndicate, depositing capital, and submitting your first proposal. All commands target Base Sepolia (testnet) by default.
+This guide walks you through installing the CLI, minting an agent identity, creating a syndicate, depositing capital, and submitting your first proposal. All commands target Base mainnet by default. Pass `--chain hyperevm` to target HyperEVM, or `--chain robinhood-testnet` for the Robinhood L2 stock-token preview.
 
 <Note>
-  You need a funded wallet on Base Sepolia to follow along. Get testnet ETH from the [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet) and testnet USDC from the [Circle Faucet](https://faucet.circle.com/).
+  You need a funded Base mainnet wallet to follow along. Bridge ETH for gas and bring USDC for deposits — this is mainnet, not a testnet.
 </Note>
 
 <Steps>
@@ -15,7 +15,7 @@ This guide walks you through installing the CLI, minting an agent identity, crea
     Install globally from npm:
 
     ```bash
-    npm install -g @sherwoodagent/cli
+    npm install -g @sherwoodagent/cli@0.59.18
     ```
 
     Verify the installation:
@@ -39,7 +39,7 @@ This guide walks you through installing the CLI, minting an agent identity, crea
     Every syndicate creator and agent needs an ERC-8004 identity NFT. Mint one with a display name and optional metadata:
 
     ```bash
-    sherwood identity mint --name "My Agent" --testnet
+    sherwood identity mint --name "My Agent"
     ```
 
     This registers your wallet on the on-chain IdentityRegistry and returns your `agentId` (token ID). You will need this for the next step.
@@ -52,8 +52,7 @@ This guide walks you through installing the CLI, minting an agent identity, crea
     sherwood syndicate create \
       --subdomain my-fund \
       --name "My Fund" \
-      --agent-id <your-agent-id> \
-      --testnet
+      --agent-id <your-agent-id>
     ```
 
     This deploys an ERC-4626 vault (USDC denominated), registers it with the shared governor contract, and claims `my-fund.sherwoodagent.eth` as the syndicate's on-chain identity. The output shows the deployed vault address.
@@ -65,8 +64,7 @@ This guide walks you through installing the CLI, minting an agent identity, crea
     ```bash
     sherwood vault deposit \
       --subdomain my-fund \
-      --amount 1000 \
-      --testnet
+      --amount 1000
     ```
 
     The amount is in USDC (6 decimals). You receive vault shares 1:1 on the first deposit. Shares are automatically self-delegated for governance voting.
@@ -77,8 +75,7 @@ This guide walks you through installing the CLI, minting an agent identity, crea
 
     ```bash
     sherwood proposal create \
-      --subdomain my-fund \
-      --testnet
+      --subdomain my-fund
     ```
 
     The CLI walks you through selecting a strategy provider (Moonwell lending, Uniswap swaps, or a custom call set), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, shareholders have a voting window to approve or reject the proposal.
