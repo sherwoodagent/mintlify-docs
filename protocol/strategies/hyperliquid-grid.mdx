@@ -17,8 +17,8 @@ HyperEVM mainnet only.
 ```mermaid
 graph TD
     V["Vault (USDC)"] -->|"execute: pull USDC"| S["HyperliquidGridStrategy clone"]
-    S -->|"sendUpdateLeverage (per asset)"| C1["L1Write precompile"]
-    S -->|"sendUsdClassTransfer"| C2["HyperCore perp margin"]
+    S -->|"bridgeUsdcToSpot (Circle CoreDepositWallet)"| C1["HyperCore spot"]
+    C1 -->|"sendUsdClassTransfer (spot → perp)"| C2["HyperCore perp margin"]
 
     P["Proposer / keeper"] -->|"updateParams: place / cancel / cancel-and-place"| S
     S -->|"sendLimitOrder (GTC) + tracked CLOID"| C3["HyperCore orderbook"]
@@ -43,10 +43,10 @@ Pending → execute() → finalizeForHyperCore() → Executed → (place/cancel 
 
 | Phase | What happens | Who calls |
 |-------|-------------|-----------|
-| **Execute** | Pull USDC → set per-asset leverage on HyperCore → `sendUsdClassTransfer` to perp margin | Governor (proposal execution) |
-| **Finalize-for-HyperCore** | One-time `finalizeForHyperCore(0, Create, deployerNonce)` so HC auto-credits ERC-20 USDC transfers to this clone's spot account. The CLI runs it as a separate tx immediately after `initialize()`. | Proposer |
+| **Execute** | Pull USDC → `bridgeUsdcToSpot` (EVM → HC spot via Circle) → `sendUsdClassTransfer` (spot → perp margin). Leverage is set off-chain via the exchange API before the proposal opens. | Governor (proposal execution) |
+| **Finalize-for-HyperCore** | One-time `finalizeForHyperCore(0, FinalizeVariant.FirstStorageSlot, 0)` so HC auto-credits bridged USDC to this clone's spot account. `initialize()` stamps `address(this)` into slot 0 (`_hcSelf`); HC reads it post-block to confirm registration — no deployer-nonce math. The CLI runs it as a separate tx immediately after `initialize()`. | Proposer |
 | **Executed** | Keeper calls `updateParams` with one of: place batch of GTC orders, cancel a list of CLOIDs, atomic cancel-and-place. Each order's CLOID is tracked in `_liveCloids[ai]`. | Proposer only |
-| **Live NAV** | While Executed, `positionValue()` reads HyperCore `accountValue` so the vault stays open at fair NAV. New deposits forward via `onLiveDeposit` → another `sendUsdClassTransfer` to perp margin. | Vault (read) |
+| **Live NAV** | While Executed, `positionValue()` reads HyperCore `accountValue` so the vault stays open at fair NAV. New deposits forward via `onLiveDeposit` → `bridgeUsdcToSpot` then `sendUsdClassTransfer` (spot → perp margin). | Vault (read) |
 | **Settle** | Walk every tracked CLOID and cancel, then force-close all asset positions (reduce-only IOC at min/max price), then request async USD transfer back to spot. | Governor |
 | **Sweep** | `sweepToVault()` pushes USDC to the vault when async transfer arrives. Repeatable for partial arrivals. `initiateReturn()` is permissionless and re-runs the spot transfer if residual perp equity remains. | Anyone |
 
@@ -100,13 +100,13 @@ Position state is **not** tracked on-chain — the keeper reads HyperCore direct
 
 ## Live NAV
 
-`positionValue()` reads `L1Read.accountMarginSummary(0, address(this))` and returns `accountValue` in USDC-6-decimal units. Negative equity (severely underwater) clamps at zero. While `valid=true`, the vault stays unlocked at fair NAV — LPs can deposit / withdraw mid-proposal. New deposits forward through `onLiveDeposit`, which simply calls `sendUsdClassTransfer(amount, true)` to push the freshly-pushed USDC into perp margin.
+`positionValue()` sums HyperCore perp equity (`L1Read.accountMarginSummary`), HyperCore spot USDC, and the strategy's EVM USDC balance, all in USDC-6-decimal units. It reconciles that observable total against the in-flight high-water mark (`inFlightToHc`) using a Circle-fee-sized tolerance: within tolerance it trusts observable; a genuine cross-block bridge window (gap ≫ tolerance) falls back to `inFlightToHc` so NAV stays stable. New deposits forward through `onLiveDeposit`, which bridges the freshly-pushed USDC EVM → HC spot (`bridgeUsdcToSpot`) and then class-transfers spot → perp margin.
 
-On non-HyperEVM chains the precompile is absent; `valid=false` and the vault falls back to the async-redeem queue.
+`positionValue()` always returns **`valid=true` while `Executed`**. The vault has already pulled funds in, so flagging invalid would degrade `totalAssets()` to the queue-only path and brick mid-proposal deposits. On a chain where the precompile staticcall returns nothing, the observable HC legs read as 0 and the function falls back to `inFlightToHc` — it does **not** return `valid=false`. Returning conservative live or high-water-mark equity is always preferred over flagging invalid.
 
 ## Risk Notes
 
-- **HyperCore registration is mandatory.** The CLI calls `finalizeForHyperCore(0, Create, deployerNonce)` immediately after `initialize()`. Without this, ERC-20 USDC transfers do not auto-credit HC spot and `_execute()` reverts with `HyperCoreSpotCreditFailed`.
+- **HyperCore registration is required before execute.** The CLI calls `finalizeForHyperCore(0, FinalizeVariant.FirstStorageSlot, 0)` immediately after `initialize()`. Without it, the EVM → HC-spot bridge in `_execute()` can't auto-credit the clone's HC spot account, so the subsequent spot → perp class transfer operates on an empty balance and the funds never reach margin. `finalizeForHyperCore` reverts with `AlreadyFinalized` if called twice.
 - **Settlement order matters.** `_settle` walks `_liveCloids[asset]` from the tail and pops, guaranteeing resting orders are cancelled *before* the reduce-only IOC sweep. This eliminates the race where a resting buy could fill against the force-close at a stale price.
 - **Async settlement.** `settle()` does not immediately return funds. After IOC fills, residual perp balance lingers; `sweepToVault()` may need to be called multiple times. `initiateReturn()` is permissionless and re-runs the spot transfer if any perp equity remains.
 - **Liquidation:** HyperCore liquidates positions that breach maintenance margin. The on-chain contract has no view into liquidation state — settlement and sweep still work, but returned USDC may be well below `depositAmount`.

@@ -71,31 +71,31 @@ ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeabl
 
 ### SyndicateGovernor
 
-Proposal lifecycle, voting, execution, settlement, and collaborative proposals. Inherits `GovernorParameters` (abstract) for all parameter management + timelock logic, and `GovernorEmergency` (abstract) for the four-way emergency-settle split introduced in PR #229.
+Proposal lifecycle, voting, execution, settlement, and collaborative proposals. Inherits `GovernorParameters` (abstract) for owner-instant parameter setters (the owner is a multisig that enforces its own delay externally — e.g. Gnosis Safe + Zodiac Delay), and `GovernorEmergency` (abstract) for the four-way emergency-settle split introduced in PR #229.
 
 **Optimistic governance:** Proposals pass by default unless AGAINST votes reach the veto threshold. This is not quorum-based — proposals are approved automatically at voting end unless sufficient opposition accumulates.
 
-**Proposal lifecycle (post PR #229):** `Draft → Pending → GuardianReview → Approved/Rejected/Expired → Executed → Settled/Cancelled`. The `GuardianReview` state is a new gate between voting and approval — see [Guardian Review](/protocol/governance/guardian-review).
+**Proposal lifecycle (post PR #229):** `Draft → Pending → GuardianReview → Approved → Executed → Settled`. `Rejected`, `Expired`, and `Cancelled` are terminal off-ramps (a proposal reaches `Rejected` via veto or guardian block quorum, `Expired` if the execution window lapses, `Cancelled` via proposer/owner cancel). The `GuardianReview` state is a gate between voting and approval — see [Guardian Review](/protocol/governance/guardian-review).
 
 **VoteType enum:** `For`, `Against`, `Abstain` — replaces the previous boolean vote.
 
 **Key functions:**
-- `propose(vault, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers)` — create proposal with separate opening/closing call arrays. The proposal's `snapshotTimestamp = block.timestamp - 1` (closes a flash-delegate window on 2s L2 blocks). `reviewEnd` and `executeBy` are stamped in the same tx based on the current `reviewPeriod` and `executionWindow`.
+- `propose(vault, strategy, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers)` — create proposal with separate opening/closing call arrays. `strategy` is the address whose `positionValue()` the vault polls for live NAV during the strategy window; pass `address(0)` to opt out of live NAV (queue-only). The proposal's `snapshotTimestamp = block.timestamp - 1` (closes a flash-delegate window on 2s L2 blocks). `reviewEnd` and `executeBy` are stamped in the same tx based on the current `reviewPeriod` and `executionWindow`.
 - `vote(proposalId, voteType)` — cast vote (For/Against/Abstain) weighted by ERC20Votes timestamp-clock snapshot
 - `executeProposal(proposalId)` — **permissionless**: anyone can trigger the pre-approved `executeCalls` once state is `Approved` and the execution window is open. Uses the vault's `executeGovernorBatch`.
 - `settleProposal(proposalId)` — proposer can settle at any time; everyone else waits for `strategyDuration`. Uses the vault's `executeGovernorBatch`.
 - `unstick(proposalId)` — vault owner after duration. Runs the pre-committed `settlementCalls` only. No custom calldata, no fallback. Does not require active owner bond.
-- `emergencySettleWithCalls(proposalId, calls)` — vault owner, requires active owner bond. Commits `keccak256(calls)` hash and opens a 24h guardian review window; does **not** execute yet.
+- `emergencySettleWithCalls(proposalId, calls)` — vault owner, requires active owner bond. Stores the full owner-supplied `calls` array in the registry via `registry.openEmergency(proposalId, keccak256(calls), calls)` and opens a 24h guardian review window; does **not** execute yet.
 - `cancelEmergencySettle(proposalId)` — vault owner self-recall of an emergency-settle before `reviewEnd`. No slashing.
-- `finalizeEmergencySettle(proposalId, calls)` — vault owner after `reviewEnd`. Re-hashes and executes if guardian block quorum was not reached; reverts + slashes owner bond if it was.
-- `cancelProposal(proposalId)` / `emergencyCancel(proposalId)` — proposer or vault owner cancel, narrowed to `Draft` and `Pending` only
+- `finalizeEmergencySettle(proposalId)` — vault owner after `reviewEnd`. Takes `proposalId` only; the registry's `finalizeEmergency` returns the stored calls together with the blocked flag. Executes if guardian block quorum was not reached; reverts + slashes owner bond if it was.
+- `cancelProposal(proposalId)` — proposer cancel, allowed from `Pending`, `GuardianReview`, or `Approved`. `emergencyCancel(proposalId)` — owner cancel, narrowed to `Draft` and `Pending`.
 - `vetoProposal(proposalId)` — vault owner rejects a proposal, **narrowed to `Pending` only**. Once the proposal enters `GuardianReview`, the only rejection path is the guardian block quorum.
 - `approveCollaboration(proposalId)` / `rejectCollaboration(proposalId)` — co-proposer consent
 - `claimUnclaimedFees(vault, token)` — recipient pull-claim for fees that failed to transfer at settlement (blacklist, etc.). See [Economics — Try/catch fee transfers](/protocol/governance/economics#tryampcatch-fee-transfers--unclaimed-fee-escrow).
 
 **Separate `executeCalls` / `settlementCalls`:** Proposals store opening and closing calls in two distinct arrays. No `splitIndex` — impossible to misindex.
 
-**Protocol fee:** `protocolFeeBps` + `protocolFeeRecipient` — taken from profit before agent and management fees. Both go through the timelock for changes. Max protocol fee is 10% (1000 bps).
+**Protocol fee:** `protocolFeeBps` + `protocolFeeRecipient` — taken from profit before agent and management fees. Both are set owner-instant via `setProtocolFeeBps` / `setProtocolFeeRecipient` (the owner multisig enforces its own delay). Max protocol fee is 10% (1000 bps); a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first.
 
 **Fee distribution order (on profitable settlement):**
 1. Protocol fee from gross profit
@@ -116,27 +116,25 @@ Proposal lifecycle, voting, execution, settlement, and collaborative proposals. 
 | `_coProposers` / `coProposerApprovals` / `collaborationDeadline` | mapping | collaborative proposal state |
 | `factory` | address | authorized factory that can register vaults |
 | `_reentrancyStatus` | uint256 | simple reentrancy lock for execute/settle |
-| `_parameterChangeDelay` | uint256 | delay before queued parameter changes take effect |
-| `_pendingChanges` | mapping | parameter key → pending change |
-| `_protocolFeeBps` | uint256 | protocol fee in basis points (timelocked) |
-| `_protocolFeeRecipient` | address | recipient of protocol fees (timelocked post G-C5 — see [Economics — Protocol Fee](/protocol/governance/economics#protocol-fee)) |
-| `_unclaimedFees` | mapping | recipient → token → escrowed fee (set when `transferPerformanceFee` reverts in try/catch; claimed via `claimUnclaimedFees`) — W-1 |
+| `_protocolFeeBps` | uint256 | protocol fee in basis points (owner-instant setter) |
+| `_protocolFeeRecipient` | address | recipient of protocol fees (owner-instant setter — see [Economics — Protocol Fee](/protocol/governance/economics#protocol-fee)) |
+| `_unclaimedFees` | mapping | `keccak256(vault, recipient, token)` → escrowed fee (set when `transferPerformanceFee` reverts in try/catch; claimed via `claimUnclaimedFees`) — W-1 |
 | `_guardianRegistry` | address | `GuardianRegistry` address, stamped at init |
 | `__gap` | uint256[] | reserved storage for future upgrades (sized to cover W-1 + guardian additions) |
 
 ### GovernorParameters
 
-Abstract contract inherited by SyndicateGovernor. Contains all governance constants, 10 parameter setters, validation helpers, and the timelock mechanism.
+Abstract contract inherited by SyndicateGovernor. Contains all governance constants, parameter setters, and validation helpers.
 
-**Timelock pattern:** All governance parameter changes are queued with a configurable delay (6h-7d). Owner calls the setter (queues the change), waits for the delay, then calls `finalizeParameterChange(paramKey)` to apply. Parameters are re-validated at finalize time. Owner can `cancelParameterChange(paramKey)` at any time.
+**Owner-instant setters (no on-chain timelock):** Each setter is `onlyOwner`, validates bounds at call time, applies the change immediately, and emits a uniform `ParameterChangeFinalized(paramKey, oldValue, newValue)` event. There is no on-chain queue / delay / finalize step — the owner is a multisig (e.g. Gnosis Safe + Zodiac Delay) that enforces its own delay. Setters: `setVotingPeriod`, `setExecutionWindow`, `setVetoThresholdBps`, `setMaxPerformanceFeeBps`, `setMinStrategyDuration`, `setMaxStrategyDuration`, `setCooldownPeriod`, `setCollaborationWindow`, `setMaxCoProposers`, `setProtocolFeeBps`, `setProtocolFeeRecipient`, `setFactory`, `setGuardianFeeBps`.
 
-**10 timelocked parameters:**
+**Parameter bounds:**
 
 | Parameter | Bounds |
 |-----------|--------|
 | Voting period | 1h - 30d |
 | Execution window | 1h - 7d |
-| Veto threshold (bps) | 10% - 100% |
+| Veto threshold (bps) | 10% - 50% |
 | Max performance fee (bps) | 0% - 50% |
 | Min strategy duration | 1h - 30d |
 | Max strategy duration | 1h - 30d |
@@ -144,10 +142,11 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 | Collaboration window | 1h - 7d |
 | Max co-proposers | 1 - 10 |
 | Protocol fee (bps) | 0% - 10% |
+| Guardian fee (bps) | 0% - 5% |
 
 ### GovernorEmergency (abstract)
 
-Abstract contract inherited by `SyndicateGovernor`. Houses the four post-execution owner paths introduced by PR #229: `unstick`, `emergencySettleWithCalls`, `cancelEmergencySettle`, `finalizeEmergencySettle`. Extracted to keep the governor under the EIP-170 bytecode limit (governor runtime is within ~70 bytes of the 24,576-byte limit; CI gates at 24,400). Each function is reentrancy-guarded (`emergencyNonReentrant`) and delegates slashing/review bookkeeping to the `GuardianRegistry`. See [Execution & Settlement](/protocol/governance/settlement) for the state-machine diagrams.
+Abstract contract inherited by `SyndicateGovernor`. Houses the four post-execution owner paths introduced by PR #229: `unstick`, `emergencySettleWithCalls`, `cancelEmergencySettle`, `finalizeEmergencySettle`. Extracted to keep the governor under the EIP-170 bytecode limit. Each function is reentrancy-guarded (`emergencyNonReentrant`) and delegates call storage, slashing, and review bookkeeping to the `GuardianRegistry`. See [Execution & Settlement](/protocol/governance/settlement) for the state-machine diagrams.
 
 ### GuardianRegistry
 
@@ -157,17 +156,17 @@ UUPS upgradeable contract (owned by the Sherwood protocol multisig) managing the
 - Guardian staking / unstaking with cool-down (`stakeAsGuardian`, `requestUnstakeGuardian`, `cancelUnstakeGuardian`, `claimUnstakeGuardian`)
 - Vault-owner bond lifecycle (`prepareOwnerStake`, `cancelPreparedStake`, `bindOwnerStake` / `transferOwnerStakeSlot` — factory-only, `requestUnstakeOwner`, `claimUnstakeOwner`)
 - Review windows (`openReview`, `voteOnProposal`, `resolveReview`) with cohort snapshot at `openReview()` time to close denominator-manipulation attacks
-- Emergency-settle review windows (`openEmergencyReview` — governor-only, `voteBlockEmergencySettle`, `resolveEmergencyReview`)
+- Emergency-settle review windows (`openEmergency(proposalId, callsHash, calls)` — governor-only, stores the full calls array; `voteBlockEmergencySettle`, `resolveEmergencyReview`, `finalizeEmergency`)
 - Slashing via WOOD burn to `0x...dEaD` (CEI + pull-burn fallback via `flushBurn` if `wood.transfer` reverts)
 - Appeal path: `fundSlashAppealReserve` + `refundSlash` (owner-only, capped at 20% of reserve per epoch)
-- Epoch-based Block-side rewards: `fundEpoch` (owner / Minter), `claimEpochReward` (guardians), `sweepUnclaimed` (permissionless after 12 weeks)
-- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`). Pause freezes voting, review resolution, and reward claims; never freezes unstake/claim paths.
+- Block-side reward attribution: on a review that resolves blocked, the registry emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker. WOOD epoch block-rewards are distributed **off-chain via Merkl** — its bot reads these events plus delegation / commission events to build Merkle roots, and guardians claim at merkl.xyz. There is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` / `minter` (all removed in V1.5).
+- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`). Pause freezes voting and review resolution; never freezes unstake/claim paths.
 
-**Key constants:** `EPOCH_DURATION = 7 days`, `MIN_COHORT_STAKE_AT_OPEN = 50_000 WOOD` (cold-start fallback), `MAX_APPROVERS_PER_PROPOSAL = 100`, `SWEEP_DELAY = 12 weeks`, `LATE_VOTE_LOCKOUT_BPS = 1000` (10%), `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%), `DEADMAN_UNPAUSE_DELAY = 7 days`.
+**Key constants:** `EPOCH_DURATION = 7 days`, `MIN_COHORT_STAKE_AT_OPEN = 50_000 WOOD` (cold-start fallback), `MAX_APPROVERS_PER_PROPOSAL = 100`, `SWEEP_DELAY = 12 weeks`, `LATE_VOTE_LOCKOUT_BPS = 1000` (10%), `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%), `DEADMAN_UNPAUSE_DELAY = 7 days`, `BURN_ADDRESS = 0x...dEaD`.
 
-**Timelocked parameters** (same 6h–7d queue/finalize pattern as `GovernorParameters`): `minGuardianStake`, `minOwnerStake`, `coolDownPeriod`, `reviewPeriod` (24h default), `blockQuorumBps` (30% default).
+**Owner-instant parameter setters** (no on-chain timelock; owner multisig enforces its own delay): `setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod`, `setReviewPeriod` (24h default), `setBlockQuorumBps` (30% default). Each emits `ParameterChangeFinalized(paramKey, old, new)`.
 
-**Set-once wiring** stamped at `initialize()`: `governor`, `factory`, `wood`. No setters exist — rewiring requires a full registry redeploy under UUPS. `minter` is the only privileged address that remains owner-settable (timelocked), to allow future Minter integration.
+**Set-once wiring** stamped at `initialize()`: `governor`, `factory`, `wood`. No setters exist — rewiring requires a full registry redeploy under UUPS.
 
 See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle and the design spec at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` in the main repo.
 
@@ -183,7 +182,7 @@ UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with t
 
 **Pagination:** `getActiveSyndicates(offset, limit)` returns a paginated list of active syndicates with total count. `getAllActiveSyndicates()` returns all (may exceed gas at scale).
 
-**Config setters (owner-only):** `setVaultImpl`, `setGovernor`, `setCreationFee`, `setManagementFeeBps`, `setUpgradesEnabled`
+**Config setters (owner-only):** `setVaultImpl`, `setCreationFee`, `setManagementFeeBps`, `setUpgradesEnabled`, `setEnsRegistrar`, `setGuardianRegistry`. There is no `setGovernor` — the governor is set once at `initialize()` (removed to close V-H2; a governor swap must go through a UUPS upgrade of the governor proxy itself).
 
 **Storage:**
 | Slot | Type | Description |
@@ -237,14 +236,13 @@ The following surfaces are intentionally under-constrained in code and rely on t
 1. **`vault.transferPerformanceFee(token, to, amount)` has no amount / recipient / token cap.** The governor (upgradeable by protocol multisig) is trusted not to pass arbitrary values here. A compromised governor could transfer any ERC-20 the vault holds to any address. Mitigation is governance-level: UUPS upgrade path is multisig + timelock, not instant. Tracked as item **A38** in the pre-mainnet punch list.
 2. **`delegatecall` target is not codehash-checked.** `SyndicateVault.executeGovernorBatch` forwards its batch to `_executorImpl` via `delegatecall`. The intent is that `_executorImpl` is always the stateless `BatchExecutorLib` — but `_executorImpl` is set at init with no codehash assertion, and no runtime check rejects other code at that address. If the factory ever rotates `executorImpl` to a non-library contract, that contract runs in the vault's storage context. Tracked as item **V-C2**.
 3. **`AgentConfig` has no per-agent caps.** The off-chain Hermes runtime enforces `maxPerTx` / `maxDailyTotal` / `maxBorrowRatio` as pre-flight policy. None of these are stored on-chain; a compromised agent process running alongside a compromised vault owner can submit anything the vault's single-active-proposal invariant allows. Tracked as item **A10 / A35**.
-4. **`SyndicateFactory.setGovernor` is retroactive.** Because `SyndicateVault._getGovernor()` reads `ISyndicateFactory(_factory).governor()` live, a single `setGovernor` call rewires every existing vault's governor pointer. Rotate factory ownership to `TimelockController` + Gnosis Safe before mainnet.
-5. **WOOD is assumed to be a fixed-behavior ERC-20.** The `GuardianRegistry` slashing path uses end-of-function bulk burns; if WOOD is ever migrated to a token with transfer hooks (ERC-777 / 1363) the slashing path becomes reentrancy-exposed. Cross-referenced with the "delegatecall-only-to-BatchExecutorLib" assumption above.
+4. **WOOD is assumed to be a fixed-behavior ERC-20.** The `GuardianRegistry` slashing path uses end-of-function bulk burns; if WOOD is ever migrated to a token with transfer hooks (ERC-777 / 1363) the slashing path becomes reentrancy-exposed. Cross-referenced with the "delegatecall-only-to-BatchExecutorLib" assumption above.
 
 These are the ones that affect external integrators. For the fuller list (including invariants still lacking tests), see `docs/pre-mainnet-punchlist.md` in the main repo.
 
 ## Testing
 
-164 tests across 7 test suites.
+Foundry test suites cover the governor, vault, factory, guardian registry, collaborative proposals, and strategy templates, plus invariant and fork-integration suites.
 
 ```bash
 cd contracts
@@ -254,19 +252,19 @@ forge test -vvv    # verbose with traces
 forge fmt          # format before committing
 ```
 
-**SyndicateGovernor (52 tests):** Proposal lifecycle, optimistic voting with veto threshold, execution, two settlement paths (proposer anytime, permissionless after duration), emergency settle with fallback calls, veto by vault owner, parameter timelock (queue/finalize/cancel), protocol fee distribution, cooldown, fuzz testing.
+**SyndicateGovernor:** Proposal lifecycle, optimistic voting with veto threshold, execution, two settlement paths (proposer anytime, permissionless after duration), emergency settle (unstick / emergencySettleWithCalls / finalize), veto by vault owner, owner-instant parameter setters, protocol fee distribution, cooldown, fuzz testing.
 
-**SyndicateVault (27 tests):** ERC-4626 deposits/withdrawals/redemptions, agent registration with ERC-8004 verification, batch execution, depositor whitelist, inflation attack mitigation, governor batch execution, pause/unpause, rescue functions (ETH/ERC20/ERC721), factory-gated UUPS upgrades, fuzz testing.
+**SyndicateVault:** ERC-4626 deposits/withdrawals/redemptions, agent registration with ERC-8004 verification, batch execution, depositor whitelist, inflation attack mitigation, governor batch execution, pause/unpause, rescue functions (ETH/ERC20/ERC721), factory-gated UUPS upgrades, fuzz testing.
 
-**SyndicateFactory (24 tests):** Syndicate creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
+**SyndicateFactory:** Syndicate creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
 
-**CollaborativeProposals (21 tests):** Multi-agent co-proposer workflows — consent, rejection, fee splits, deadline enforcement.
+**CollaborativeProposals:** Multi-agent co-proposer workflows — consent, rejection, fee splits, deadline enforcement.
 
-**AerodromeLPStrategy (18 tests):** LP provision, gauge staking, reward claiming, settlement slippage protection, stable/volatile pools, param updates.
+**AerodromeLPStrategy:** LP provision, gauge staking, reward claiming, settlement slippage protection, stable/volatile pools, param updates.
 
-**MoonwellSupplyStrategy (17 tests):** Supply/redeem lifecycle, slippage protection, param updates, edge cases.
+**MoonwellSupplyStrategy:** Supply/redeem lifecycle, slippage protection, param updates, edge cases.
 
-**SyndicateGovernorIntegration (5 tests):** End-to-end flows with real vault interactions — propose → vote → execute → settle, Moonwell/Uniswap fork tests.
+**SyndicateGovernorIntegration:** End-to-end flows with real vault interactions — propose → vote → execute → settle, Moonwell/Uniswap fork tests.
 
 ## Storage Layout (UUPS Safety)
 

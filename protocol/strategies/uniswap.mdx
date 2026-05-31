@@ -6,7 +6,7 @@ icon: "chart-pie"
 
 The `PortfolioStrategy` manages a weighted basket of up to 20 tokens. On execute it swaps the vault's asset into each token at the target weight; on settle it sells everything back to the asset. The proposer can rebalance at any time while the proposal is `Executed`, either by selling everything and re-buying at current weights or by using Chainlink Data Streams prices to swap only the deltas (gas-efficient).
 
-Swaps go through `UniswapSwapAdapter` (Base) or `SynthraSwapAdapter` / `SynthraDirectAdapter` (Robinhood L2). The Uniswap adapter auto-detects routes: it tries direct asset→token pools at multiple fee tiers first, and falls back to an asset→WETH→token multi-hop when no direct pool exists — this is how you can hold tokens without liquid USDC pairs.
+Swaps go through `UniswapSwapAdapter` (Base) or `SynthraSwapAdapter` / `SynthraDirectAdapter` (Robinhood L2). Route selection is done **CLI-side**: the CLI probes direct asset→token pools at multiple fee tiers and falls back to an asset→WETH→token multi-hop when no direct pool exists, then encodes the chosen route into each token's `swapExtraData`. The on-chain `UniswapSwapAdapter` does not auto-detect — it reads a mode byte from `extraData` (`0` = single-hop, `1` = multi-hop) and executes exactly that route. This is how you can hold tokens without liquid USDC pairs.
 
 ## Architecture
 
@@ -53,20 +53,26 @@ Pending → execute() → Executed → (rebalance?) → settle() → Settled
 
 ## InitParams
 
+Init data is an **ABI-encoded positional tuple** (not a named struct). Tokens, weights, swap data, and price-feed decimals are passed as **parallel arrays** (same length, same order), not as a `TokenAllocation[]`:
+
 ```solidity
-struct InitParams {
-    address asset;               // Vault asset (USDC on Base, WETH on Robinhood L2)
-    address swapAdapter;         // UniswapSwapAdapter or SynthraSwapAdapter
-    address chainlinkVerifier;   // Optional — required only for rebalanceDelta
-    TokenAllocation[] allocations; // token + targetWeightBps[] (sum = 10000)
-    uint256 totalAmount;         // Total asset to deploy
-    uint256 maxSlippageBps;      // Per-swap slippage cap (default: 500)
-}
+(
+    address   asset,            // Vault asset (USDC on Base, WETH on Robinhood L2)
+    address   swapAdapter,      // UniswapSwapAdapter or SynthraSwapAdapter
+    address   chainlinkVerifier,// Used by rebalanceDelta / live-NAV; pass address(0) to opt out
+    address[] tokens,           // Basket tokens
+    uint256[] weightsBps,       // Target weight per token in bps (sum = 10000)
+    uint256   totalAmount,      // Total asset to deploy
+    uint256   maxSlippageBps,   // Per-swap slippage cap — REQUIRED, 1–9999 bps
+    bytes[]   swapExtraData,    // Per-token adapter route data (mode byte + encoded path)
+    uint8[]   priceDecimals     // Per-token Chainlink feed scale (8 for stocks, 18 for crypto)
+)
 ```
 
 - Max basket size: **20 tokens**
 - Weights are in basis points and **must sum to 10000**
-- `maxSlippageBps` applies to every swap (entry, settle, and rebalance)
+- `maxSlippageBps` applies to every swap (entry, settle, and rebalance). It is **required**: initialization reverts with `InvalidSlippage` if it is `0` or `>= 10000`. (The `500` you see in CLI examples is a CLI-side default, not a contract default.)
+- `priceDecimals[i]` must be `<= 36` (`InvalidPriceDecimals` otherwise) so the decimal-scaling math in live NAV stays safe.
 
 ## Rebalancing
 
@@ -77,7 +83,7 @@ While the proposal is `Executed`, the proposer can rebalance two ways:
 | `rebalance()` | High — sells all, re-buys at current weights | Weights changed, or simple periodic rebalance |
 | `rebalanceDelta(ChainlinkReport[])` | Low — swaps only the deltas | Frequent rebalances with fresh oracle prices |
 
-`rebalanceDelta` reads a Chainlink Data Streams V3 report for each token; reports older than 5 minutes are rejected. This path is only available on chains with a Chainlink verifier proxy.
+`rebalanceDelta` reads a signed Chainlink Data Streams V3 report for each token and rejects any report past its own `expiresAt` timestamp (`StalePrice`). The separate 5-minute `MAX_PRICE_AGE` window gates the **live-NAV price cache** — it controls when `positionValue()` flips to `valid=false`, not which reports `rebalanceDelta` accepts. This path is only available on chains with a Chainlink verifier proxy.
 
 ## Tunable Parameters (Executed state)
 
@@ -90,7 +96,7 @@ While the proposal is `Executed`, the proposer can rebalance two ways:
 ## Risk Notes
 
 - **Swap impact:** Large allocations in thin pools can eat into P&L — set `maxSlippageBps` conservatively.
-- **Oracle staleness:** `rebalanceDelta` rejects reports older than 5 minutes. If the feed goes stale, fall back to the full `rebalance()`.
+- **Oracle staleness:** `rebalanceDelta` rejects any report past its `expiresAt`. The 5-minute `MAX_PRICE_AGE` cache window governs live NAV: once the cached price for any token is older than 5 minutes, `positionValue()` returns `valid=false` and the vault falls back to the async-redeem queue. Keepers call `refreshPrices(reports)` (~every 3 min) to keep live NAV available; if the feed goes stale, fall back to the full `rebalance()`.
 - **Settle path:** `settle()` sells every token back to asset in a single transaction. A single illiquid token can revert the entire settlement; the proposer can update `swapExtraData` before settlement to route around it.
 
 ## CLI Usage

@@ -57,7 +57,7 @@ Shareholders **cannot** call `vetoProposal`. It is restricted to the vault owner
     The pre-committed calls are replayed through the vault. The agent cannot change what gets executed after the vote. Capital usage and target contracts are locked to what was approved.
   </Step>
   <Step title="Settlement">
-    Once the strategy duration ends, anyone can trigger settlement. The vault runs the pre-committed unwind calls, P&L is calculated, performance fees are distributed, and a PnL attestation is minted on-chain (EAS).
+    Once the strategy duration ends, anyone can trigger settlement. The vault runs the pre-committed unwind calls, P&L is calculated, performance fees are distributed, and a `ProposalSettled` event is emitted.
   </Step>
   <Step title="Cooldown window">
     Redemptions are re-enabled so depositors can withdraw. No new strategy can execute until cooldown expires.
@@ -70,11 +70,10 @@ Shareholders **cannot** call `vetoProposal`. It is restricted to the vault owner
 struct StrategyProposal {
     uint256 id;
     address proposer;              // agent address (must be registered in vault)
+    address vault;                 // which vault this proposal targets
+    address strategy;              // live-NAV source polled via positionValue(); address(0) to opt out
     string metadataURI;            // IPFS: full rationale, research, risk analysis
     uint256 performanceFeeBps;     // agent's cut of profits (e.g. 1500 = 15%)
-    address vault;                 // which vault this proposal targets
-    BatchExecutorLib.Call[] executeCalls;     // opening calls — run at execution, includes capital transfers from vault
-    BatchExecutorLib.Call[] settlementCalls;  // closing calls — run at settlement
     uint256 strategyDuration;      // how long the position runs (seconds), capped by maxStrategyDuration
     uint256 votesFor;              // share-weighted votes in favor
     uint256 votesAgainst;          // share-weighted votes against
@@ -83,13 +82,15 @@ struct StrategyProposal {
     uint256 voteEnd;               // snapshotTimestamp + votingPeriod
     uint256 reviewEnd;             // voteEnd + reviewPeriod (guardian review window)
     uint256 executeBy;             // reviewEnd + executionWindow
+    uint256 executedAt;            // timestamp the proposal was executed (0 until Executed)
     ProposalState state;           // Draft → Pending → GuardianReview → Approved → Executed → Settled
                                    // (or Rejected / Expired / Cancelled)
+    uint256 vetoThresholdBps;      // veto threshold snapshotted at Draft → Pending (G-H6)
 }
 ```
 
 <Note>
-**No `capitalRequired` field.** Strategies request capital by including explicit transfers in their `executeCalls` (e.g. `vault.transferPerformanceFee`-style or protocol-specific pulls). There is no single "capital requested" integer — shareholders inspect the calldata directly to see exactly how much asset moves and where.
+**Call arrays live in separate mappings, not inline on the struct.** `executeCalls[]` (opening calls, including capital pulls from the vault) and `settlementCalls[]` (closing calls) are stored in dedicated per-proposal mappings and read via `getExecuteCalls(proposalId)` / `getSettlementCalls(proposalId)`. There is no `capitalRequired` field — shareholders inspect the calldata directly to see exactly how much asset moves and where.
 </Note>
 
 <Note>
@@ -123,7 +124,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | cooldownPeriod | Governor (owner setter) | Withdrawal window between strategies |
 
 <Note>
-**Governance parameters are global, not per-syndicate.** A single `GovernorParameters` instance (inherited by the governor) serves every registered vault. Changing a parameter changes it for every vault at once, and every change is timelocked (6h–7d delay, then finalize). There is no per-vault override.
+**Governance parameters are global, not per-syndicate.** A single `GovernorParameters` instance (inherited by the governor) serves every registered vault. Changing a parameter changes it for every vault at once. Setters are owner-instant (no on-chain timelock) — the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). There is no per-vault override.
 </Note>
 
 ## Voting
@@ -143,7 +144,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 
 **Depositing is open.** Anyone can deposit into the vault — no registration, no identity check. Standard ERC-4626 `deposit()` / `mint()`.
 
-Track record is built on-chain via PnL attestations (EAS) minted at settlement — past proposals, profits, losses, all verifiable.
+Track record is built on-chain from the `ProposalSettled` events emitted at settlement — past proposals, profits, losses, all verifiable. (An EAS `STRATEGY_PNL` attestation at settlement is planned but not yet implemented.)
 
 ## Proposal States
 

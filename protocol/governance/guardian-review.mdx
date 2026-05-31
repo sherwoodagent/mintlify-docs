@@ -48,7 +48,7 @@ UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single insta
 | `claimUnstakeGuardian()` | Guardian | After `coolDownPeriod`, releases WOOD. |
 | `openReview(proposalId)` | Permissionless | Callable once `block.timestamp >= proposal.voteEnd`. Snapshots `_totalGuardianStake` into `Review.totalStakeAtOpen`. Cold-start gate: if the snapshot is below `MIN_COHORT_STAKE_AT_OPEN`, the review is marked `cohortTooSmall` and resolves `blocked=false` unconditionally. |
 | `voteOnProposal(proposalId, support)` | Active guardian | Vote `Approve` or `Block`, weighted by stake at first vote. Allowed only while `voteEnd <= now < reviewEnd`. Vote-change allowed in the early window; locked out in the final 10% (`LATE_VOTE_LOCKOUT_BPS`). |
-| `resolveReview(proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum, slashes Approvers if blocked, credits Block-side epoch weight. Idempotent, `nonReentrant`, CEI-ordered. |
+| `resolveReview(proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum, slashes Approvers if blocked, and emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker for Merkl's off-chain reward attribution. Idempotent, `nonReentrant`, CEI-ordered. |
 
 **Guardian vote enum** is separate from the governor's `VoteType`: `GuardianVoteType = { None, Approve, Block }`. Keeping them distinct prevents enum-variant confusion across the governor/registry ABI boundary.
 
@@ -71,25 +71,24 @@ Guarded calldata override for broken pre-committed settlement:
 
 | Function | Who | What |
 |---|---|---|
-| `openEmergencyReview(proposalId, callsHash)` | `onlyGovernor` | Called from `emergencySettleWithCalls` on the governor. Commits the hash + opens a review window. |
+| `openEmergency(proposalId, callsHash, calls)` | `onlyGovernor` | Called from `emergencySettleWithCalls` on the governor. Stores the **full calls array** + its hash and opens a review window. |
 | `voteBlockEmergencySettle(proposalId)` | Active guardian | Adds stake weight to `blockStakeWeight`. Single-sided: no Approve votes needed — absence of Block = implicit allow. |
+| `finalizeEmergency(proposalId)` | `onlyGovernor` | Called from `finalizeEmergencySettle`. Returns `(blocked, calls)` — the governor executes the returned calls if not blocked, slashing the owner bond if blocked. |
 | `resolveEmergencyReview(proposalId)` | Permissionless | Finalizes after `reviewEnd`. Slashes owner bond if blocked. |
 
-The governor-side counterparts are `emergencySettleWithCalls`, `cancelEmergencySettle`, and `finalizeEmergencySettle`. See [Execution & Settlement — Settlement Paths](/protocol/governance/settlement#settlement-paths).
+The governor-side counterparts are `emergencySettleWithCalls`, `cancelEmergencySettle`, and `finalizeEmergencySettle` (which takes `proposalId` only — the registry holds the calls). See [Execution & Settlement — Settlement Paths](/protocol/governance/settlement#settlement-paths).
 
-### Epoch-based Block-side rewards
+### Block-side rewards (off-chain via Merkl)
 
-Guardians who vote `Block` on a proposal that resolves blocked accrue weight in an epoch bucket (`EPOCH_DURATION = 7 days`). At epoch end they claim pro-rata from whatever WOOD the protocol funded that epoch.
+Guardians who vote `Block` on a proposal that resolves blocked earn a slice of the epoch's WOOD block-reward budget (`EPOCH_DURATION = 7 days`). **This distribution is entirely off-chain via [Merkl](https://merkl.xyz).** The registry's only on-chain role is event emission:
 
-| Function | Who | What |
-|---|---|---|
-| `fundEpoch(epochId, amount)` | Owner or Minter | Pull WOOD, credit to `epochBudget[epochId]`. Current, future, or empty past epochs. |
-| `claimEpochReward(epochId)` | Guardian | After `(epochId + 1) * EPOCH_DURATION` elapses, claim `epochBudget[epochId] * guardianWeight / totalWeight`. `nonReentrant`; state-mark before transfer. Reverts `NothingToClaim` if payout is zero (covers both "no weight" and "unfunded epoch" — critical to preserve claim slot until funding lands). |
-| `sweepUnclaimed(epochId)` | Permissionless after `SWEEP_DELAY = 12 weeks` | Moves residual budget from an old epoch to the current epoch. |
-| `pendingEpochReward(guardian, epochId)` | View | Returns claimable amount (0 if epoch not ended, already claimed, or no weight). |
+- On every resolved-blocked review, `resolveReview` emits `BlockerAttributed(proposalId, epochId, blocker, weight)` — one event per blocker.
+- Merkl's bot reads these events (together with delegation and `CommissionSet` events for DPoS attribution) and computes the epoch's Merkle roots.
+- Guardians (and their delegators) claim their WOOD at merkl.xyz against those roots.
+- Epoch funding is a plain WOOD transfer from the owner multisig to the Merkl distributor — there is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` / `minter`. All of that machinery was removed in V1.5.
 
 <Note>
-**No correct-Approve reward in V1.** The on-chain reward track rewards only the *active-defence* action (Block) — that is the one that materially prevented an LP loss. Correct-Approve rewards (for honest guardians who Approved and were proven right at settlement) are deferred to V1.5 alongside the EAS attestation schema. Guardians should model V1 as: cost of gas per review, zero upside from routine Approves, slashed stake if Approve a malicious proposal.
+**No correct-Approve reward in V1.** The reward track rewards only the *active-defence* action (Block) — that is the one that materially prevented an LP loss. Correct-Approve rewards (for honest guardians who Approved and were proven right at settlement) are deferred alongside the EAS attestation schema. Guardians should model V1 as: cost of gas per review, zero upside from routine Approves, slashed stake if Approve a malicious proposal.
 </Note>
 
 ### Slashing
@@ -122,19 +121,19 @@ All refunds emit `SlashAppealRefunded(recipient, amount, epochId)`.
 
 The registry has a circuit breaker — `pause()` and `unpause()` gated by the multisig owner, with a **7-day deadman auto-unpause**. If the multisig pauses and then goes silent, anyone can call `unpause()` after `DEADMAN_UNPAUSE_DELAY = 7 days` elapse.
 
-Pause freezes: `voteOnProposal`, `openReview`, `resolveReview`, `resolveEmergencyReview`, `voteBlockEmergencySettle`, `claimEpochReward`, `flushBurn`, and the slashing call sites.
+Pause freezes: `voteOnProposal`, `openReview`, `resolveReview`, `resolveEmergencyReview`, `voteBlockEmergencySettle`, `flushBurn`, and the slashing call sites.
 
 Pause does **not** freeze: `stakeAsGuardian`, `requestUnstake*`, `claimUnstake*`, `prepareOwnerStake` — positions must always be exitable.
 
 ## Parameters (initial values)
 
-All timelocked via the same queue/finalize pattern as `GovernorParameters` (6h–7d delay).
+All set owner-instant (no on-chain timelock; the owner multisig enforces its own delay) via `setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod`, `setReviewPeriod`, `setBlockQuorumBps`. Each emits `ParameterChangeFinalized(paramKey, old, new)`.
 
 | Parameter | Default | Bounds | Notes |
 |---|---|---|---|
 | `minGuardianStake` | 10,000 WOOD | ≥ 1 WOOD | Mainnet floor enforced by governor parameter bounds. |
 | `minOwnerStake` | 10,000 WOOD | ≥ 1,000 WOOD | Flat floor; `requiredOwnerBond(vault) == minOwnerStake`. |
-| `coolDownPeriod` | 7 days | 1–30 days | |
+| `coolDownPeriod` | 7 days | 1–30 days | Setter is `setCooldownPeriod`. |
 | `reviewPeriod` | 24 hours | 6h–7 days | Single global value. No per-proposal override in V1. |
 | `blockQuorumBps` | 3000 (30%) | 1000–10000 | Below 50% so a motivated minority can block; high enough random dissent doesn't grief. |
 
@@ -142,13 +141,13 @@ Hard-coded constants (not timelocked — load-bearing safety bounds):
 
 | Constant | Value | Purpose |
 |---|---|---|
-| `EPOCH_DURATION` | 7 days | Matches the Minter emissions epoch. |
+| `EPOCH_DURATION` | 7 days | Epoch length used to stamp `epochId` on `BlockerAttributed` events for Merkl. |
 | `MIN_COHORT_STAKE_AT_OPEN` | 50,000 WOOD | Cold-start fallback — reviews opened below this resolve `blocked=false` unconditionally. |
 | `MAX_APPROVERS_PER_PROPOSAL` | 100 | Bounds `_slashApprovers` gas. `ApproverCapReached` event fires at the cap. |
-| `SWEEP_DELAY` | 12 weeks | Minimum time after epoch end before `sweepUnclaimed` is callable. |
 | `LATE_VOTE_LOCKOUT_BPS` | 1000 (10%) | Final 10% of the review window is vote-change locked. |
 | `MAX_REFUND_PER_EPOCH_BPS` | 2000 (20%) | Per-epoch cap on `refundSlash`. |
 | `DEADMAN_UNPAUSE_DELAY` | 7 days | Anyone can unpause if the owner goes silent. |
+| `BURN_ADDRESS` | `0x...dEaD` | Slashed WOOD is burned here, not sent to treasury. |
 
 ## Cold-start: guardian-of-last-resort
 
@@ -159,7 +158,7 @@ To close the fail-open window, the Sherwood protocol multisig commits to:
 - Running a guardian agent that votes on **every** proposal across every registered vault.
 - Publishing weekly guardian-coverage reports in the Sherwood forum.
 - Staking ≥ `minGuardianStake` from protocol treasury.
-- Funding `epochBudget` weekly during the bootstrap window — `fundEpoch(currentEpoch, X)` at the start of each epoch, sized above expected guardian gas costs.
+- Funding the Merkl block-reward distributor weekly during the bootstrap window (a plain WOOD transfer from the multisig), sized above expected guardian gas costs.
 
 After week 12, protocol-team guardian participation becomes optional and cohort health is measured against the §10 success metrics in the spec.
 

@@ -59,21 +59,19 @@ Show your agent identity status -- agent ID, owner address, verification.
 
 Create a new syndicate. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat.
 
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--name <name>` | Yes | Display name for the syndicate |
-| `--subdomain <name>` | Yes | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
-| `--description <text>` | Yes | Short description of strategy or purpose |
-| `--agent-id <id>` | Yes | Creator's ERC-8004 identity token ID |
-| `--open-deposits` | No | Allow anyone to deposit. Default: whitelist-only (omit the flag) |
-| `--max-per-tx <amount>` | No | Max USDC per transaction. Default: 10000 |
-| `--max-daily <amount>` | No | Max combined daily spend. Default: 50000 |
-| `--borrow-ratio <bps>` | No | Max borrow ratio in basis points (7500 = 75%). Default: 7500 |
-| `--targets <addresses>` | No | Comma-separated contract addresses to allowlist |
-| `--metadata-uri <uri>` | No | Override metadata URI (skips IPFS upload) |
-| `--asset <symbol-or-address>` | No | Vault asset: `USDC`, `WETH`, or a `0x` address. Default: USDC (WETH on chains without USDC) |
-| `-y, --yes` | No | Skip confirmation prompt (non-interactive mode for agent use) |
-| `--public-chat` | No | Enable public chat -- adds dashboard spectator to XMTP group |
+Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `--agent-id`, `--asset`) is asked for interactively unless `-y` is set.
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Display name for the syndicate |
+| `--subdomain <name>` | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
+| `--description <text>` | Short description of strategy or purpose |
+| `--agent-id <id>` | Creator's ERC-8004 identity token ID |
+| `--asset <symbol-or-address>` | Vault asset: `USDC`, `WETH`, or a `0x` address. Default: USDC (WETH on chains without USDC) |
+| `--metadata-uri <uri>` | Override metadata URI (skips IPFS upload) |
+| `--open-deposits` | Allow anyone to deposit. Default: whitelist-only (omit the flag) |
+| `--public-chat` | Enable public chat -- adds dashboard spectator to XMTP group |
+| `-y, --yes` | Skip confirmation prompt (non-interactive mode for agent use) |
 
 ### `sherwood syndicate list`
 
@@ -85,7 +83,7 @@ List active syndicates. Queries subgraph if `SUBGRAPH_URL` is set, otherwise fal
 
 ### `sherwood syndicate info <id|subdomain>`
 
-Display full syndicate details -- vault stats, agents, caps, metadata, and XMTP group ID (if cached).
+Display full syndicate details -- ENS name, creator, vault stats (total assets, agent count, redemption-lock status, management fee), metadata, and XMTP group ID (if cached).
 
 Accepts either a numeric syndicate ID or a subdomain name:
 
@@ -155,17 +153,14 @@ View pending join requests for a syndicate you created. Queries the EAS GraphQL 
 
 ### `sherwood syndicate approve`
 
-Approve a join request. Registers the agent on the vault (same as `syndicate add`), creates an `AGENT_APPROVED` EAS attestation, adds the agent to the XMTP chat group, and optionally revokes the join request attestation.
+Approve a join request. Registers the agent on the vault (same as `syndicate add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--agent-id <id>` | Yes | Agent's ERC-8004 identity token ID |
 | `--wallet <address>` | Yes | Agent wallet address |
-| `--max-per-tx <amount>` | Yes | Max per transaction (in asset units) |
-| `--daily-limit <amount>` | Yes | Daily limit (in asset units) |
 | `--vault <address>` | No | Vault address (default: from config) |
 | `--subdomain <name>` | No | Syndicate subdomain (alternative to --vault) |
-| `--revoke-request <uid>` | No | Revoke the join request attestation after approval |
 
 ### `sherwood syndicate reject`
 
@@ -209,33 +204,7 @@ Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). Blocked 
 
 ### `sherwood vault info`
 
-Display vault state -- total assets, agent count, daily spend, caps.
-
-| Option | Description |
-|--------|-------------|
-| `--vault <address>` | Vault address (default: from config) |
-
-### `sherwood vault add-target`
-
-Add a contract address to the vault's execution allowlist. Owner only.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--target <address>` | Yes | Target address to allow |
-| `--vault <address>` | No | Vault address (default: from config) |
-
-### `sherwood vault remove-target`
-
-Remove a contract address from the vault's execution allowlist. Owner only.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--target <address>` | Yes | Target address to remove |
-| `--vault <address>` | No | Vault address (default: from config) |
-
-### `sherwood vault targets`
-
-List all allowed targets for a vault.
+Display vault state -- address, total assets, agent count, redemption-lock status, and management fee.
 
 | Option | Description |
 |--------|-------------|
@@ -245,19 +214,7 @@ List all allowed targets for a vault.
 
 ## Strategy
 
-### `sherwood strategy run`
-
-Execute the levered swap strategy (Moonwell borrow + Uniswap swap). Simulates by default.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--collateral <amount>` | Yes | WETH collateral amount (e.g. 1.0) |
-| `--borrow <amount>` | Yes | USDC to borrow against collateral |
-| `--token <address>` | Yes | Target token address to buy |
-| `--fee <tier>` | No | Uniswap fee tier in bps (500, 3000, 10000). Default: 500 |
-| `--slippage <bps>` | No | Slippage tolerance in bps. Default: 100 |
-| `--execute` | No | Submit onchain (default: simulate only) |
-| `--vault <address>` | No | Vault address (default: from config) |
+Strategy templates (Moonwell supply, levered swap, Aerodrome LP, Hyperliquid perp, etc.) are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. A levered swap is a strategy template surfaced via `strategy propose`, not a standalone run command.
 
 ---
 
@@ -287,18 +244,15 @@ Show vault profit and agent USDC balances.
 
 ## Venice
 
-### `sherwood venice fund`
+The `venice` group has: `provision`, `stake`, `mint-diem`, `status`, `models`, `infer`. To fund agents for private inference, distribute profits with [`allowance disburse`](#sherwood-allowance-disburse), then stake for sVVV with `venice stake` before agents `venice provision`.
 
-Swap vault profits to VVV, stake for sVVV, and distribute to all agent operator wallets. Each agent can then self-provision a Venice API key.
+### `sherwood venice stake`
+
+Stake VVV for sVVV (the balance that gates Venice API key provisioning).
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--vault <address>` | Yes | Vault address |
-| `--amount <amount>` | Yes | Deposit token amount to convert |
-| `--fee1 <tier>` | No | Fee tier for asset to WETH hop. Default: 3000 |
-| `--fee2 <tier>` | No | Fee tier for WETH to VVV hop. Default: 10000 |
-| `--slippage <bps>` | No | Slippage tolerance in bps. Default: 100 |
-| `--execute` | No | Submit onchain (default: simulate only) |
+| `--amount <n>` | Yes | Amount of VVV to stake (human-readable, e.g. 13) |
 
 ### `sherwood venice provision`
 
@@ -323,14 +277,14 @@ Autonomous trading agent — multi-signal scoring, dynamic token selection, and 
 Analyze one or more tokens using the agent's multi-signal scoring pipeline (technicals, sentiment, regime detection, correlation guards). Read-only — does not trade.
 
 ```bash
-sherwood agent analyze [tokens...] [--all] [--auto] [--x402] [--json] [--telegram] [--proposals]
+sherwood agent analyze [tokens...] [--all] [--auto] [--no-x402] [--json] [--telegram] [--proposals]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--all` | Analyze the full default watchlist |
 | `--auto` | Dynamic token selection from Hyperliquid market data |
-| `--x402` | Include paid x402 data (Nansen smart-money, Messari fundamentals). Requires an x402-enabled wallet. |
+| `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--json` | Output as JSON |
 | `--telegram` | Format output as a Telegram summary |
 | `--proposals` | Generate trade proposals for high-confidence opportunities |
@@ -340,7 +294,7 @@ sherwood agent analyze [tokens...] [--all] [--auto] [--x402] [--json] [--telegra
 Run the autonomous trading loop on a configurable cycle. Paper-trades by default; live execution on HyperEVM requires `--mode hyperliquid-perp` and a strategy clone.
 
 ```bash
-sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--x402] [--tokens <list>]
+sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [--tokens <list>]
 ```
 
 | Option | Description |
@@ -353,7 +307,7 @@ sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--x402] [--t
 | `--strategy-clone <address>` | Strategy clone address on HyperEVM (required for `hyperliquid-perp`) |
 | `--chain <chain>` | Chain for live execution (`hyperevm`) |
 | `--asset-index <n>` | HyperCore perp asset index (default: 3 = ETH) |
-| `--x402` | Include paid x402 data (Nansen smart-money, Messari fundamentals) |
+| `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--log <path>` | Path to write cycle logs |
 
 ---

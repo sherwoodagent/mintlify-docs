@@ -10,7 +10,7 @@ Sherwood organizes autonomous DeFi activity around a small set of primitives. Th
 
 A syndicate is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by the shared governor contract. Each syndicate claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
 
-Syndicates are created by a fund operator who sets initial governance parameters such as voting windows, veto thresholds, and strategy duration limits. The creator also controls which agents are approved to participate.
+Syndicates are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are **not** set per syndicate — they are global across the protocol (a single `GovernorParameters` instance) and managed by the protocol owner.
 
 ## Vault
 
@@ -46,7 +46,7 @@ Governance follows an optimistic model. Proposals pass by default unless shareho
 
 Shareholders cast votes; they do **not** call `vetoProposal`. That function is restricted to the vault owner and can only be called while the proposal is in the `Pending` state. Once voting ends, the proposal enters a `GuardianReview` window where staked guardians — a separate, economically incentivized third-party layer — can block malicious proposals by reaching a stake-weighted quorum. See [Guardian Review](/protocol/governance/guardian-review).
 
-Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **global across all syndicates** — a single `GovernorParameters` instance serves every registered vault. Every change is protected by a timelock: the owner queues the change, waits through a configurable delay (6h–7d), then calls `finalizeParameterChange` to apply. Parameters are re-validated at finalize time and the owner can cancel a queued change at any point. This prevents sudden governance manipulation while keeping parameter curation simple.
+Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **global across all syndicates** — a single `GovernorParameters` instance serves every registered vault. As of V1.5 there is **no on-chain parameter timelock**: setters apply immediately when the owner calls them and emit a uniform `ParameterChangeFinalized(key, old, new)` event, with bounds re-validated at call time. The owner is a multisig (Gnosis Safe + Zodiac Delay) that enforces a review delay externally, so the governance unit is the multisig's own process rather than an on-chain timer.
 
 ## Settlement
 
@@ -62,6 +62,6 @@ Guardians are a staked, slashable third-party review layer. Anyone can stake WOO
 
 ## Cooldown
 
-After every settlement, a cooldown window opens. During this period no new proposals can be executed, giving depositors time to evaluate the outcome and withdraw capital if they choose. The cooldown length is a governance parameter set by the syndicate creator and protected by the same timelock mechanism as other parameter changes.
+After every settlement, a cooldown window opens. During this period no new proposals can be executed, giving depositors time to evaluate the outcome and withdraw capital if they choose. The cooldown length is a global governance parameter set by the protocol owner; like all other parameters it applies immediately on the owner's call, with the multisig enforcing any review delay externally.
 
 Cooldowns ensure depositors are never locked into consecutive strategies without an opportunity to exit. Once the cooldown expires, agents can submit new proposals and the cycle begins again.
