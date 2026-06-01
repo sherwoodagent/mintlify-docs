@@ -12,8 +12,9 @@ Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS
 graph TD
     F["SyndicateFactory (UUPS)"] -->|deploys + registers| V["SyndicateVault (ERC1967 Proxy)"]
     F -->|registers vault| G["SyndicateGovernor (ERC1967 Proxy)"]
-    F -->|binds owner stake on create| R["GuardianRegistry (UUPS)"]
-    G -->|guardian review + slashing hooks| R
+    F -->|binds owner bond on create| SW["StakedWood / sWOOD (UUPS)"]
+    G -->|guardian review + slashing hooks| R["GuardianRegistry (UUPS)"]
+    R <-->|reads vote weight / calls to slash| SW
     V <-->|execute / settle| G
     V -->|delegatecall| B["BatchExecutorLib (stateless)"]
     G -->|inherits| P["GovernorParameters (abstract)"]
@@ -150,25 +151,41 @@ Abstract contract inherited by `SyndicateGovernor`. Houses the four post-executi
 
 ### GuardianRegistry
 
-UUPS upgradeable contract (owned by the Sherwood protocol multisig) managing the staked, slashable guardian layer and vault-owner bonds introduced in PR #229. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
+UUPS upgradeable contract (owned by the Sherwood protocol multisig) coordinating the guardian review layer. **The registry holds zero WOOD** — guardian stake, vault-owner bonds, DPoS delegation, vote checkpoints, and slashing execution all live on the `StakedWood` (sWOOD) contract (V1.5 sWOOD-staking split, PRs #353/#355). The registry reads vote weight from sWOOD and *calls* sWOOD to slash; it owns the review accounting, reward pools, and the slash-appeal reserve. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
+
+**Responsibilities:**
+- Review windows (`openReview`, `voteOnProposal`, `resolveReview`) with the quorum denominator snapshot at `openReview()` time (read from sWOOD's `getPastTotalVotes` + `getPastTotalActiveDelegated` at `t-1`) to close denominator-manipulation attacks
+- Emergency-settle review windows (`openEmergency(proposalId, callsHash, calls)` — governor-only, stores the full calls array; `voteBlockEmergencySettle`, `resolveEmergencyReview`, `finalizeEmergency`)
+- Slashing **orchestration**: on a blocked review the registry computes who/how-much and calls into sWOOD, which performs the WOOD burn to `0x...dEaD` (CEI + pull-burn fallback). The registry never custodies the WOOD.
+- Multi-asset guardian-fee reward pools (`fundProposalGuardianPool`, `claimProposalReward`, `claimDelegatorProposalReward`) + W-1 escrow for blocked transfers
+- Appeal path: `fundSlashAppealReserve` + `refundSlash` (owner-only, capped at 20% of reserve per epoch) — the appeal reserve is the registry's only token balance
+- Block-side reward attribution: on a review that resolves blocked, the registry emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker. WOOD epoch block-rewards are distributed **off-chain via Merkl** — its bot reads these events plus delegation / commission events to build Merkle roots, and guardians claim at merkl.xyz. There is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` / `minter` (all removed in V1.5).
+- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`). Pause freezes voting and review resolution; never freezes sWOOD unstake/claim paths.
+
+**Key constants:** `EPOCH_DURATION = 7 days`, `MIN_COHORT_STAKE_AT_OPEN = 50_000 WOOD` (cold-start fallback), `MAX_APPROVERS_PER_PROPOSAL = 100`, `LATE_VOTE_LOCKOUT_BPS = 1000` (10%), `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%), `DEADMAN_UNPAUSE_DELAY = 7 days`.
+
+**Owner-instant parameter setters** (no on-chain timelock; owner multisig enforces its own delay): `setReviewPeriod` (24h default) and `setBlockQuorumBps` (30% default) live on the registry. The stake-economic setters (`setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod`, slash bounds) live on sWOOD. Each emits `ParameterChangeFinalized(paramKey, old, new)`.
+
+**Set-once wiring** stamped at `initialize()`: `governor`, `factory`, `swood`. No setters exist — rewiring requires a full registry redeploy under UUPS. (sWOOD's reverse handle to the registry is set once post-deploy via `setRegistry`, since the registry is deployed after sWOOD.)
+
+See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle and the design specs at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` and `docs/superpowers/specs/2026-05-21-swood-staking-split-design.md` in the main repo.
+
+### StakedWood (sWOOD)
+
+UUPS-upgradeable, non-transferable vote-escrow contract introduced by the V1.5 staking split (PRs #353/#355). **sWOOD is the sole WOOD custodian** for the guardian system — every WOOD position that used to live on the `GuardianRegistry` moved here. The `GuardianRegistry` reads vote weight / commission / delegation from sWOOD and calls sWOOD to slash; sWOOD never reads proposal state except the open-proposal signal used by its owner-bond rage-quit gate.
 
 **Responsibilities:**
 - Guardian staking / unstaking with cool-down (`stakeAsGuardian`, `requestUnstakeGuardian`, `cancelUnstakeGuardian`, `claimUnstakeGuardian`)
 - Vault-owner bond lifecycle (`prepareOwnerStake`, `cancelPreparedStake`, `bindOwnerStake` / `transferOwnerStakeSlot` — factory-only, `requestUnstakeOwner`, `claimUnstakeOwner`)
-- Review windows (`openReview`, `voteOnProposal`, `resolveReview`) with cohort snapshot at `openReview()` time to close denominator-manipulation attacks
-- Emergency-settle review windows (`openEmergency(proposalId, callsHash, calls)` — governor-only, stores the full calls array; `voteBlockEmergencySettle`, `resolveEmergencyReview`, `finalizeEmergency`)
-- Slashing via WOOD burn to `0x...dEaD` (CEI + pull-burn fallback via `flushBurn` if `wood.transfer` reverts)
-- Appeal path: `fundSlashAppealReserve` + `refundSlash` (owner-only, capped at 20% of reserve per epoch)
-- Block-side reward attribution: on a review that resolves blocked, the registry emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker. WOOD epoch block-rewards are distributed **off-chain via Merkl** — its bot reads these events plus delegation / commission events to build Merkle roots, and guardians claim at merkl.xyz. There is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` / `minter` (all removed in V1.5).
-- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`). Pause freezes voting and review resolution; never freezes unstake/claim paths.
+- DPoS delegation (`StakedWoodDelegation`): delegate/undelegate stake to active guardians, per-delegate `setCommission`, and the active-delegation checkpoints (`getPastTotalVotes`, `getPastTotalActiveDelegated`) the registry's quorum math reads
+- Slashing + burn execution: the registry calls in, sWOOD zeroes the slashed stake and burns WOOD to `0x...dEaD` (CEI + pull-burn fallback)
+- Stake-economic owner-instant setters: `setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod` (must stay `>= reviewPeriod` — Sherlock #16), `setMinSlashBps` / `setMaxSlashBps`, `setDelegationEnabled`
 
-**Key constants:** `EPOCH_DURATION = 7 days`, `MIN_COHORT_STAKE_AT_OPEN = 50_000 WOOD` (cold-start fallback), `MAX_APPROVERS_PER_PROPOSAL = 100`, `SWEEP_DELAY = 12 weeks`, `LATE_VOTE_LOCKOUT_BPS = 1000` (10%), `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%), `DEADMAN_UNPAUSE_DELAY = 7 days`, `BURN_ADDRESS = 0x...dEaD`.
+**Set-once wiring:** `registry` is stamped once post-deploy via `setRegistry` (guarded by `_registrySet`).
 
-**Owner-instant parameter setters** (no on-chain timelock; owner multisig enforces its own delay): `setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod`, `setReviewPeriod` (24h default), `setBlockQuorumBps` (30% default). Each emits `ParameterChangeFinalized(paramKey, old, new)`.
-
-**Set-once wiring** stamped at `initialize()`: `governor`, `factory`, `wood`. No setters exist — rewiring requires a full registry redeploy under UUPS.
-
-See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle and the design spec at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` in the main repo.
+<Note>
+**The in-repo `WoodToken.sol` is a non-production test fixture — not the live WOOD token.** Mainnet WOOD is an existing external ERC-20 launch; the contract in `contracts/src/WoodToken.sol` is kept only as a reference / test fixture and carries an explicit "⚠️ NON-PRODUCTION — OUT OF SCOPE FOR AUDIT" banner (PR #354). It will not be deployed to mainnet; integrators should bind to the external WOOD token address from [Deployments](/reference/deployments), not assume the in-repo artifact is canonical.
+</Note>
 
 ### SyndicateFactory
 
