@@ -48,14 +48,19 @@ Settlement redeems all mUSDC held by the clone and pushes the underlying back to
 
 ## InitParams
 
+Init data is an **ABI-encoded positional tuple** (not a named struct) decoded in this order:
+
 ```solidity
-struct InitParams {
-    address underlying;      // Token to supply (e.g., USDC)
-    address mToken;          // Moonwell market token (e.g., mUSDC)
-    uint256 supplyAmount;    // Amount of underlying to supply
-    uint256 minRedeemAmount; // Minimum underlying on settlement (slippage protection)
-}
+(
+    address underlying,       // Token to supply (e.g., USDC)
+    address mToken,           // Moonwell market token (e.g., mUSDC)
+    uint256 supplyAmount,     // Amount of underlying to supply
+    uint256 minRedeemAmount,  // Minimum underlying on settlement (slippage protection)
+    bool    isNativeEthMarket // true for native-ETH markets (mWETH) — see below
+)
 ```
+
+`isNativeEthMarket` flags markets like Moonwell `mWETH` that send **native ETH** (not ERC-20 WETH) on redeem. When set, settlement wraps the received ETH back to WETH via `IWETH.deposit` so the vault always receives ERC-20 tokens. On non-native markets it stays `false`, and any stray ETH transfer reverts (`EthWrapFailed`) as a dust-attack guard.
 
 ## CLI Usage
 
@@ -94,21 +99,9 @@ strategy.updateParams(abi.encode(newSupplyAmount, newMinRedeemAmount));
 // Pass 0 to keep current value
 ```
 
-## Allowlist Targets
+## Live NAV
 
-```bash
-sherwood vault add-target --target 0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22  # Moonwell mUSDC
-sherwood vault add-target --target 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913  # USDC
-sherwood vault add-target --target <strategy-clone-address>                      # Your strategy clone
-```
-
-For WETH-based vaults, use the mWETH market instead:
-
-```bash
-sherwood vault add-target --target 0x628ff693426583D9a7FB391E54366292F509D457  # Moonwell mWETH
-sherwood vault add-target --target 0x4200000000000000000000000000000000000006  # WETH
-sherwood vault add-target --target <strategy-clone-address>
-```
+Moonwell Supply is one of the strategies that exposes **live NAV**: `positionValue()` returns the current underlying value of the supplied position (`mToken balance * exchangeRateStored`). While a proposal is active, the vault marks shares to market and accepts deposits / withdrawals at fair NAV. New deposits forward through `onLiveDeposit`, which mints additional mTokens against the freshly-pushed underlying.
 
 ## Addresses (Base Mainnet)
 

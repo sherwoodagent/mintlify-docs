@@ -111,7 +111,7 @@ IERC20(usdc).approve(strategyClone, 600e6);
 `repaymentAmount` defaults to `assetAmount` (the principal). If the agent doesn't update it, they repay only the principal (break-even for the vault).
 
 <Warning>
-If the agent cannot repay (insufficient balance or no approval), settlement reverts. The vault owner can use `emergencySettle()` to handle this case.
+If the agent cannot repay (insufficient balance or no approval), settlement reverts. The vault owner can recover via `emergencySettleWithCalls(proposalId, calls)` — it commits the owner-supplied settlement calldata and opens a guardian-reviewed window; after the review window the owner runs `finalizeEmergencySettle(calls)`, which executes unless guardians reached block quorum.
 </Warning>
 
 ## API Key Provisioning

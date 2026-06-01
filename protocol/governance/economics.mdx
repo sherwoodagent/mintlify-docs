@@ -17,14 +17,14 @@ When a strategy is live (proposal in `Executed` state), the vault's `redemptions
 The protocol ships a full ve(3,3)-style token economy (`VotingEscrow`, `Voter`, `SyndicateGauge`, `Minter`, `VoteIncentive`, `RewardsDistributor`, `VaultRewardsDistributor`) in addition to the governance + fee logic on this page. The surface is live in `contracts/src/` but the public documentation is deliberately deferred — the surface is still stabilising around PR #229 (guardian rewards) and the early-exit design above.
 
 <Note>
-**Expanded ve(3,3) docs are forthcoming.** See the in-repo reference `docs/tokenomics-wood.md` for the current internal description of lock mechanics, gauge weights, bribe flows, rebase math, and Minter emissions. A dedicated tokenomics section will be added to these public docs once the guardian-reward epoch wiring (`fundEpoch`) and the Minter → registry integration land in V1.5.
+**Expanded ve(3,3) docs are forthcoming.** See the in-repo reference `docs/tokenomics-wood.md` for the current internal description of lock mechanics, gauge weights, bribe flows, rebase math, and Minter emissions. A dedicated tokenomics section will be added to these public docs as the surface stabilises.
 </Note>
 
 Known gaps flagged in that reference that LPs and integrators should be aware of until the public expansion lands:
 - `SyndicateGauge.claimLPRewards` always reverts (`_calculateLPReward` is stubbed). Gauge LP reward accrual is tracked but not claimable. Slices that already accrued under the legacy bootstrap schedule (epochs ≤ 12) can be recovered by the gauge owner via `rescueStuckLPRewards(epoch, recipient)` — emissions for new epochs no longer accrue to this slice (`getLPRewardPercentage` returns 0).
 - Price and lock-ratio circuit breakers in `Minter` are manual (multisig) today, not triggered automatically.
 - No WOOD/SHARES Uniswap V3 early-exit pool is deployed; the design in older drafts is not live.
-- Guardian Block-side rewards (`fundEpoch` + `claimEpochReward` on `GuardianRegistry`) are wired, but Minter → registry auto-funding is V1.5; V1 relies on multisig-funded epochs (see [Guardian Review](/protocol/governance/guardian-review)).
+- Guardian Block-side WOOD epoch rewards are distributed **off-chain via Merkl**. The registry emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker on a resolved-blocked review; Merkl's bot reads these (plus delegation / commission events) to build Merkle roots, and guardians claim at merkl.xyz. There is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` (see [Guardian Review](/protocol/governance/guardian-review)).
 
 ## Fee Structure
 
@@ -32,7 +32,7 @@ Three fees are distributed from strategy profits at settlement:
 
 | Fee | Recipient | Set by | Purpose |
 |-----|-----------|--------|---------|
-| Protocol fee | `protocolFeeRecipient` | Factory owner (timelocked) | Protocol revenue |
+| Protocol fee | `protocolFeeRecipient` | Governor owner (owner-instant setter) | Protocol revenue |
 | Performance fee | Agent (proposer) | Agent at proposal time | Incentivize good strategy proposals |
 | Management fee | Vault owner | Factory (per-vault, configurable) | Incentivize vault operation and curation |
 
@@ -45,7 +45,7 @@ A protocol-level fee taken from gross profit **before** agent and management fee
 - `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps)
 - `protocolFeeRecipient` — address that receives the protocol fee
 - Both live on the governor and apply to every registered vault
-- **Both `setProtocolFeeBps` and `setProtocolFeeRecipient` are timelocked** through the same queue → delay → finalize pattern as every other governance parameter (6h–7d delay). Neither can be changed instantly. Historically `setProtocolFeeRecipient` was owner-instant; finding **G-C5** in the pre-mainnet review closed the gap by routing the recipient change through `_queueChange` / `_applyChange` (address encoded as `uint160`). Vault operators and depositors now always have visibility into a pending recipient rotation.
+- **`setProtocolFeeBps` and `setProtocolFeeRecipient` are owner-instant** like every other governance parameter — they apply immediately and emit `ParameterChangeFinalized(paramKey, old, new)` (the recipient address is encoded as `uint160`). There is no on-chain queue / delay / finalize step; the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). Setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first.
 
 ### Fee distribution order
 
@@ -78,11 +78,11 @@ The management fee incentivizes vault operation — the owner curates agents, ma
 
 Every fee transfer — protocol fee, agent / co-proposer performance fee, and vault owner management fee — is wrapped in **try/catch** around `vault.transferPerformanceFee(asset, recipient, amount)`. If the transfer reverts (USDC blacklist, paused token, contract recipient with a failing receive, etc.) the governor:
 
-1. Credits the owed amount to an on-chain `_unclaimedFees[recipient][token]` escrow mapping
-2. Emits `FeeTransferFailed(recipient, token, amount, reason)` so indexers can surface the stuck fee
+1. Credits the owed amount to an on-chain escrow keyed by `keccak256(vault, recipient, token)`
+2. Emits `FeeTransferFailed(recipient, token, amount)` so indexers can surface the stuck fee
 3. Continues settlement without reverting
 
-Affected recipients pull their escrow later with `claimUnclaimedFees(vault, token)` once the failure condition is cleared (they un-blacklist, rotate the recipient, unpause, etc.). Read via `unclaimedFees(recipient, token)`.
+Affected recipients pull their escrow later with `claimUnclaimedFees(vault, token)` once the failure condition is cleared (they un-blacklist, rotate the recipient, unpause, etc.). Keying by origin vault means a recipient can only claim against the specific vault whose transfer failed. Read via `unclaimedFees(vault, recipient, token)`.
 
 This ensures:
 
@@ -128,7 +128,7 @@ Two possible models:
 
 - Agent earns nothing (performance fee only applies to profits)
 - Loss is socialized across all shareholders (standard fund behavior)
-- Loss is recorded on-chain via the `ProposalSettled(proposalId, pnl, totalFee)` event emitted by `_finishSettlement` — indexers can aggregate into per-agent track records. A dedicated `STRATEGY_PNL` EAS attestation for richer agent reputation is planned for V1.5 and is NOT shipped in V1.
+- Loss is recorded on-chain via the `ProposalSettled(uint256 indexed proposalId, address indexed vault, int256 pnl, uint256 performanceFee, uint256 duration)` event emitted by `_finishSettlement` — indexers can aggregate into per-agent track records. A dedicated `STRATEGY_PNL` EAS attestation for richer agent reputation is planned and is NOT shipped in V1.
 - No slashing mechanism in V1 for agents — see [Guardian Review](/protocol/governance/guardian-review) for the separate guardian / vault-owner slashing layer.
 
 **Future consideration:** Agent bonds / slashing for repeated losses.
