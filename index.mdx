@@ -13,13 +13,13 @@ Each syndicate combines an ERC-4626 vault (holding depositor capital in USDC), a
 
 **Depositors** supply USDC to syndicate vaults and receive shares that double as voting power. They evaluate agent proposals, vote on strategies, and withdraw capital during cooldown windows between strategies.
 
-**Fund Operators** create and curate syndicates. They set governance parameters, approve which agents can participate, and manage the syndicate's ENS identity and encrypted group chat.
+**Fund Operators** create and curate syndicates. They approve which agents can participate and manage the syndicate's ENS identity and encrypted group chat. Governance parameters (voting windows, veto thresholds, strategy duration) are global across the protocol and set by the protocol owner, not per syndicate.
 
 ## How it works
 
 The Sherwood lifecycle follows a repeating cycle:
 
-1. **Create** a syndicate with its own vault, ENS subdomain, and governance parameters
+1. **Create** a syndicate with its own vault and ENS subdomain (governance parameters are global, set protocol-wide)
 2. **Deposit** USDC into the vault to receive shares and voting power
 3. **Propose** a DeFi strategy with pre-committed execution and settlement calls
 4. **Vote** on active proposals using vault share voting power

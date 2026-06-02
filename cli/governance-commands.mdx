@@ -24,8 +24,8 @@ sherwood proposal create \
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--vault` | Yes | Vault address the proposal targets |
-| `--name` | Yes* | Strategy name (used in metadata JSON, skipped if `--metadata-uri` provided) |
-| `--description` | Yes* | Strategy rationale and risk summary (skipped if `--metadata-uri` provided) |
+| `--name` | Yes | Strategy name (used in metadata JSON; ignored for pinning if `--metadata-uri` provided) |
+| `--description` | Yes | Strategy rationale and risk summary (ignored for pinning if `--metadata-uri` provided) |
 | `--performance-fee` | Yes | Agent's fee in bps (e.g. 1500 = 15%, capped by governor) |
 | `--duration` | Yes | Strategy duration. Accepts seconds or human format (`7d`, `24h`, `1h`) |
 | `--execute-calls` | Yes | Path to JSON file with execute Call[] array (open positions) |
@@ -59,7 +59,7 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 2. Parse and validate calls JSON
 3. If no `--metadata-uri`: build metadata JSON, pin to IPFS via Pinata, get `ipfs://Qm...` URI
 4. Display proposal summary for review (name, fee, duration, call count, metadata URI)
-5. Call `governor.propose(vault, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls)`
+5. Call `governor.propose(vault, strategy, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers)` -- `strategy` is the live-NAV strategy clone address (pass `address(0)` to opt out of live NAV, queue-only); `coProposers` is the optional collaborative-proposal co-signer list
 6. Print proposalId and voting period end time
 
 ---
@@ -122,7 +122,7 @@ sherwood proposal vote --id <proposalId> --support <for|against|abstain> [--chai
 2. Check caller has voting power (vault shares at snapshot)
 3. Display proposal summary + vote weight
 4. Confirm with user
-5. Call `governor.vote(proposalId, voteType)` -- VoteType: For, Against, or Veto
+5. Call `governor.vote(proposalId, support)` -- support is the VoteType: `For` (0), `Against` (1), or `Abstain` (2), set via `--support for|against|abstain`
 
 ---
 
@@ -167,11 +167,16 @@ sherwood proposal settle --id <proposalId> [--calls <path-to-json>] [--chain <ne
 Cancel a proposal before execution.
 
 ```bash
-sherwood proposal cancel --id <proposalId> [--chain <network>]
+sherwood proposal cancel --id <proposalId> [--emergency] [--chain <network>]
 ```
 
-- Proposer can cancel if state is Pending/Approved
-- Vault owner can emergency cancel at any non-settled state
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--id` | Yes | Proposal ID to cancel |
+| `--emergency` | No | Use the vault-owner `emergencyCancel` path (Draft / Pending only) instead of the proposer `cancelProposal` path |
+
+- **Proposer** (default): can cancel from `Draft`, `Pending`, `GuardianReview`, or `Approved`. A cancel during `GuardianReview` also drives `registry.cancelReview` so approvers can't be slashed by a stale resolution.
+- **Vault owner** (`--emergency`): can `emergencyCancel` only from `Draft` or `Pending`. Once a proposal reaches `GuardianReview` or `Approved`, only the proposer can cancel.
 
 ---
 
@@ -204,8 +209,8 @@ sherwood proposal unstick --id <proposalId> [--dry-run] [--yes]
 
 | State | Recovery |
 |-------|----------|
-| Draft / Pending | `sherwood proposal cancel --id <id>` |
-| Approved | `sherwood proposal veto <id>` |
+| Draft / Pending | `sherwood proposal cancel --id <id>` (proposer) or `--emergency` (vault owner) |
+| GuardianReview / Approved | `sherwood proposal cancel --id <id>` (proposer only) |
 | Expired | Vault is not locked — nothing to do |
 | Settled | Already settled — nothing to do |
 
@@ -250,6 +255,7 @@ sherwood governor set-veto-threshold --bps <n> [--chain <network>]
 sherwood governor set-max-fee --bps <n> [--chain <network>]
 sherwood governor set-max-duration --seconds <n> [--chain <network>]
 sherwood governor set-cooldown --seconds <n> [--chain <network>]
+sherwood governor set-protocol-fee --bps <n> [--chain <network>]
 ```
 
 ---

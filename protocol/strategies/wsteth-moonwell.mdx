@@ -65,17 +65,22 @@ Pending → execute() → Executed → settle() → Settled
 
 ```solidity
 struct InitParams {
-    address weth;           // WETH token
-    address wsteth;         // wstETH (Lido wrapped staked ETH)
-    address mwsteth;        // Moonwell wstETH market token
-    address aeroRouter;     // Aerodrome Router (for WETH ↔ wstETH swaps)
-    address aeroFactory;    // Aerodrome Factory (pool lookup)
-    uint256 supplyAmount;   // Amount of WETH to deploy
-    uint256 minWstethOut;   // Min wstETH from WETH→wstETH swap (slippage)
-    uint256 minWethOut;     // Min WETH from wstETH→WETH swap on settle (slippage)
-    uint256 deadlineOffset; // Seconds added to block.timestamp for swap deadlines (default: 300)
+    address weth;                 // WETH token
+    address wsteth;               // wstETH (Lido wrapped staked ETH)
+    address mwsteth;              // Moonwell wstETH market token
+    address aeroRouter;           // Aerodrome Router (for WETH ↔ wstETH swaps)
+    address aeroFactory;          // Aerodrome Factory (pool lookup)
+    address chainlinkWstethEthFeed; // Chainlink WSTETH/ETH feed (drives live NAV)
+    uint256 supplyAmount;         // Amount of WETH to deploy (0 = full vault WETH balance at execute)
+    uint256 minWstethOutPerWeth;  // Slippage rate (1e18-scaled): min wstETH per 1e18 WETH (execute swap)
+    uint256 minWethOutPerWsteth;  // Slippage rate (1e18-scaled): min WETH per 1e18 wstETH (settle swap)
+    uint256 deadlineOffset;       // Seconds added to block.timestamp for swap deadlines (default: 300)
 }
 ```
+
+<Info>
+  The two slippage fields are **per-unit rates scaled by 1e18**, not absolute amounts. At swap time the contract computes `minOut = amountIn * rate / 1e18`, so the floor scales with the actual amount swapped (safe for dynamic-all mode and for yield-accrued settle balances). Both rates are required — initialization reverts with `InvalidAmount` if either is 0.
+</Info>
 
 ## Tunable Parameters
 
@@ -83,12 +88,14 @@ The proposer can update slippage parameters in both `Pending` and `Executed` sta
 
 | Parameter | Description |
 |-----------|-------------|
-| `minWethOut` | Minimum WETH from wstETH→WETH swap on settlement |
-| `minWstethOut` | Minimum wstETH from WETH→wstETH swap on execution |
+| `minWethOutPerWsteth` | Per-unit rate (1e18): min WETH per 1e18 wstETH on the settle swap |
+| `minWstethOutPerWeth` | Per-unit rate (1e18): min wstETH per 1e18 WETH on the execute swap |
 | `deadlineOffset` | Swap deadline in seconds from current block |
 
+The decode order is `(newMinWethOutPerWsteth, newMinWstethOutPerWeth, newDeadlineOffset)` — settle-side rate first:
+
 ```solidity
-strategy.updateParams(abi.encode(newMinWethOut, newMinWstethOut, newDeadlineOffset));
+strategy.updateParams(abi.encode(newMinWethOutPerWsteth, newMinWstethOutPerWeth, newDeadlineOffset));
 // Pass 0 to keep current value
 ```
 
@@ -112,17 +119,11 @@ sherwood strategy propose wsteth-moonwell \
 | `--amount <n>` | Amount of WETH to deploy | required |
 | `--slippage <bps>` | Slippage tolerance in basis points | 500 (5%) |
 
-The CLI automatically calculates `minWstethOut` and `minWethOut` from the slippage value. Both are set to `amount - (amount * slippage / 10000)`.
+The CLI converts the `--slippage` value into the two **1e18-scaled per-unit rates** (`minWstethOutPerWeth`, `minWethOutPerWsteth`). For example a 5% (500 bps) tolerance produces a rate near `0.95e18`, and the contract enforces `minOut = amountIn * rate / 1e18` at each swap.
 
-## Allowlist Targets
+## Live NAV
 
-```bash
-sherwood vault add-target --target 0x4200000000000000000000000000000000000006  # WETH
-sherwood vault add-target --target 0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452  # wstETH
-sherwood vault add-target --target 0x627Fe393Bc6EdDA28e99AE648fD6fF362514304b  # Moonwell mwstETH
-sherwood vault add-target --target 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43  # Aerodrome Router
-sherwood vault add-target --target <strategy-clone-address>                      # Your strategy clone
-```
+This strategy exposes **live NAV** via the Chainlink WSTETH/ETH feed. `positionValue()` converts the strategy's mwstETH balance (through `exchangeRateStored`) into wstETH, then into WETH at the oracle price, and adds any WETH / wstETH dust held on the clone. The feed is gated by `MAX_ORACLE_STALENESS = 25h` (Base WSTETH/ETH heartbeat 24h + 1h buffer): if the feed is stale or reports a non-positive price, live NAV returns `valid=false` and the vault falls back to the async-redeem queue. New deposits forward through `onLiveDeposit`, which swaps the freshly-pushed WETH to wstETH and mints additional mwstETH.
 
 ## Addresses (Base Mainnet)
 

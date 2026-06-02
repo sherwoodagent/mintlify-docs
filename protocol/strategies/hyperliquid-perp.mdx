@@ -4,7 +4,7 @@ description: "Leveraged perpetual futures on Hyperliquid via HyperEVM precompile
 icon: "chart-line"
 ---
 
-The `HyperliquidPerpStrategy` lets a syndicate run a leveraged perpetual position on Hyperliquid from an on-chain vault. USDC is pulled from the vault, transferred to HyperCore perp margin via the `L1Write` precompile, and the proposer drives trading actions (open long, update stop-loss, close position) through `updateParams`. Position state is read live from HyperCore via `L1Read.position2()` — nothing is cached on-chain.
+The `HyperliquidPerpStrategy` lets a syndicate run leveraged perpetual positions on Hyperliquid from an on-chain vault. USDC is pulled from the vault, **bridged EVM → HyperCore spot** via Circle's CoreDepositWallet (`HyperliquidBridge.bridgeUsdcToSpot`), and then moved **spot → perp margin** via `L1Write.sendUsdClassTransfer`. The proposer drives trading actions (open long, open short, stop-loss, close, plus multi-asset variants) through `updateParams`. Position state is read live from HyperCore via `L1Read.position2()` — nothing is cached on-chain.
 
 HyperEVM mainnet only.
 
@@ -17,14 +17,19 @@ HyperEVM mainnet only.
 ```mermaid
 graph TD
     V["Vault (USDC)"] -->|"execute: pull USDC"| S["HyperliquidPerpStrategy clone"]
-    S -->|"sendUsdClassTransfer"| C2["HyperCore perp margin"]
-    K["Keeper (off-chain)"] -.->|"updateLeverage via exchange API"| C2
+    S -->|"bridgeUsdcToSpot (Circle CoreDepositWallet)"| C0["HyperCore spot"]
+    C0 -->|"sendUsdClassTransfer (spot → perp)"| C2["HyperCore perp margin"]
 
-    P["Proposer"] -->|"updateParams: openLong / close / setStopLoss"| S
-    S -->|"sendIocOrder / sendGtcOrder"| C3["HyperCore orderbook"]
+    P["Proposer"] -->|"updateParams: long / short / stop-loss / close"| S
+    S -->|"sendLimitOrder (IOC / GTC)"| C3["HyperCore orderbook"]
+
+    subgraph "Live NAV"
+        S -->|"L1Read.accountMarginSummary"| C5["HyperCore equity"]
+        C5 -->|"positionValue (view)"| V
+    end
 
     subgraph Settlement
-        S2["Strategy clone"] -->|"close + request USD transfer"| C4["HyperCore"]
+        S2["Strategy clone"] -->|"force-close + perp→spot + spot→EVM bridge"| C4["HyperCore"]
         C4 -->|"async arrival"| S3["Strategy clone (EVM side)"]
         S3 -->|"sweepToVault()"| V2["Vault (USDC + P&L)"]
     end
@@ -33,22 +38,15 @@ graph TD
 ## Lifecycle
 
 ```
-Pending → execute() → Executed → (trade actions)
-        → initiateReturn() → wait ≥1 block → settle() → Settled → sweep
+Pending → execute() → Executed → (trade actions) → settle() → Settled → sweep
 ```
 
 | Phase | What happens | Who calls |
 |-------|-------------|-----------|
-| **Execute** | Pull USDC from vault → bridge EVM→HC spot via Circle's `CoreDepositWallet.deposit` → `sendUsdClassTransfer` spot→perp. Leverage is set off-chain by the keeper via `updateLeverage` API call before the proposal opens — Hyperliquid's CoreWriter has no on-chain leverage action. | Governor (proposal execution) |
-| **Executed** | Proposer opens/closes positions, updates stop-loss via `updateParams` | Proposer only |
-| **Initiate return** (path 1) | Cancel stop-loss, force-close positions, queue perp→spot class transfer, queue spot→EVM bridge via `sendAsset` to USDC system address. Async — HC processes post-block; USDC arrives on the strategy's EVM address in the next block. | Proposer anytime; anyone after proposal duration expired |
-| **Settle** (path 2) | Push the strategy's now-arrived EVM USDC to the vault. Governor's settle batch reads `vault.totalAssets()` for PnL math, so this is the moment NAV must be realized. If `initiateReturn()` was not called pre-settle, `_settle` falls back to a defensive in-call drain (USDC arrives next block — recover via `sweepToVault`). | Governor (proposal settlement) |
-| **Sweep** | `sweepToVault()` pushes any latecomer EVM USDC arrivals to the vault. Callable by anyone; repeatable for partial arrivals. | Anyone |
-| **Recover HC residuals** (post-settle) | `recoverHcResiduals()` re-fires the full HC drain (cancel + force-close + perp→spot + spot→EVM bridge). Use after IOC slippage left residual perp margin, or after funding the strategy's HC HYPE balance to retry a bridge that previously no-op'd. Permissionless; repeatable. After it fires, call `sweepToVault()` once HC delivers the bridged USDC on EVM. | Anyone |
-
-<Warning>
-**Proposer must fund the strategy with HYPE on HyperCore before `initiateReturn`.** The spot→EVM `sendAsset` action consumes HC-side gas (HYPE), per [hyper-evm-lib's `bridgeToEvm` note](https://github.com/hyperliquid-dev/hyper-evm-lib/blob/main/src/CoreWriterLib.sol). If the strategy's HC HYPE balance is zero, the bridge action silently no-ops on HC and USDC stays on HC spot indefinitely. Recommended: send a small amount of HYPE (≤0.01 HYPE is sufficient for one bridge) to the strategy's HC address right after the clone is deployed and before `_execute` runs. Recovery from a HYPE-less stranded state: fund HYPE on HC, then call public `recoverHcResiduals()` post-settle (or `initiateReturn()` pre-settle) to retry the spot→EVM leg.
-</Warning>
+| **Execute** | Pull USDC from vault → `bridgeUsdcToSpot` (EVM → HC spot) → `sendUsdClassTransfer` (spot → perp margin) | Governor (proposal execution) |
+| **Executed** | Proposer opens / closes long & short positions, updates stop-losses, trades multiple assets via `updateParams`. Leverage is set off-chain via the exchange API. | Proposer only |
+| **Settle** | Force-close all positions → perp → spot class transfer → spot → EVM bridge → push EVM USDC to vault | Governor (proposal settlement) |
+| **Sweep** | `sweepToVault()` pushes any latecomer HC USDC to the vault. Callable by anyone; repeatable for partial arrivals. | Anyone |
 
 ## Batch Calls
 
@@ -58,29 +56,22 @@ Pending → execute() → Executed → (trade actions)
 [USDC.approve(strategy, depositAmount), strategy.execute()]
 ```
 
-### Initiate return (off-batch, before settle)
-
-```
-strategy.initiateReturn()  // proposer or anyone-after-duration
-```
-
-Wait at least 1 block for HC to process the bridge actions, then run the settle batch.
-
 ### Settle
 
 ```
 [strategy.settle()]
 ```
 
-After `settle()`, anyone can call `strategy.sweepToVault()` to recover any HC arrivals that landed after the settle tx. Funds can only flow to the vault.
+After `settle()`, anyone can call `strategy.sweepToVault()` once the async USD transfer lands. Funds can only flow to the vault.
 
 ## InitParams
+
+Init data is an **ABI-encoded positional tuple** decoded in this order:
 
 ```solidity
 (
   address asset,            // USDC on HyperEVM
-  uint256 depositAmount,    // USDC to park as perp margin (fits in uint64)
-  uint256 minReturnAmount,  // Min USDC sweep on settlement (InsufficientReturn revert)
+  uint256 depositAmount,    // USDC to park as perp margin (fits in uint64; 0 = full vault balance at execute)
   uint32  perpAssetIndex,   // HyperCore perp asset index (0 = BTC, 3 = ETH)
   uint32  leverage,         // 1–50
   uint256 maxPositionSize,  // Max USDC in a single position — on-chain hard cap
@@ -93,27 +84,50 @@ On-chain risk caps:
 - `leverage` must be 1–50
 - Opening a position where `sz * limitPx / 1e6 > maxPositionSize` reverts with `PositionTooLarge`
 - Exceeding `maxTradesPerDay` (counted per UTC day) reverts with `MaxTradesExceeded`
-- At settlement, `sweepToVault()` reverts with `InsufficientReturn` if the arrived USDC is below `minReturnAmount`
+
+<Info>
+  There is no `minReturnAmount` floor. It was removed in #255 (S-C6) because it could permanently lock funds on a lossy strategy — `sweepToVault()` pushes whatever HC returns, with no minimum check.
+</Info>
 
 ## Proposer Actions (Executed state)
 
 Encoded as `updateParams(abi.encode(action, ...))`:
 
+Single-asset actions use the `perpAssetIndex` stored at init. Multi-asset actions (6/7/8) carry the `assetIndex` in calldata, so one clone can trade any whitelisted perp and `_settle` closes every traded asset.
+
 | Action | Encoding | Description |
 |--------|----------|-------------|
-| `0` — update min return | `(uint8, uint256 newMinReturn)` | Lower the settlement floor. Does not count against daily trade limit. |
-| `1` — open long | `(uint8, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | IOC long + optional GTC stop-loss. Stop-loss uses a fixed CLOID so each new one replaces the previous. |
-| `2` — close position | `(uint8, uint64 limitPx, uint64 sz)` | IOC close — current design is long-only. |
-| `3` — update stop-loss | `(uint8, uint64 triggerPx, uint64 sz)` | Cancel the current stop-loss and place a new GTC order. |
+| `1` — open long | `(uint8, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | IOC long + GTC stop-loss (reduce-only sell). Stop-loss uses a fixed CLOID so each new one replaces the previous. |
+| `2` — close position | `(uint8, uint64 limitPx, uint64 sz)` | Reduce-only IOC close. |
+| `3` — update stop-loss (long) | `(uint8, uint64 triggerPx, uint64 sz)` | Cancel the current stop-loss and place a new GTC reduce-only **sell** (for longs). |
+| `4` — open short | `(uint8, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | IOC short entry + GTC stop-loss (reduce-only **buy** to close the short). |
+| `5` — update stop-loss (short) | `(uint8, uint64 triggerPx, uint64 sz)` | Cancel and place a new GTC reduce-only **buy** stop for a short position. |
+| `6` — open long (multi-asset) | `(uint8, uint32 assetIndex, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | Same as action 1 but for the `assetIndex` in calldata. |
+| `7` — open short (multi-asset) | `(uint8, uint32 assetIndex, uint64 limitPx, uint64 sz, uint64 stopLossPx, uint64 stopLossSz)` | Same as action 4 but for the `assetIndex` in calldata. |
+| `8` — close (multi-asset) | `(uint8, uint32 assetIndex, bool isBuy, uint64 limitPx, uint64 sz)` | Reduce-only IOC close on a specific asset and direction (`isBuy=true` closes a short, `false` closes a long). |
 
-Position state is **not** tracked on-chain. Before acting, the proposer must read HyperCore directly (`L1Read.position2`). Funds never leave margin on trade actions — only `settle()` initiates the USD transfer back.
+Position direction is **not** tracked on-chain — the proposer must send the matching stop-loss action (3 for longs, 5 for shorts). Before acting, read HyperCore directly (`L1Read.position2`). Funds never leave margin on trade actions — settlement / `initiateReturn()` initiates the transfer back to EVM.
+
+## Live NAV
+
+This strategy exposes **live NAV**. `positionValue()` sums HyperCore perp account equity (`L1Read.accountMarginSummary`), HyperCore spot USDC, and the strategy's EVM USDC balance, then reconciles that observable total against an in-flight high-water mark (`inFlightToHc`) using a Circle-fee-sized tolerance: when observable is within tolerance it trusts observable; a genuine cross-block bridge window (gap ≫ tolerance) falls back to `inFlightToHc` so NAV stays stable. It returns `valid=true` throughout the `Executed` state, so the vault marks shares to market and LPs can deposit / withdraw mid-proposal. New deposits forward through `onLiveDeposit`, which bridges the freshly-pushed USDC EVM → HC spot and class-transfers it into perp margin.
+
+## Funding the position (bridge mechanics)
+
+Moving USDC from the EVM vault onto HyperCore perp margin is a **two-step** flow, not a single class transfer:
+
+1. **EVM → HC spot** — `HyperliquidBridge.bridgeUsdcToSpot` sends USDC to Circle's CoreDepositWallet, which credits the clone's HC **spot** account post-block. Circle charges a **1-USDC new-account fee** on the first deposit per HC address, so the first class transfer can exceed the actually-landed spot and be dropped by HC.
+2. **HC spot → perp** — `L1Write.sendUsdClassTransfer(amount, true)` moves spot to perp margin. If the first transfer was dropped because of the new-account fee, the proposer calls `moveSpotToPerp()` one or more blocks later to class-transfer whatever actually landed on spot.
+
+On the way out, `_settle()` / `initiateReturn()` reverse this: force-close positions, class-transfer perp → spot, then bridge spot → EVM. The spot → EVM leg consumes HC HYPE for gas — if the clone's HC HYPE is unfunded, that leg no-ops and `recoverHcResiduals()` (post-settle) retries it after funding.
 
 ## Risk Notes
 
 - **Liquidation:** HyperCore liquidates positions that breach maintenance margin. The on-chain contract has no view into liquidation state — settlement and sweep still work, but returned USDC may be well below `depositAmount`.
 - **Async settlement:** `settle()` does not immediately return funds. The USD transfer from HyperCore to EVM is asynchronous; `sweepToVault()` may need to be called multiple times for partial arrivals.
-- **No off-chain keeper:** All actions are on-chain through precompiles. There is no bot watching price — set stop-losses explicitly via action `3` if you want automated exits.
-- **Long-only:** The current template opens and closes longs only. Short exposure requires a future template revision.
+- **No off-chain keeper:** All actions are on-chain through precompiles. There is no bot watching price — set stop-losses explicitly (action `3` for longs, `5` for shorts) if you want automated exits.
+- **Long and short:** The template supports both directions — long (1), short (4), their stop-losses (3/5), close (2), and multi-asset variants (6/7/8). Always pair a position with the correct-direction stop-loss action; a mismatched reduce-only order is a no-op on HyperCore.
+- **Funding fees:** Perp positions accrue HyperCore funding payments while open; these are reflected in the live margin summary and in the realized USDC at settle.
 
 ## CLI Usage
 
@@ -123,7 +137,6 @@ sherwood strategy propose hyperliquid-perp \
   --amount 5000 \
   --leverage 5 \
   --asset-index 3 \
-  --min-return 4500 \
   --max-position 20000 \
   --max-trades-per-day 20 \
   --chain hyperevm \
@@ -136,7 +149,6 @@ sherwood strategy propose hyperliquid-perp \
 | `--amount <n>` | USDC collateral to deploy | required |
 | `--leverage <n>` | Leverage multiplier (1–50) | 10 |
 | `--asset-index <n>` | HyperCore perp asset index | 0 (BTC) |
-| `--min-return <n>` | Min USDC on sweep — reverts below this | — |
 | `--max-position <amount>` | Max USD in a single position | 100000 |
 | `--max-trades-per-day <n>` | Daily trading action limit | 50 |
 

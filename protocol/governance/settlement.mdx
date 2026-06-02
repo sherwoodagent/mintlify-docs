@@ -48,9 +48,9 @@ Since the exact on-chain state at settlement time cannot be predicted (slippage,
 |------|-----|------|-------|-------|
 | **`settleProposal`** | Proposer anytime; anyone after duration | Proposer: anytime after execution. Others: after `strategyDuration` ends | Pre-committed `settlementCalls` from proposal | The happy path; zero trust |
 | **`unstick`** | Vault owner | After `strategyDuration` ends | Pre-committed `settlementCalls` only — no custom calldata, no fallback | Force-triggers a settlement that the proposer is not finalizing |
-| **`emergencySettleWithCalls`** | Vault owner | After `strategyDuration` ends | Commits the hash of owner-provided custom calls and opens a guardian review window | Owner's bond must cover `requiredOwnerBond(vault)` at call time; reverts otherwise |
+| **`emergencySettleWithCalls`** | Vault owner | After `strategyDuration` ends | Stores owner-provided custom calls in the registry (`openEmergency`) and opens a guardian review window | Owner's bond must cover `requiredOwnerBond(vault)` at call time; reverts otherwise |
 | **`cancelEmergencySettle`** | Vault owner | Before `reviewEnd` | — | Self-recall of an `emergencySettleWithCalls` the owner wants to retract (e.g. wrong calldata) |
-| **`finalizeEmergencySettle`** | Vault owner | After `reviewEnd` | Re-submits the exact calls whose hash was committed | Reverts (and slashes owner bond) if guardian block quorum reached; otherwise executes via `vault.executeGovernorBatch` and transitions to Settled |
+| **`finalizeEmergencySettle`** | Vault owner | After `reviewEnd` | Takes `proposalId` only; the registry returns the stored calls | Reverts (and slashes owner bond) if guardian block quorum reached; otherwise executes via `vault.executeGovernorBatch` and transitions to Settled |
 
 <Tabs>
   <Tab title="Standard Settlement">
@@ -83,11 +83,11 @@ Since the exact on-chain state at settlement time cannot be predicted (slippage,
     When pre-committed calls are broken (stale params, pool state shifted, a target contract is paused), the owner can propose custom settlement calldata — but only through a guardian-reviewed window.
 
     **Flow:**
-    1. Owner calls `emergencySettleWithCalls(proposalId, calls)` with the custom call array. The governor reverts with `OwnerBondInsufficient` if `registry.ownerStake(vault) < registry.requiredOwnerBond(vault)`. Assuming the bond check passes, the governor hashes the calls, stores `keccak256(abi.encode(calls))`, calls `registry.openEmergencyReview(proposalId, callsHash)`, and emits `EmergencySettleProposed`. **Calls do not execute yet.**
+    1. Owner calls `emergencySettleWithCalls(proposalId, calls)` with the custom call array. The governor reverts with `OwnerBondInsufficient` if `registry.ownerStake(vault) < registry.requiredOwnerBond(vault)`. Assuming the bond check passes, the governor calls `registry.openEmergency(proposalId, keccak256(abi.encode(calls)), calls)` — the **full calls array is stored in the registry** alongside its hash — and emits `EmergencySettleProposed`. **Calls do not execute yet.**
     2. During the review window (`reviewEnd`), active guardians can call `voteBlockEmergencySettle(proposalId)`. Each vote adds the guardian's stake weight. The owner may also call `cancelEmergencySettle(proposalId)` to self-recall — this closes the window without slashing.
-    3. After `reviewEnd`, the owner calls `finalizeEmergencySettle(proposalId, calls)` — the governor re-hashes `calls`, checks it equals the committed hash, then calls `registry.resolveEmergencyReview(proposalId)`:
-        - If the block quorum was reached → owner's bond is slashed (WOOD burned) and `finalizeEmergencySettle` reverts. The owner must fall back to `unstick`, post a fresh bond, or propose different calls.
-        - If not blocked → governor runs `vault.executeGovernorBatch(calls)` and transitions the proposal to Settled. Fees distributed normally.
+    3. After `reviewEnd`, the owner calls `finalizeEmergencySettle(proposalId)` — **no calldata re-submission**. The governor calls `registry.finalizeEmergency(proposalId)`, which returns `(blocked, calls)` from registry storage:
+        - If the block quorum was reached (`blocked == true`) → owner's bond is slashed (WOOD burned) and `finalizeEmergencySettle` reverts. The owner must fall back to `unstick`, post a fresh bond, or propose different calls.
+        - If not blocked → governor runs `vault.executeGovernorBatch(calls)` with the registry-returned calls and transitions the proposal to Settled. Fees distributed normally.
 
     The bond recheck at `emergencySettleWithCalls` time closes the "stake at TVL=0, drain at TVL=10M" attack — the bond must be sufficient for the vault's *current* size.
   </Tab>
@@ -105,7 +105,7 @@ Pre-committed unwind calls are a best-effort prediction of future on-chain state
 Together these replace the single `emergencySettle(proposalId, calls)` function from pre-PR-#229. The old function combined "execute arbitrary calldata if pre-committed calls revert" into a single owner-gated call — unbounded trust in a compromised owner was the primary escalation vector.
 
 <Note>
-**Fee transfers are wrapped in try/catch, with a pull-claim escrow for blacklisted recipients.** Inside `_distributeFees`, every `vault.transferPerformanceFee(...)` call (protocol fee, agent / co-proposers, management fee) is wrapped in `try/catch`. On any failure — including USDC blacklisting the recipient — the governor credits the owed amount to `_unclaimedFees[recipient][token]`, emits `FeeTransferFailed(recipient, token, amount, reason)`, and continues. `settleProposal` therefore never reverts on a single bad recipient. Once the failure condition is cleared (recipient rotated, unblocked, etc.), the recipient calls `claimUnclaimedFees(vault, token)` to pull their escrowed balance. View helper: `unclaimedFees(recipient, token)`. This closes item **W-1** in the pre-mainnet punch list.
+**Fee transfers are wrapped in try/catch, with a pull-claim escrow for blacklisted recipients.** Inside `_distributeFees`, every `vault.transferPerformanceFee(...)` call (protocol fee, agent / co-proposers, management fee) is wrapped in `try/catch`. On any failure — including USDC blacklisting the recipient — the governor credits the owed amount to the escrow keyed by `keccak256(vault, recipient, token)`, emits `FeeTransferFailed(recipient, token, amount)`, and continues. `settleProposal` therefore never reverts on a single bad recipient. Once the failure condition is cleared (recipient rotated, unblocked, etc.), the recipient calls `claimUnclaimedFees(vault, token)` to pull their escrowed balance — keying by origin vault means a recipient can only claim against the specific vault whose transfer failed. View helper: `unclaimedFees(vault, recipient, token)`. This closes item **W-1** in the pre-mainnet punch list.
 </Note>
 
 ## Cooldown Window
@@ -147,11 +147,11 @@ Settle:
     3. No bond requirement, no guardian review
 
   Path 3 — Emergency settle with custom calls (owner-bonded, guardian-reviewed):
-    1. Owner calls emergencySettleWithCalls(proposalId, calls) — bond rechecked, calls hash committed
+    1. Owner calls emergencySettleWithCalls(proposalId, calls) — bond rechecked, full calls stored in registry via openEmergency
     2. 24h guardian review window; guardians can block; owner can cancel
-    3. Owner calls finalizeEmergencySettle(proposalId, calls) after reviewEnd
+    3. Owner calls finalizeEmergencySettle(proposalId) after reviewEnd (proposalId only; registry returns stored calls)
     4. If guardians blocked: owner bond slashed, function reverts
-    5. Otherwise: vault executes calls via executeGovernorBatch, same P&L math
+    5. Otherwise: vault executes the registry-returned calls via executeGovernorBatch, same P&L math
 
   All paths end with:
     - _activeProposal[vault] cleared (redemptions unlock automatically)
@@ -160,7 +160,7 @@ Settle:
 ```
 
 <Note>
-**No PnL EAS attestation in V1.** Earlier designs proposed a `STRATEGY_PNL` EAS schema minted by the governor at settlement to create an immutable on-chain track record. That feature is **not implemented** in the current codebase and is deferred. The on-chain record today is the `ProposalSettled(uint256 proposalId, int256 pnl, uint256 totalFee)` event emitted by `_finishSettlement`, which indexers can consume. A richer EAS-based agent reputation layer is planned for V1.5 alongside the full guardian reward + reputation track.
+**No PnL EAS attestation in V1.** Earlier designs proposed a `STRATEGY_PNL` EAS schema minted by the governor at settlement to create an immutable on-chain track record. That feature is **not implemented** in the current codebase and is deferred. The on-chain record today is the `ProposalSettled(uint256 indexed proposalId, address indexed vault, int256 pnl, uint256 performanceFee, uint256 duration)` event emitted by `_finishSettlement`, which indexers can consume. A richer EAS-based agent reputation layer is planned alongside the full guardian reward + reputation track.
 </Note>
 
 ## Full Lifecycle in calls[]
@@ -200,6 +200,6 @@ struct StrategyProposal {
 }
 ```
 
-**Settlement should return to deposit asset.** After the unwind calls execute, the vault should hold the deposit asset (e.g. USDC) again. If non-deposit-asset tokens remain on the vault after settlement, the owner can manually handle them via `executeBatch` (owner-only).
+**Settlement should return to deposit asset.** After the unwind calls execute, the vault should hold the deposit asset (e.g. USDC) again. If non-deposit-asset tokens remain on the vault after settlement, the owner can recover them via the targeted `rescueERC20` / `rescueERC721` / `rescueEth` owner functions (the owner-direct `executeBatch` entrypoint was removed in PR #229 — see the note above).
 
-**Stale parameters:** Since pre-committed unwind calls are a prediction of future state, agents should use generous slippage tolerances. If standard settlement reverts, the vault owner can use `emergencySettle` as a backstop — it tries the pre-committed calls first via try/catch, then falls back to the owner's custom calls.
+**Stale parameters:** Since pre-committed unwind calls are a prediction of future state, agents should use generous slippage tolerances. If standard settlement reverts, the vault owner uses `unstick` (re-run the pre-committed calls) or, when those calls are broken, `emergencySettleWithCalls` → guardian review → `finalizeEmergencySettle` to run owner-supplied custom calldata. There is no single `emergencySettle` try-then-fallback function.

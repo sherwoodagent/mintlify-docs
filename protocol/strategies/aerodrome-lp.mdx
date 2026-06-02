@@ -119,8 +119,12 @@ sherwood strategy propose aerodrome-lp \
 | `--stable` | Stable pool (correlated assets) | false |
 | `--gauge <address>` | Gauge for AERO rewards | none |
 | `--lp-token <address>` | LP token address | required |
-| `--min-a-out <n>` | Min token A on settle | 0 |
-| `--min-b-out <n>` | Min token B on settle | 0 |
+| `--min-a-out <n>` | Min token A on settle (slippage) | at least one of the pair required |
+| `--min-b-out <n>` | Min token B on settle (slippage) | at least one of the pair required |
+
+<Warning>
+  Slippage minimums are mandatory. Initialization reverts with `InvalidAmount` if **both** settle-side mins (`minAmountAOut` / `minAmountBOut`) are 0, and likewise if **both** add-side mins (`amountAMin` / `amountBMin`) are 0. At least one of each pair must be non-zero so `addLiquidity` / `removeLiquidity` are sandwich-resistant.
+</Warning>
 
 ## Tunable Parameters
 
@@ -136,19 +140,9 @@ strategy.updateParams(abi.encode(newMinAmountAOut, newMinAmountBOut));
 // Pass 0 to keep current value
 ```
 
-## Allowlist Targets
+## Live NAV
 
-Targets are pool-specific — gauge and LP token addresses vary per pool.
-
-```bash
-sherwood vault add-target --target 0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43  # Aerodrome Router
-sherwood vault add-target --target 0x940181a94A35A4569E4529A3CDfB74e38FD98631  # AERO Token
-sherwood vault add-target --target <token-a-address>                             # Token A
-sherwood vault add-target --target <token-b-address>                             # Token B
-sherwood vault add-target --target <gauge-address>                               # Pool gauge
-sherwood vault add-target --target <lp-token-address>                            # Pool LP token
-sherwood vault add-target --target <strategy-clone-address>                      # Your strategy clone
-```
+This strategy does **not** expose live NAV — pricing an LP position (including any gauge-staked portion) across stable vs volatile curves is deferred (see issue #188). While an Aerodrome proposal is active, LP entry / exit goes through the **async-redeem queue** rather than minting/burning at a live mark.
 
 ## Addresses (Base Mainnet)
 

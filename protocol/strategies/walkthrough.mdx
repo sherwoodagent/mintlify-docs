@@ -4,7 +4,7 @@ description: "End-to-end guide: from choosing a strategy to settling a proposal"
 icon: "map"
 ---
 
-This guide walks through the complete strategy lifecycle using **Moonwell Supply** as the example. The same flow applies to all strategy templates — only the CLI flags and allowlist targets differ.
+This guide walks through the complete strategy lifecycle using **Moonwell Supply** as the example. The same flow applies to all strategy templates — only the CLI flags and per-strategy parameters differ.
 
 <Note>
   This guide assumes you've completed the [Quickstart](/learn/quickstart) — wallet configured, identity minted, syndicate created, and capital deposited.
@@ -15,20 +15,24 @@ This guide walks through the complete strategy lifecycle using **Moonwell Supply
 Every strategy proposal follows this lifecycle:
 
 ```
-Pending → Approved → Executed → Settled
+Draft → Pending → GuardianReview → Approved → Executed → Settled
 ```
 
 ```mermaid
 graph LR
-    P["Pending<br/>(voting window)"] -->|"passes unless vetoed"| A["Approved"]
+    D["Draft<br/>(co-proposer consent)"] --> P["Pending<br/>(voting window)"]
+    P -->|"voting passes"| G["GuardianReview<br/>(guardian window)"]
+    G -->|"no block quorum"| A["Approved"]
     A -->|"proposer calls execute"| E["Executed<br/>(strategy running)"]
     E -->|"after duration expires"| S["Settled<br/>(P&L distributed)"]
 ```
 
-- **Pending**: Shareholders can veto during the voting window (optimistic governance — proposals pass by default)
-- **Approved**: Voting period ended, proposal accepted
-- **Executed**: Strategy is actively deployed (e.g., USDC earning yield on Moonwell)
-- **Settled**: Strategy unwound, profits distributed, fees taken
+- **Draft**: Only for collaborative proposals — awaits co-proposer consent before entering voting. Single-proposer strategies skip straight to Pending.
+- **Pending**: Voting window. Optimistic governance — proposals pass by default unless AGAINST votes reach the veto threshold. The **vault owner** can `vetoProposal()`, but only while the proposal is still Pending.
+- **GuardianReview**: After voting passes, staked guardians review the calldata for a window (default 24h). If they reach **block quorum** (default 30% of guardian stake) the proposal is Rejected and approvers are slashed. This is the only way to block a proposal once it has left Pending — there is no shareholder veto here.
+- **Approved**: Review window ended without a block quorum; the proposal can be executed.
+- **Executed**: Strategy is actively deployed (e.g., USDC earning yield on Moonwell).
+- **Settled**: Strategy unwound, profits distributed, fees taken.
 
 ## Step 1: Choose a Strategy
 
@@ -45,21 +49,7 @@ sherwood strategy list
 | `aerodrome-lp` | Provide liquidity on Aerodrome, earn AERO rewards |
 | `wsteth-moonwell` | WETH → wstETH → Moonwell for stacked yield |
 
-## Step 2: Allowlist Targets
-
-The vault must allowlist every contract address the strategy will interact with. This is a one-time setup per strategy type.
-
-```bash
-# For Moonwell Supply (USDC)
-sherwood vault add-target --target 0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22  # Moonwell mUSDC
-sherwood vault add-target --target 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913  # USDC
-```
-
-<Info>
-  The strategy clone address must also be allowlisted — add it after Step 3 prints the clone address. See each strategy's reference page for the full list of required targets.
-</Info>
-
-## Step 3: Propose a Strategy
+## Step 2: Propose a Strategy
 
 The `strategy propose` command handles everything: clones the template, initializes it, builds batch calls, and submits the proposal.
 
@@ -83,9 +73,6 @@ sherwood strategy propose moonwell-supply \
   --amount 100 --min-redeem 99.5 --token USDC \
   --write-calls ./moonwell-calls
 
-# Add the clone address to allowlist (printed by the command above)
-sherwood vault add-target --target <clone-address>
-
 # Review the generated files, then submit
 sherwood proposal create \
   --vault 0x... \
@@ -101,9 +88,9 @@ The generated JSON files contain the raw batch calls the governor will execute:
 - **execute.json**: `[USDC.approve(strategy, amount), strategy.execute()]`
 - **settle.json**: `[strategy.settle()]`
 
-## Step 4: Monitor Voting
+## Step 3: Monitor Voting & Guardian Review
 
-Proposals use optimistic governance — they pass by default unless shareholders veto.
+Proposals use optimistic governance — they pass by default unless AGAINST votes reach the veto threshold.
 
 ```bash
 # List all proposals
@@ -113,11 +100,11 @@ sherwood proposal list --vault 0x...
 sherwood proposal show --id <proposal-id> --vault 0x...
 ```
 
-Shareholders can cast a veto vote during the voting window. If AGAINST votes reach the veto threshold, the proposal is rejected.
+During the **Pending** window, shareholders cast votes; if AGAINST votes reach the veto threshold the proposal is Rejected, and the vault owner may also `vetoProposal()` (Pending only). Once voting passes, the proposal moves to **GuardianReview**: staked guardians inspect the calldata, and a guardian block-quorum (default 30% of stake) is the only way to block it from here. If neither happens, it becomes **Approved**.
 
-## Step 5: Execute
+## Step 4: Execute
 
-After the voting period ends and the proposal is approved:
+After the guardian review window ends without a block quorum and the proposal is Approved:
 
 ```bash
 sherwood proposal execute --id <proposal-id> --vault 0x...
@@ -125,7 +112,7 @@ sherwood proposal execute --id <proposal-id> --vault 0x...
 
 This calls the governor, which executes the batch calls from `execute.json` through the vault. For Moonwell Supply, this pulls USDC from the vault and supplies it to Moonwell's lending market.
 
-## Step 6: Settle
+## Step 5: Settle
 
 After the strategy duration expires:
 
@@ -136,12 +123,13 @@ sherwood proposal settle --id <proposal-id> --vault 0x...
 Settlement unwinds the strategy (redeems mUSDC from Moonwell) and returns funds to the vault. The governor then calculates P&L and distributes fees:
 
 1. **Protocol fee** — taken from gross profit first
-2. **Agent performance fee** — percentage of remaining profit (set in the proposal)
-3. **Management fee** — annual vault fee accrued over the strategy duration
-4. **Remaining profit** — stays in the vault, increasing share value for depositors
+2. **Guardian fee** — a slice (max 5%) transferred to the GuardianRegistry for review-cohort rewards
+3. **Agent performance fee** — percentage of remaining profit (set in the proposal)
+4. **Management fee** — annual vault fee accrued over the strategy duration
+5. **Remaining profit** — stays in the vault, increasing share value for depositors
 
 <Warning>
-  If the proposer doesn't settle after duration, anyone can call `proposal settle`. The vault owner can also use `emergencySettle` as a fallback.
+  If the proposer doesn't settle after duration, anyone can call `proposal settle`. The vault owner's emergency fallback is `emergencySettleWithCalls(proposalId, calls)` followed (after the guardian review window) by `finalizeEmergencySettle(calls)` — see Troubleshooting below.
 </Warning>
 
 ## Strategy Comparison
@@ -156,9 +144,9 @@ Settlement unwinds the strategy (redeems mUSDC from Moonwell) and returns funds 
 
 ## Troubleshooting
 
-### Allowlist errors
+### Execution reverts
 
-If `executeGovernorBatch` reverts, the most common cause is a missing allowlist target. Ensure all protocol addresses AND the strategy clone are allowlisted via `sherwood vault add-target`.
+If `executeGovernorBatch` reverts, check the batch calls themselves — the strategy clone must be initialized, the vault must have approved the strategy for the input amount in the execute batch, and the target protocol calls must be well-formed. The vault enforces the `delegatecall`-to-`BatchExecutorLib`-only invariant via a codehash pin; it does **not** maintain an on-chain target allowlist.
 
 ### Slippage protection
 
@@ -170,10 +158,16 @@ strategy.updateParams(abi.encode(newMinRedeem, ...));
 
 ### Emergency settle
 
-If the proposer is unresponsive after the strategy duration, the vault owner can settle with custom calls:
+Standard settlement covers the common cases: the proposer can `proposal settle` anytime, and anyone can settle after the strategy duration expires. The `proposal settle` command can also supply custom fallback calldata if the pre-committed settlement calls fail:
 
 ```bash
 sherwood proposal settle --id <proposal-id> --vault 0x... --calls ./custom-calls.json
 ```
 
-The `proposal settle` command auto-routes: proposers can settle anytime, anyone can settle after the strategy duration, and vault owners can provide custom fallback calls via `--calls` if the pre-committed settlement calls fail.
+If the standard path can't unwind the position at all, the vault owner uses the guardian-reviewed emergency flow on the governor:
+
+1. `emergencySettleWithCalls(proposalId, calls)` — commits the owner-supplied settlement calldata (by hash) and opens a guardian review window (default 24h).
+2. `finalizeEmergencySettle(calls)` — after the window, executes the committed calls unless guardians reached block quorum (in which case the owner's stake is burned).
+3. `cancelEmergencySettle()` — withdraws a pending emergency settle during the review window.
+
+There is no bare `emergencySettle()` entrypoint; owner-instant settlement (`unstick()`) is limited to pre-committed calls only.
