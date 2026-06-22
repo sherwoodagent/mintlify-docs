@@ -43,6 +43,7 @@ ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeabl
 - `executeGovernorBatch(calls)` — **governor-only** batch execution for proposal strategies. This is the single on-chain entry point for strategy calldata. Reverts for any non-governor caller.
 - `registerAgent(agentId, agentAddress)` — registers agent with ERC-8004 identity verification. `AgentConfig` stores `{agentId, agentAddress, active}` — **no caps fields.**
 - `transferPerformanceFee(token, to, amount)` — governor-only fee distribution after settlement. Has no amount / recipient / token validation on the vault side — the governor is trusted to transfer only what settlement math dictates, to a pre-vetted recipient (proposer, co-proposer, vault owner, or `protocolFeeRecipient`), in the proposal's `asset()`. This is a deliberate trust assumption: the governor is UUPS-upgradeable by protocol multisig, so compromising it compromises the fee path by construction. See [Trust Assumptions](#trust-assumptions) below.
+- `setAgentFeeBps(bps)` — **owner-only**. Sets the vault's agent performance fee (the cut a proposing agent earns on profit). Defaults to 5% (500 bps) at creation; reverts above the vault cap of 50% (5000 bps). The governor reads `agentFeeBps()` live from the vault at settlement and additionally clamps it to `maxPerformanceFeeBps`. Replaces the old per-proposal fee argument.
 - `deposit(assets, receiver)` / `redeem(shares, receiver, owner)` — standard ERC-4626 LP entry/exit. Revert while `redemptionsLocked()` is true.
 - `redemptionsLocked()` — pull-model lock: reads `governor.getActiveProposal(address(this)) != 0` live on every call. No `lockRedemptions()` / `unlockRedemptions()` state-flipping functions exist on the vault; the lock is derived, not stored.
 - `rescueEth(to, amount)` — owner-only, recovers ETH via `Address.sendValue`. Also reverts while `redemptionsLocked()` is true.
@@ -67,6 +68,7 @@ ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeabl
 | `_openDeposits` | bool | toggle for permissionless deposits |
 | `_agentRegistry` | address | ERC-8004 agent identity registry (ERC-721) |
 | `_managementFeeBps` | uint256 | vault owner's management fee on strategy profits (basis points, set at init) |
+| `_agentFeeBps` | uint256 | agent performance fee for this vault (basis points; default 500, max 5000; owner-set via `setAgentFeeBps`, read live by the governor at settlement) |
 | `_factory` | address | factory that deployed this vault (controls upgrades, provides governor address) |
 | `__gap[40]` | uint256[] | reserved storage for future upgrades |
 
@@ -81,7 +83,7 @@ Proposal lifecycle, voting, execution, settlement, and collaborative proposals. 
 **VoteType enum:** `For`, `Against`, `Abstain` — replaces the previous boolean vote.
 
 **Key functions:**
-- `propose(vault, strategy, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers)` — create proposal with separate opening/closing call arrays. `strategy` is the address whose `positionValue()` the vault polls for live NAV during the strategy window; pass `address(0)` to opt out of live NAV (queue-only). The proposal's `snapshotTimestamp = block.timestamp - 1` (closes a flash-delegate window on 2s L2 blocks). `reviewEnd` and `executeBy` are stamped in the same tx based on the current `reviewPeriod` and `executionWindow`.
+- `propose(vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers)` — create proposal with separate opening/closing call arrays. There is no per-proposal fee argument — the agent fee is the vault's `agentFeeBps`, read live from the vault at settlement. `strategy` is the address whose `positionValue()` the vault polls for live NAV during the strategy window; pass `address(0)` to opt out of live NAV (queue-only). The proposal's `snapshotTimestamp = block.timestamp - 1` (closes a flash-delegate window on 2s L2 blocks). `reviewEnd` and `executeBy` are stamped in the same tx based on the current `reviewPeriod` and `executionWindow`.
 - `vote(proposalId, voteType)` — cast vote (For/Against/Abstain) weighted by ERC20Votes timestamp-clock snapshot
 - `executeProposal(proposalId)` — **permissionless**: anyone can trigger the pre-approved `executeCalls` once state is `Approved` and the execution window is open. Uses the vault's `executeGovernorBatch`.
 - `settleProposal(proposalId)` — proposer can settle at any time; everyone else waits for `strategyDuration`. Uses the vault's `executeGovernorBatch`.

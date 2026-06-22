@@ -13,7 +13,6 @@ sherwood proposal create \
   --vault <addr> \
   --name "Moonwell USDC Yield" \
   --description "Supply USDC to Moonwell for 7 days" \
-  --performance-fee <bps> \
   --duration <seconds|7d|24h> \
   --execute-calls <path-to-json> \
   --settle-calls <path-to-json> \
@@ -26,11 +25,14 @@ sherwood proposal create \
 | `--vault` | Yes | Vault address the proposal targets |
 | `--name` | Yes | Strategy name (used in metadata JSON; ignored for pinning if `--metadata-uri` provided) |
 | `--description` | Yes | Strategy rationale and risk summary (ignored for pinning if `--metadata-uri` provided) |
-| `--performance-fee` | Yes | Agent's fee in bps (e.g. 1500 = 15%, capped by governor) |
 | `--duration` | Yes | Strategy duration. Accepts seconds or human format (`7d`, `24h`, `1h`) |
 | `--execute-calls` | Yes | Path to JSON file with execute Call[] array (open positions) |
 | `--settle-calls` | Yes | Path to JSON file with settlement Call[] array (close positions) |
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
+
+<Note>
+**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal inherits the vault's `agentFeeBps`, which the vault owner sets once via [`sherwood syndicate set-agent-fee`](#sherwood-syndicate-set-agent-fee). The governor reads it live from the vault at settlement (default 5%, capped at 50% by the vault and additionally clamped to the governor's `maxPerformanceFeeBps`).
+</Note>
 
 ### Metadata pinning (IPFS via Pinata)
 
@@ -38,7 +40,7 @@ When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--na
 
 - **Pin:** `POST https://api.pinata.cloud/pinning/pinJSONToIPFS` with `PINATA_API_KEY` from env
 - **Resolve:** Metadata displayed in the dashboard via `PINATA_GATEWAY` (default: `sherwood.mypinata.cloud`)
-- **Schema:** `{ name, description, proposer, vault, performanceFeeBps, strategyDuration, createdAt }`
+- **Schema:** `{ name, description, proposer, vault, strategyDuration, createdAt }`
 
 ### Call JSON format
 
@@ -58,9 +60,28 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 1. Validate caller is a registered agent on the vault
 2. Parse and validate calls JSON
 3. If no `--metadata-uri`: build metadata JSON, pin to IPFS via Pinata, get `ipfs://Qm...` URI
-4. Display proposal summary for review (name, fee, duration, call count, metadata URI)
-5. Call `governor.propose(vault, strategy, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers)` -- `strategy` is the live-NAV strategy clone address (pass `address(0)` to opt out of live NAV, queue-only); `coProposers` is the optional collaborative-proposal co-signer list
+4. Display proposal summary for review (name, duration, call count, metadata URI)
+5. Call `governor.propose(vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers)` -- `strategy` is the live-NAV strategy clone address (pass `address(0)` to opt out of live NAV, queue-only); `coProposers` is the optional collaborative-proposal co-signer list. The agent fee is **not** a proposal argument — it is the vault's `agentFeeBps`, read live at settlement
 6. Print proposalId and voting period end time
+
+---
+
+## `sherwood syndicate set-agent-fee`
+
+Set the vault's agent performance fee. **Vault owner only.** This is a vault property (not a per-proposal value) — every proposal on the vault inherits it, and the governor reads it live from the vault at settlement.
+
+```bash
+sherwood syndicate set-agent-fee --vault <addr> --bps <bps> [--chain <network>]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--vault` | No | Vault address (default: from config) |
+| `--bps` | Yes | Agent fee in basis points (e.g. `500` = 5%) |
+
+- Defaults to **5% (500 bps)** at vault creation.
+- Capped at **50% (5000 bps)** by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement.
+- Calls `vault.setAgentFeeBps(bps)`. Takes effect immediately for any proposal that settles after the change.
 
 ---
 

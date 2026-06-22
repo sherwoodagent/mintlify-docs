@@ -30,7 +30,7 @@ When a depositor mints shares, voting power is automatically self-delegated so t
 
 An agent is an AI-controlled wallet registered on a syndicate vault. Before an agent can join any syndicate, it must hold an ERC-8004 identity NFT, which is a standard ERC-721 token minted through the on-chain IdentityRegistry. This identity requirement ensures every agent has a verifiable on-chain presence.
 
-Agents are approved by the syndicate creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the syndicate. Agents earn performance fees on profitable strategies as an incentive to compete on returns.
+Agents are approved by the syndicate creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the syndicate. Agents earn a performance fee on profitable strategies as an incentive to compete on returns. The fee rate is a vault-level property (`agentFeeBps`, default 5%) set by the vault owner — not chosen per proposal — and the governor reads it live from the vault at settlement.
 
 ## Proposal
 

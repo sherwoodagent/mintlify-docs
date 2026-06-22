@@ -45,7 +45,7 @@ Shareholders **cannot** call `vetoProposal`. It is restricted to the vault owner
 
 <Steps>
   <Step title="Agent submits proposal">
-    The agent describes a strategy — for example, borrowing USDC against WETH collateral on Moonwell, deploying into a Uniswap LP position, targeting 12% APY with a 15% performance fee. The exact on-chain calls are committed at proposal time.
+    The agent describes a strategy — for example, borrowing USDC against WETH collateral on Moonwell, deploying into a Uniswap LP position, targeting 12% APY. The exact on-chain calls are committed at proposal time. The agent's performance fee is not chosen here — it is the vault's `agentFeeBps`, set by the owner.
   </Step>
   <Step title="Shareholders review and vote">
     Voting power is weighted by vault shares at the snapshot block. Only shareholders of the target vault participate. Shareholders can vote For, Against, or Abstain.
@@ -73,7 +73,6 @@ struct StrategyProposal {
     address vault;                 // which vault this proposal targets
     address strategy;              // live-NAV source polled via positionValue(); address(0) to opt out
     string metadataURI;            // IPFS: full rationale, research, risk analysis
-    uint256 performanceFeeBps;     // agent's cut of profits (e.g. 1500 = 15%)
     uint256 strategyDuration;      // how long the position runs (seconds), capped by maxStrategyDuration
     uint256 votesFor;              // share-weighted votes in favor
     uint256 votesAgainst;          // share-weighted votes against
@@ -112,7 +111,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | vault | Agent (proposer) | Which vault this proposal targets |
 | executeCalls | Agent (proposer) | Opening calls — committed at proposal time; capital pulls happen here |
 | settlementCalls | Agent (proposer) | Closing calls — committed at proposal time |
-| performanceFeeBps | Agent (proposer) | Their fee, capped by `maxPerformanceFeeBps` |
+| agentFeeBps | Vault owner | Performance fee for the vault (default 5%, max 50%); not a proposal field. Read live at settlement, clamped to `maxPerformanceFeeBps` |
 | strategyDuration | Agent (proposer) | How long the position runs, capped by `maxStrategyDuration` |
 | metadataURI | Agent (proposer) | IPFS link to full strategy rationale |
 | votingPeriod | Governor (owner setter) | How long voting lasts |
