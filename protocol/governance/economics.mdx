@@ -4,12 +4,19 @@ description: "Fee structure, early exit, and single-strategy model"
 icon: "coins"
 ---
 
-## Redemption Lock During Active Strategy
+## Deposits and Withdrawals During Active Strategy
 
-When a strategy is live (proposal in `Executed` state), the vault's `redemptionsLocked()` returns `true` and `withdraw` / `redeem` / `deposit` / `rescueERC20` all revert. Depositors can exit only after settlement, during the cooldown window.
+When a strategy is live (proposal in `Executed` state), `redemptionsLocked()` returns `true`. The vault uses a **two-lane** model to keep liquidity available without trusting unverified prices:
+
+- **Lane A (oracle instant):** instant deposit / redeem at a live oracle price via the governance-owned PriceRouter — available when every position kind is priced live and `laneAEnabled[kind] == true`. Lane A depositors receive a per-share lockup until the proposal settles (G1 MEV protection).
+- **Lane B (async queue):** `requestDeposit` / `requestRedeem` escrow assets/shares in `VaultWithdrawalQueue`, then settle at the frozen per-proposal price after the proposal ends. The universal fallback — always available.
+
+`rescueERC20` is blocked during active proposals regardless of lane.
+
+See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full flow diagram, lane preconditions, claim mechanics, and per-strategy Lane A status.
 
 <Note>
-**WOOD/SHARES early-exit pool — aspirational, not live in V1.** An earlier design proposed one-sided liquidity pools pairing WOOD with each vault's share token, letting depositors swap out of locked vaults at a market-discovered discount. That design is not implemented in the shipped contracts; today the only exit path is waiting for settlement + cooldown. Early-exit liquidity is tracked for a future release.
+**WOOD/SHARES early-exit pool — aspirational, not live.** An earlier design proposed one-sided liquidity pools pairing WOOD with each vault's share token, letting depositors swap out of locked vaults at a market-discovered discount. That design is not implemented; the Lane B async queue is the primary exit path during a proposal. Early-exit liquidity is tracked for a future release.
 </Note>
 
 ## WOOD Tokenomics (ve(3,3) stack)

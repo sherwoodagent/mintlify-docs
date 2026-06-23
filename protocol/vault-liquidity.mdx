@@ -1,0 +1,134 @@
+---
+title: "Deposits & Withdrawals"
+description: "Two-lane liquidity model: instant ERC-4626 outside proposals, Lane A oracle-instant or Lane B async queue during proposals"
+icon: "arrow-right-arrow-left"
+---
+
+## Overview
+
+Vault liquidity is handled differently depending on whether a proposal is active.
+
+**Outside a proposal** (`redemptionsLocked() == false`): standard ERC-4626. Deposits and redeems execute instantly against the vault's float.
+
+**During a proposal** (`redemptionsLocked() == true`): the vault cannot return capital at a price it hasn't observed yet. Two lanes handle this:
+
+| Lane | Path | When available |
+|------|------|----------------|
+| **Lane A** — oracle instant | Instant deposit / redeem at live NAV, with a per-share lockup until the proposal settles | PriceRouter can price every strategy position live (`instantOK`) AND `laneAEnabled[kind] == true` for all position kinds |
+| **Lane B** — async queue | `requestDeposit` / `requestRedeem` escrow assets/shares in `VaultWithdrawalQueue`; claims settle at the frozen per-proposal price after the proposal settles | Always available — universal fallback |
+
+## Full Flow
+
+```mermaid
+flowchart TD
+    User(["User"])
+    User --> D["vault.deposit(assets, receiver)"]
+    User --> R["vault.redeem(shares, receiver, owner)"]
+
+    D --> Lock{redemptionsLocked?}
+    R --> Lock
+
+    Lock -- "No — no active proposal" --> ERC4626["Instant ERC-4626\ndeposit / redeem\nagainst vault float"]
+
+    Lock -- "Yes — proposal Executed" --> LaneACheck{"Lane A eligible?\nPriceRouter.valueStrategy → instantOK\nAND laneAEnabled[kind] for all positions"}
+
+    LaneACheck -- "Yes" --> LaneA["Lane A — instant at live NAV\n_laneALockPid[holder] = activePid"]
+    LaneA --> LaneALock["Shares locked until proposal settles\nCannot requestRedeem while locked"]
+    LaneALock --> Settled1{Proposal settles}
+    Settled1 --> Unlocked["Lockup lifted\nShares freely transferable"]
+
+    LaneACheck -- "No — any precondition fails" --> LaneBEntry
+
+    subgraph LaneBEntry["Lane B — VaultWithdrawalQueue"]
+        direction TB
+        Req["requestDeposit(assets, receiver)\nor requestRedeem(shares, owner)"]
+        Req --> Escrow["Escrow assets / shares\nTagged to activePid\nAssets off-vault (never inflate totalAssets)"]
+        Escrow -- "Before pid stamped" --> Cancel["queue.cancel(id)\nReturn escrowed assets / shares"]
+        Escrow --> SettleProposal{"Proposal settles\nonProposalSettled(pid)"}
+        SettleProposal --> FrozenPrice["Frozen price stamped for pid\n(num / den, ERC-4626-aware)"]
+        FrozenPrice --> Claim["Anyone calls queue.claim(id)\nafter redemptionsLocked == false"]
+        Claim --> DepositSettle["settleDeposit\nmint shares at frozen price"]
+        Claim --> RedeemSettle["settleRedeem\nburn shares → USDC at frozen price"]
+    end
+```
+
+## Lane A — Oracle Instant Lane
+
+Lane A lets depositors enter and exit during an active proposal at the live oracle price, without waiting for settlement. The trade-off is a **per-share lockup**: once a Lane A deposit or redeem is processed, the holder's shares are locked (`_laneALockPid[holder] = activePid`) until that proposal settles.
+
+**Preconditions — all must hold at call time:**
+
+1. `priceRouter.valueStrategy(strategy)` returns `instantOK == true` — every position in the strategy is priced live by a registered adapter via the PriceRouter
+2. `laneAEnabled[kind] == true` for every position kind in the strategy — governance enables this per-kind after audit
+3. No `_laneALockPid` already set for the caller from an earlier Lane A operation in the same proposal
+
+If any precondition fails at call time, the vault falls back to Lane B — the caller receives a queue request rather than an immediate settlement.
+
+**Fail-closed design:** the PriceRouter returns `(0, false)` on any adapter failure, oracle staleness, position over the instant-size cap, or transit window (e.g. `returnsInitiated == true` on the Hyperliquid strategy). A zero result with `ok == false` triggers the G3 check (`total == 0 → (0, false)`) and forces Lane B. No error is thrown — the vault always finds a path forward.
+
+**G1 MEV protection:** the lockup until settlement prevents a deposit-low/exit-high attack where an actor enters right before a large PnL event and exits immediately after capturing the gain.
+
+## Lane B — Async Request Queue
+
+Lane B is the universal fallback. It is the only lane available for strategies that don't support Lane A (Hyperliquid Grid, Portfolio, Venice) and the automatic path when Lane A preconditions aren't met.
+
+### requestDeposit
+
+```solidity
+vault.requestDeposit(assets, receiver)  // returns queueId
+```
+
+Assets are transferred from the caller into `VaultWithdrawalQueue` — they never enter the vault until settlement, so they don't inflate `totalAssets` or get swept into the active strategy.
+
+### requestRedeem
+
+```solidity
+vault.requestRedeem(shares, owner)  // returns queueId
+```
+
+Shares are transferred from `owner` into the queue. They are not burned yet — redemption value is unknown until the proposal settles.
+
+### Frozen settle price
+
+When the governor calls `vault.onProposalSettled(pid)` at settlement, the queue stamps **one price** (per-share, ERC-4626-aware) for that proposal ID. Every request tagged to that `pid` claims at this single, batch-determined price — no front-running between individual claimants.
+
+### claim
+
+```solidity
+queue.claim(id)  // callable by anyone once pid is stamped AND !redemptionsLocked()
+```
+
+- **Deposit claim** → `vault.settleDeposit`: mints shares at the frozen price, sends to `receiver`
+- **Redeem claim** → `vault.settleRedeem`: burns the escrowed shares, sends USDC to `receiver`
+
+### cancel
+
+```solidity
+queue.cancel(id)  // only before the pid is stamped
+```
+
+Returns escrowed assets/shares to the original depositor/owner. Not available after the proposal settles (post-stamp cancel would be a free look-back option).
+
+### Reserve protection
+
+`executeGovernorBatch` tracks `reservedAssets()` — total USDC owed to stamped-but-unclaimed redeem requests. A subsequent proposal's execution reverts if it would leave vault float below this reserve, so in-flight redeem claims are never stranded.
+
+## Current Lane A Status by Strategy
+
+| Strategy | Position kind | Adapter | Lane A enabled |
+|---|---|---|---|
+| Moonwell Supply | `MOONWELL_SUPPLY` | `MoonwellSupplyAdapter` | **Yes** (enabled post-audit) |
+| Hyperliquid Perp | `HL_PERP` | `HyperliquidPerpAdapter` | **No** (pending post-audit multisig call) |
+| Aerodrome LP | `AERO_LP` | `AerodromeLPAdapter` | **No** (pending audit) |
+| Hyperliquid Grid | — (no positions reported) | — | **No** — Lane B only by design |
+| Portfolio, Venice, Mamo | — | — | **No** — Lane B only |
+
+Governance enables Lane A per-kind via `PriceRouter.setLaneAEnabled(kind, true)` after the adapter has been audited and a haircut + instant-cap have been configured.
+
+## `totalAssets()` During a Proposal
+
+```
+totalAssets() = vault float + priceRouter.valueStrategy(strategy)
+```
+
+If Lane A is unavailable — adapter not registered, kind disabled, or strategy in an outbound transit window — `valueStrategy` returns `(0, false)` and the vault prices itself at float only. Lane B users are unaffected: their settlement price is frozen at the actual realized value, not the mid-proposal mark.
