@@ -31,7 +31,7 @@ sherwood proposal create \
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
 <Note>
-**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal inherits the vault's `agentFeeBps`, which the vault owner sets once via [`sherwood syndicate set-agent-fee`](#sherwood-syndicate-set-agent-fee). The governor reads it live from the vault at settlement (default 5%, capped at 50% by the vault and additionally clamped to the governor's `maxPerformanceFeeBps`).
+**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood syndicate set-agent-fee`](#sherwood-syndicate-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps` (default 5%, capped at 15% by the vault).
 </Note>
 
 ### Metadata pinning (IPFS via Pinata)
@@ -61,14 +61,14 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 2. Parse and validate calls JSON
 3. If no `--metadata-uri`: build metadata JSON, pin to IPFS via Pinata, get `ipfs://Qm...` URI
 4. Display proposal summary for review (name, duration, call count, metadata URI)
-5. Call `governor.propose(vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers)` -- `strategy` is the live-NAV strategy clone address (pass `address(0)` to opt out of live NAV, queue-only); `coProposers` is the optional collaborative-proposal co-signer list. The agent fee is **not** a proposal argument — it is the vault's `agentFeeBps`, read live at settlement
+5. Call `governor.propose(vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers)` -- `strategy` is the live-NAV strategy clone address (pass `address(0)` to opt out of live NAV, queue-only); `coProposers` is the optional collaborative-proposal co-signer list. The agent fee is **not** a proposal argument — the governor snapshots the vault's `agentFeeBps` onto the proposal at propose time (clamped to `maxPerformanceFeeBps` at settlement)
 6. Print proposalId and voting period end time
 
 ---
 
 ## `sherwood syndicate set-agent-fee`
 
-Set the vault's agent performance fee. **Vault owner only.** This is a vault property (not a per-proposal value) — every proposal on the vault inherits it, and the governor reads it live from the vault at settlement.
+Set the vault's agent performance fee. **Vault owner only.** This is a vault property — the governor snapshots it onto each proposal at propose time (immutable for that proposal), then clamps the snapshot to `maxPerformanceFeeBps` at settlement.
 
 ```bash
 sherwood syndicate set-agent-fee --vault <addr> --bps <bps> [--chain <network>]
@@ -80,8 +80,8 @@ sherwood syndicate set-agent-fee --vault <addr> --bps <bps> [--chain <network>]
 | `--bps` | Yes | Agent fee in basis points (e.g. `500` = 5%) |
 
 - Defaults to **5% (500 bps)** at vault creation.
-- Capped at **50% (5000 bps)** by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement.
-- Calls `vault.setAgentFeeBps(bps)`. Takes effect immediately for any proposal that settles after the change.
+- Capped at **15% (1500 bps)** by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement.
+- Calls `vault.setAgentFeeBps(bps)`. Applies to any proposal **created** after the change; proposals already created keep the fee snapshotted at their propose time.
 
 ---
 

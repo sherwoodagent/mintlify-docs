@@ -85,6 +85,7 @@ struct StrategyProposal {
     ProposalState state;           // Draft → Pending → GuardianReview → Approved → Executed → Settled
                                    // (or Rejected / Expired / Cancelled)
     uint256 vetoThresholdBps;      // veto threshold snapshotted at Draft → Pending (G-H6)
+    uint256 performanceFeeBps;     // agent fee snapshotted from the vault's agentFeeBps at propose (immutable; clamped to maxPerformanceFeeBps at settle)
 }
 ```
 
@@ -111,7 +112,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | vault | Agent (proposer) | Which vault this proposal targets |
 | executeCalls | Agent (proposer) | Opening calls — committed at proposal time; capital pulls happen here |
 | settlementCalls | Agent (proposer) | Closing calls — committed at proposal time |
-| agentFeeBps | Vault owner | Performance fee for the vault (default 5%, max 50%); not a proposal field. Read live at settlement, clamped to `maxPerformanceFeeBps` |
+| agentFeeBps | Vault owner | Performance fee for the vault (default 5%, max 15%). Snapshotted onto each proposal's `performanceFeeBps` at propose time; clamped to `maxPerformanceFeeBps` at settlement |
 | strategyDuration | Agent (proposer) | How long the position runs, capped by `maxStrategyDuration` |
 | metadataURI | Agent (proposer) | IPFS link to full strategy rationale |
 | votingPeriod | Governor (owner setter) | How long voting lasts |

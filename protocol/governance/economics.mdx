@@ -52,8 +52,8 @@ A protocol-level fee taken from gross profit **before** agent and management fee
 The performance fee is the cut a proposing agent earns on net profit (after the protocol fee). It is a **vault-level property, not a per-proposal value** — the vault owner sets one fee for the whole vault and every proposal inherits it.
 
 - `agentFeeBps` lives on the **vault**, not the proposal. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood syndicate set-agent-fee --bps <bps>`.
-- Defaults to **5% (500 bps)** at vault creation. Capped at **50% (5000 bps)** by the vault.
-- The governor reads `agentFeeBps()` **live from the vault at settlement** (it is not snapshotted at propose time) and additionally clamps it to `maxPerformanceFeeBps`. A change therefore takes effect for any proposal that settles after it.
+- Defaults to **5% (500 bps)** at vault creation. Capped at **15% (1500 bps)** by the vault.
+- When a proposal is created the governor **snapshots** the vault's current `agentFeeBps` onto that proposal (immutable for that proposal — a later owner change cannot alter an already-created proposal). At settlement the governor uses that snapshot, additionally clamped to `maxPerformanceFeeBps`. A change therefore only takes effect for proposals created after it.
 - `propose()` takes no fee argument. To split the fee among collaborators, use co-proposers (see [Collaborative Proposals](/protocol/governance/collaborative-proposals)).
 
 ### Fee distribution order
@@ -65,7 +65,7 @@ profit = balanceAfter - capitalSnapshot
 if profit > 0:
   protocolFee   = profit * protocolFeeBps / 10000
   netProfit     = profit - protocolFee
-  agentFeeBps   = min(vault.agentFeeBps(), maxPerformanceFeeBps)   // read live from the vault, clamped to the governor cap
+  agentFeeBps   = min(proposal.performanceFeeBps, maxPerformanceFeeBps)   // snapshot taken at propose, clamped to the governor cap
   agentFee      = netProfit * agentFeeBps / 10000
   managementFee = (netProfit - agentFee) * managementFeeBps / 10000
   transfer protocolFee to protocolFeeRecipient (try/catch → escrow on fail)
@@ -102,7 +102,7 @@ This ensures:
 
 Tracked as item **W-1** in the pre-mainnet punch list; regression coverage in `test/governor/FeeBlacklistResilience.t.sol`.
 
-**Safety:** the vault's `agentFeeBps` is capped at 5000 bps (50%) by the vault and additionally clamped to `maxPerformanceFeeBps` (governor parameter) at settlement. `protocolFeeBps` is capped at 1000 bps (10%). `managementFeeBps` is capped at 1000 bps (10%) and set at the factory level.
+**Safety:** the vault's `agentFeeBps` is capped at 1500 bps (15%) by the vault and additionally clamped to `maxPerformanceFeeBps` (governor parameter) at settlement. `protocolFeeBps` is capped at 1000 bps (10%). `managementFeeBps` is capped at 1000 bps (10%) and set at the factory level.
 
 **Why a management fee?** Without it, there is no incentive to operate a vault — the owner curates agents, manages targets, sets parameters, handles emergencies, but earns nothing. The management fee aligns vault owner incentives with depositor outcomes (owner only earns on profit).
 
@@ -123,8 +123,8 @@ Only **one strategy can be live (Executed state) per vault at a time.** This sim
 Two possible models:
 
 **A. Vault-level performance fee (current design)**
-- Vault owner sets one `agentFeeBps` for the vault (default 5%); every proposal inherits it
-- Read live from the vault at settlement, clamped to `maxPerformanceFeeBps`
+- Vault owner sets one `agentFeeBps` for the vault (default 5%); each proposal snapshots it at propose time
+- Snapshot clamped to `maxPerformanceFeeBps` at settlement
 - Fee paid on settlement from profits only
 - Simple, clear, owner-controlled
 
