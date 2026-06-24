@@ -70,7 +70,8 @@
           {
             "group": "Smart Contracts",
             "pages": [
-              "protocol/architecture"
+              "protocol/architecture",
+              "protocol/vault-liquidity"
             ]
           },
           {

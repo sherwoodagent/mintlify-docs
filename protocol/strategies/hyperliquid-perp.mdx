@@ -23,9 +23,10 @@ graph TD
     P["Proposer"] -->|"updateParams: long / short / stop-loss / close"| S
     S -->|"sendLimitOrder (IOC / GTC)"| C3["HyperCore orderbook"]
 
-    subgraph "Live NAV"
-        S -->|"L1Read.accountMarginSummary"| C5["HyperCore equity"]
-        C5 -->|"positionValue (view)"| V
+    subgraph "PriceRouter (Lane A — disabled pending audit)"
+        S -->|"positions() → HL_PERP"| C5["HyperliquidPerpAdapter"]
+        C5 -->|"L1Read.accountMarginSummary"| C6["HyperCore equity"]
+        C6 -->|"haircut + instantCap check"| V
     end
 
     subgraph Settlement
@@ -110,7 +111,13 @@ Position direction is **not** tracked on-chain — the proposer must send the ma
 
 ## Live NAV
 
-This strategy exposes **live NAV**. `positionValue()` sums HyperCore perp account equity (`L1Read.accountMarginSummary`), HyperCore spot USDC, and the strategy's EVM USDC balance, then reconciles that observable total against an in-flight high-water mark (`inFlightToHc`) using a Circle-fee-sized tolerance: when observable is within tolerance it trusts observable; a genuine cross-block bridge window (gap ≫ tolerance) falls back to `inFlightToHc` so NAV stays stable. It returns `valid=true` throughout the `Executed` state, so the vault marks shares to market and LPs can deposit / withdraw mid-proposal. New deposits forward through `onLiveDeposit`, which bridges the freshly-pushed USDC EVM → HC spot and class-transfers it into perp margin.
+The strategy reports one position of kind `HL_PERP` pointing at the `HyperliquidPerpAdapter`. The vault **never trusts a self-reported value** — the governance-owned `PriceRouter` prices the position by calling `L1Read.accountMarginSummary` (the AccountMarginSummary precompile), applying a realizability haircut and an instant-size cap.
+
+**Lane A is currently disabled** (`laneAEnabled[HL_PERP] = false`) pending a post-audit multisig call. Until enabled, the strategy is Lane B only: deposits and redeems during an active proposal go through the `VaultWithdrawalQueue` and settle at the frozen per-proposal price. See [Deposits & Withdrawals](/protocol/vault-liquidity).
+
+**Transit guards** — two windows where HC equity is temporarily unreliable:
+- **Inbound** (execute → HC credit, ~1–2 blocks): fresh clone has zero HC equity → adapter returns `(0, true)` → PriceRouter G3 forces Lane B. No code required in the strategy.
+- **Outbound** (initiateReturn → HC drain): `_drainHC()` queues HC actions, then `returnsInitiated` is set to `true` in the same transaction. The adapter checks this flag and returns `(0, false)` → Lane B during that window, preventing new depositors from locking into a settling proposal.
 
 ## Funding the position (bridge mechanics)
 
