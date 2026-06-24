@@ -117,7 +117,7 @@ The strategy reports one position of kind `HL_PERP` pointing at the `Hyperliquid
 
 **Transit guards** — two windows where HC equity is temporarily unreliable:
 - **Inbound** (execute → HC credit, ~1–2 blocks): fresh clone has zero HC equity → adapter returns `(0, true)` → PriceRouter G3 forces Lane B. No code required in the strategy.
-- **Outbound** (initiateReturn → HC drain): `returnsInitiated` is set to `true` _before_ `_drainHC()` queues HC actions. The adapter checks this flag and returns `(0, false)` → Lane B during that window, preventing new depositors from locking into a settling proposal.
+- **Outbound** (initiateReturn → HC drain): `_drainHC()` queues HC actions, then `returnsInitiated` is set to `true` in the same transaction. The adapter checks this flag and returns `(0, false)` → Lane B during that window, preventing new depositors from locking into a settling proposal.
 
 ## Funding the position (bridge mechanics)
 

@@ -60,9 +60,12 @@ Lane A lets depositors enter and exit during an active proposal at the live orac
 
 1. `priceRouter.valueStrategy(strategy)` returns `instantOK == true` — every position in the strategy is priced live by a registered adapter via the PriceRouter
 2. `laneAEnabled[kind] == true` for every position kind in the strategy — governance enables this per-kind after audit
-3. No `_laneALockPid` already set for the caller from an earlier Lane A operation in the same proposal
 
-If any precondition fails at call time, the vault falls back to Lane B — the caller receives a queue request rather than an immediate settlement.
+If either precondition fails at call time, the vault falls back to Lane B — the caller receives a queue request rather than an immediate settlement.
+
+<Note>
+A repeat Lane A operation in the same proposal re-stamps `_laneALockPid[holder]` with the same pid — it does **not** fall back to Lane B. A locked holder who calls `requestRedeem` while locked hits `SharesLocked`, not a silent queue route.
+</Note>
 
 **Fail-closed design:** the PriceRouter returns `(0, false)` on any adapter failure, oracle staleness, position over the instant-size cap, or transit window (e.g. `returnsInitiated == true` on the Hyperliquid strategy). A zero result with `ok == false` triggers the G3 check (`total == 0 → (0, false)`) and forces Lane B. No error is thrown — the vault always finds a path forward.
 
@@ -104,10 +107,10 @@ queue.claim(id)  // callable by anyone once pid is stamped AND !redemptionsLocke
 ### cancel
 
 ```solidity
-queue.cancel(id)  // only before the pid is stamped
+queue.cancel(id)  // owner-only; only before the pid is stamped
 ```
 
-Returns escrowed assets/shares to the original depositor/owner. Not available after the proposal settles (post-stamp cancel would be a free look-back option).
+Returns escrowed assets/shares to the request owner (`request.owner`). Reverts `NotQueueOwner` if `msg.sender != request.owner` — cancel cannot be performed on behalf of another user. Not available after the proposal settles (post-stamp cancel would be a free look-back option).
 
 ### Reserve protection
 
