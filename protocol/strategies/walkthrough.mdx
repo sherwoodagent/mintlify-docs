@@ -61,7 +61,7 @@ sherwood strategy propose moonwell-supply \
   --amount 100 --min-redeem 99.5 --token USDC \
   --name "Moonwell USDC Yield" \
   --description "Supply 100 USDC to Moonwell for 7 days" \
-  --performance-fee 1000 --duration 7d
+  --duration 7d
 ```
 
 ### Option B: Write JSON files first, review, then submit
@@ -78,7 +78,7 @@ sherwood proposal create \
   --vault 0x... \
   --name "Moonwell USDC Yield" \
   --description "Supply 100 USDC to Moonwell for 7 days" \
-  --performance-fee 1000 --duration 7d \
+  --duration 7d \
   --execute-calls ./moonwell-calls/execute.json \
   --settle-calls ./moonwell-calls/settle.json
 ```
@@ -124,7 +124,7 @@ Settlement unwinds the strategy (redeems mUSDC from Moonwell) and returns funds 
 
 1. **Protocol fee** — taken from gross profit first
 2. **Guardian fee** — a slice (max 5%) transferred to the GuardianRegistry for review-cohort rewards
-3. **Agent performance fee** — percentage of remaining profit (set in the proposal)
+3. **Agent performance fee** — percentage of remaining profit (the vault's `agentFeeBps`, set by the owner; default 5%)
 4. **Management fee** — annual vault fee accrued over the strategy duration
 5. **Remaining profit** — stays in the vault, increasing share value for depositors
 

@@ -73,7 +73,7 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /v1/prepare/deposit` | `chainId, vault, receiver, amount\|amountDecimal` | `sherwood vault deposit` |
 | `GET\|POST /v1/prepare/redeem` | `chainId, vault, receiver, owner, shares` | `sherwood vault redeem` |
 | `GET\|POST /v1/prepare/request-redeem` | `chainId, vault, owner, shares` | (queue path; no CLI yet) |
-| `POST /v1/prepare/propose` | `chainId, vault, strategy, metadataURI, performanceFeeBps, strategyDuration, executeCalls, settlementCalls, coProposers?` | `sherwood proposal create` |
+| `POST /v1/prepare/propose` | `chainId, vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers?` | `sherwood proposal create` |
 | `GET\|POST /v1/prepare/vote` | `chainId, proposalId, vote: "For"\|"Against"\|"Abstain"` | `sherwood proposal vote` |
 | `GET\|POST /v1/prepare/execute` | `chainId, proposalId` | `sherwood proposal execute` |
 | `GET\|POST /v1/prepare/settle` | `chainId, proposalId` | `sherwood proposal settle` |
