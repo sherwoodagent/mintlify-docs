@@ -71,7 +71,7 @@ struct StrategyProposal {
     uint256 id;
     address proposer;              // agent address (must be registered in vault)
     address vault;                 // which vault this proposal targets
-    address strategy;              // live-NAV source polled via positionValue(); address(0) to opt out
+    address strategy;              // Lane A live-NAV source: positions() priced by the PriceRouter; address(0) = Lane B (async queue) only
     string metadataURI;            // IPFS: full rationale, research, risk analysis
     uint256 strategyDuration;      // how long the position runs (seconds), capped by maxStrategyDuration
     uint256 votesFor;              // share-weighted votes in favor

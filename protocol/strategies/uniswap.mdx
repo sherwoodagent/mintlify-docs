@@ -72,7 +72,7 @@ Init data is an **ABI-encoded positional tuple** (not a named struct). Tokens, w
 (
     address   asset,            // Vault asset (USDC on Base, WETH on Robinhood L2)
     address   swapAdapter,      // UniswapSwapAdapter or SynthraSwapAdapter
-    address   chainlinkVerifier,// Used by rebalanceDelta / live-NAV; pass address(0) to opt out
+    address   chainlinkVerifier,// Used by rebalanceDelta (Data Streams) to size delta swaps; pass address(0) to opt out
     address[] tokens,           // Basket tokens
     uint256[] weightsBps,       // Target weight per token in bps (sum = 10000)
     uint256   totalAmount,      // Total asset to deploy
@@ -85,7 +85,7 @@ Init data is an **ABI-encoded positional tuple** (not a named struct). Tokens, w
 - Max basket size: **20 tokens**
 - Weights are in basis points and **must sum to 10000**
 - `maxSlippageBps` applies to every swap (entry, settle, and rebalance). It is **required**: initialization reverts with `InvalidSlippage` if it is `0` or `>= 10000`. (The `500` you see in CLI examples is a CLI-side default, not a contract default.)
-- `priceDecimals[i]` must be `<= 36` (`InvalidPriceDecimals` otherwise) so the decimal-scaling math in live NAV stays safe.
+- `priceDecimals[i]` must be `<= 36` (`InvalidPriceDecimals` otherwise) so the decimal-scaling math in `rebalanceDelta` stays safe.
 
 ## Rebalancing
 
@@ -96,7 +96,11 @@ While the proposal is `Executed`, the proposer can rebalance two ways:
 | `rebalance()` | High — sells all, re-buys at current weights | Weights changed, or simple periodic rebalance |
 | `rebalanceDelta(ChainlinkReport[])` | Low — swaps only the deltas | Frequent rebalances with fresh oracle prices |
 
-`rebalanceDelta` reads a signed Chainlink Data Streams V3 report for each token and rejects any report past its own `expiresAt` timestamp (`StalePrice`). The separate 5-minute `MAX_PRICE_AGE` window gates the **live-NAV price cache** — it controls when `positionValue()` flips to `valid=false`, not which reports `rebalanceDelta` accepts. This path is only available on chains with a Chainlink verifier proxy.
+`rebalanceDelta` reads a signed Chainlink Data Streams V3 report for each token and rejects any report past its own `expiresAt` timestamp (`StalePrice`). It uses those prices purely to size the **delta swaps** during a rebalance — this is a gas-efficient rebalancing mechanic, **not** a vault NAV source. This path is only available on chains with a Chainlink verifier proxy.
+
+## Vault Liquidity During a Proposal
+
+`PortfolioStrategy` is **Lane B only** — it does not override `positions()`, so the vault reports no priceable position and there is no oracle instant-lane for this template. While a proposal on this strategy is active, vault deposits and redeems go through the [Lane B async queue](/protocol/vault-liquidity#lane-b-async-request-queue): `requestDeposit` / `requestRedeem` escrow in the `VaultWithdrawalQueue` and settle at the single frozen, realized per-proposal price. The `rebalanceDelta` Data Streams path above is independent of this — it prices delta swaps during a rebalance, not vault NAV. See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
 
 ## Tunable Parameters (Executed state)
 
@@ -109,7 +113,7 @@ While the proposal is `Executed`, the proposer can rebalance two ways:
 ## Risk Notes
 
 - **Swap impact:** Large allocations in thin pools can eat into P&L — set `maxSlippageBps` conservatively.
-- **Oracle staleness:** `rebalanceDelta` rejects any report past its `expiresAt`. The 5-minute `MAX_PRICE_AGE` cache window governs live NAV: once the cached price for any token is older than 5 minutes, `positionValue()` returns `valid=false` and the vault falls back to the async-redeem queue. Keepers call `refreshPrices(reports)` (~every 3 min) to keep live NAV available; if the feed goes stale, fall back to the full `rebalance()`.
+- **Oracle staleness:** `rebalanceDelta` rejects any Data Streams report past its own `expiresAt` (`StalePrice`); if fresh reports aren't available, fall back to the full `rebalance()`. These reports only size delta swaps — they are not a vault NAV source, so staleness never affects vault deposit/redeem pricing.
 - **Settle path:** `settle()` sells every token back to asset in a single transaction. A single illiquid token can revert the entire settlement; the proposer can update `swapExtraData` before settlement to route around it.
 
 ## CLI Usage

@@ -81,7 +81,7 @@ ERC-1167 clonable singletons. Each proposal clones a template and initializes it
 
 **Base — V1.5 templates:**
 
-These V1.5 templates implement `IStrategy.onLiveDeposit` + `_positionValue` and clone correctly against the V1.5 factory `0xAC74…3c82`. MoonwellSupply, WstETHMoonwell, and the Hyperliquid templates report live NAV (`valid=true`) — the vault stays open at fair NAV during their active proposals; the rest report `valid=false` and route through the async-redeem queue.
+These templates clone correctly against the V1.5 factory `0xAC74…3c82`. Under the V2 live-NAV model the strategy is never trusted for value: each template reports its on-venue holdings via `IStrategy.positions()`, and the vault prices them through the governance-owned `PriceRouter` per position `kind` — but only when that kind's **Lane A** instant lane is enabled. Today **Moonwell Supply** is Lane A enabled (instant deposit/withdraw at live NAV during a proposal, with a per-share lockup until settle). The **Aerodrome LP** and **Hyperliquid Perp** adapters are built and tested but **disabled pending audit** — they currently route through Lane B. Every other template (Uniswap/Portfolio, wstETH Moonwell, Mamo, Venice, and the Hyperliquid grid) reports no priceable positions and is **Lane B only** — entry/exit during a proposal escrows in the async-redeem queue and settles at one frozen per-proposal price. See [Vault Liquidity](/protocol/vault-liquidity) for the two-lane mechanics.
 
 | Template | Address |
 |----------|---------|

@@ -70,7 +70,7 @@ struct InitParams {
     address mwsteth;              // Moonwell wstETH market token
     address aeroRouter;           // Aerodrome Router (for WETH ↔ wstETH swaps)
     address aeroFactory;          // Aerodrome Factory (pool lookup)
-    address chainlinkWstethEthFeed; // Chainlink WSTETH/ETH feed (drives live NAV)
+    address chainlinkWstethEthFeed; // Chainlink WSTETH/ETH feed (off-chain reference only; not consumed on-chain)
     uint256 supplyAmount;         // Amount of WETH to deploy (0 = full vault WETH balance at execute)
     uint256 minWstethOutPerWeth;  // Slippage rate (1e18-scaled): min wstETH per 1e18 WETH (execute swap)
     uint256 minWethOutPerWsteth;  // Slippage rate (1e18-scaled): min WETH per 1e18 wstETH (settle swap)
@@ -121,9 +121,11 @@ sherwood strategy propose wsteth-moonwell \
 
 The CLI converts the `--slippage` value into the two **1e18-scaled per-unit rates** (`minWstethOutPerWeth`, `minWethOutPerWsteth`). For example a 5% (500 bps) tolerance produces a rate near `0.95e18`, and the contract enforces `minOut = amountIn * rate / 1e18` at each swap.
 
-## Live NAV
+## Vault Liquidity During a Proposal
 
-This strategy exposes **live NAV** via the Chainlink WSTETH/ETH feed. `positionValue()` converts the strategy's mwstETH balance (through `exchangeRateStored`) into wstETH, then into WETH at the oracle price, and adds any WETH / wstETH dust held on the clone. The feed is gated by `MAX_ORACLE_STALENESS = 25h` (Base WSTETH/ETH heartbeat 24h + 1h buffer): if the feed is stale or reports a non-positive price, live NAV returns `valid=false` and the vault falls back to the async-redeem queue. New deposits forward through `onLiveDeposit`, which swaps the freshly-pushed WETH to wstETH and mints additional mwstETH.
+This strategy is **Lane B only** — it does not override `positions()`, so the vault reports no priceable position for it and there is no oracle instant-lane. While a proposal on this strategy is active, deposits and redeems go through the [Lane B async queue](/protocol/vault-liquidity#lane-b-async-request-queue): `requestDeposit` / `requestRedeem` escrow in the `VaultWithdrawalQueue` and settle at the single frozen, realized per-proposal price stamped when the proposal settles. Outside a proposal, entry/exit is instant ERC-4626 against vault float.
+
+The `chainlinkWstethEthFeed` is retained for off-chain reference only — it is **not** consumed on-chain and does not drive vault NAV. See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
 
 ## Addresses (Base Mainnet)
 
