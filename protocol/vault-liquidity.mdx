@@ -16,6 +16,7 @@ Vault liquidity is handled differently depending on whether a proposal is active
 |------|------|----------------|
 | **Lane A** — oracle instant | Instant deposit / redeem at live NAV, with a per-share lockup until the proposal settles | PriceRouter can price every strategy position live (`instantOK`) AND `laneAEnabled[kind] == true` for all position kinds |
 | **Lane B** — async queue | `requestDeposit` / `requestRedeem` escrow assets/shares in `VaultWithdrawalQueue`; claims settle at the frozen per-proposal price after the proposal settles | Always available — universal fallback |
+| **Custody model** — direct-at-strategy | `strategy.deposit` / `strategy.redeem` anytime, any size; the strategy custodies assets and mints/burns vault shares directly (bypasses both lanes) | Opt-in per strategy (custody strategies that run Lane A off), e.g. [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl) |
 
 ## Full Flow
 
@@ -115,6 +116,21 @@ Returns escrowed assets/shares to the request owner (`request.owner`). Reverts `
 ### Reserve protection
 
 `executeGovernorBatch` tracks `reservedAssets()` — total USDC owed to stamped-but-unclaimed redeem requests. A subsequent proposal's execution reverts if it would leave vault float below this reserve, so in-flight redeem claims are never stranded.
+
+## Custody Model — Direct-at-Strategy Deposits & Redeems
+
+A **third model** exists alongside the two lanes for strategies that custody user capital directly. In this model a strategy runs one indefinitely-lived proposal and lets users **deposit and redeem at the strategy at any time, in any size** — `strategy.deposit(assets, minShares)` / `strategy.redeem(shares, minAssetsOut)` — **bypassing both Lane A instant and Lane B async**. The strategy prices the entry against its own oracle NAV and services exits via an oracle-free proportional redeem, then mints/burns vault shares through the vault's active-strategy hooks:
+
+- `strategy.deposit` → `vault.strategyMint(user, shares)` (re-checks the depositor whitelist + `whenNotPaused`)
+- `strategy.redeem` → `vault.strategyBurn(shares)` (not pause-gated, so exits survive an incident pause)
+
+Both hooks are gated to `activeStrategyAdapter()` and are pure share operations (no asset movement or pricing on the vault side) — see the [SyndicateVault share hooks](/protocol/architecture#syndicatevault) in the architecture reference.
+
+<Warning>
+**During a custody proposal, `vault.totalAssets()` is float-only** — the vault's Lane A pricing is off for these strategies (`kind` unregistered in the PriceRouter), so `valueStrategy` returns `(0, false)` and `totalAssets()` counts only idle vault float, **not** the fully-invested levered position. `previewRedeem` / `convertToAssets` are therefore **not** the correct NAV for a custody strategy. **Integrators must read `strategy.nav()`** for the position's value. The custody strategy's own deposit/redeem paths price against `strategy.nav()`, not the vault.
+</Warning>
+
+The one-time genesis governance window (open + first settle) still applies: while the proposal is `Pending → GuardianReview → Approved`, `activeStrategyAdapter()` is `address(0)` and both hooks revert — the genesis blackout that precedes the first deposit. Once the proposal is `Executed`, anytime deposit/redeem is live indefinitely.
 
 ## Current Lane A Status by Strategy
 
