@@ -45,6 +45,16 @@ Three fees are distributed from strategy profits at settlement:
 
 All fees only apply when P&L > 0. On loss, no fees are charged.
 
+### Self-managed-fee strategies (custody model)
+
+The three fees above are the **governor's** settle-fee path — computed at `settleProposal` from the vault's realized float delta. A **custody strategy** — one where LPs deposit and redeem directly at the strategy, and the strategy mints/burns vault shares itself (via `strategyMint` / `strategyBurn`) — breaks that model: the governor's `balanceOf(vault) − snapshot` PnL would misread net deposits as profit and double-charge. Such a strategy signals `IStrategy.selfManagesFees() == true`, and the governor's `_finishSettlement` **skips `_distributeFees` entirely** for that proposal:
+
+- **All** settle-fees are skipped — protocol, guardian, agent, and management.
+- The strategy **manages its fees internally**, crystallizing them as share dilution (e.g. a streaming management fee plus a per-share high-water-mark performance fee minted as fee-shares).
+- Protocol and guardian fees for custody strategies are handled **off-chain as a follow-up** — they are not routed through the governor.
+
+`selfManagesFees()` defaults to `false` (`BaseStrategy`), so every non-custody strategy uses the governor settle-fee path described in the rest of this section. The [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl) strategy is the first `selfManagesFees() == true` template.
+
 ### Protocol Fee
 
 A protocol-level fee taken from gross profit **before** agent and management fees. This funds protocol development and operations.
