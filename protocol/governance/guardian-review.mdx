@@ -36,7 +36,7 @@ Key invariants enforced by the registry + governor:
 
 ## GuardianRegistry — contract surface
 
-UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single instance per deployment; governor and factory both point at it and that wiring is stamped at init (no setters).
+UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single instance per deployment, **shared by every per-vault governor**: proposal-keyed state is keyed by `keccak256(abi.encode(governor, proposalId))`, so two governors can use the same proposal ID without collision. Governors are authorized via the factory-only `addGovernor` hook as each syndicate is created; the factory wiring is stamped at init. Review and emergency views — and guardian-facing calls like `voteOnProposal` — take `address governor` as their first parameter. (Governor-only hooks such as `openEmergency`, `finalizeEmergency`, and `cancelReview` don't — the calling governor is `msg.sender`.)
 
 ### Guardian role
 
@@ -46,10 +46,10 @@ UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single insta
 | `requestUnstakeGuardian()` | Guardian | Begins cool-down; voting power drops immediately (stake removed from `_totalGuardianStake`). |
 | `cancelUnstakeGuardian()` | Guardian | Reverses a pending unstake request. |
 | `claimUnstakeGuardian()` | Guardian | After `coolDownPeriod`, releases WOOD. |
-| `openReview(proposalId)` | Permissionless | Callable once `block.timestamp >= proposal.voteEnd`. Snapshots the quorum denominator at `openedAt = block.timestamp - 1` — the same `t-1` checkpoint the per-voter numerator uses, so a flash-stake / flash-delegation in the same block can't inflate the denominator while the matching numerator stays at `t-1` (Sherlock #35 / Run-1 #18). Stores `totalStakeAtOpen = sWOOD.getPastTotalVotes(openedAt)` (guardian own-stake) and `totalDelegatedAtOpen = sWOOD.getPastTotalActiveDelegated(openedAt)` (delegated weight, **active guardians only**). Cold-start gate: if `totalStakeAtOpen + totalDelegatedAtOpen` is below `MIN_COHORT_STAKE_AT_OPEN`, the review is marked `cohortTooSmall` and resolves `blocked=false` unconditionally. |
-| `voteOnProposal(proposalId, support)` | Active guardian | Vote `Approve` or `Block`, weighted by stake at first vote. Allowed only while `voteEnd <= now < reviewEnd`. Vote-change allowed in the early window; locked out in the final 10% (`LATE_VOTE_LOCKOUT_BPS`). |
-| `resolveReview(proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum, slashes Approvers if blocked, and emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker for Merkl's off-chain reward attribution. Idempotent, `nonReentrant`, CEI-ordered. |
-| `cancelReview(proposalId)` | `onlyGovernor` | Driven by the proposer's `cancelProposal` while in `GuardianReview` — retracts the review so a stale `resolveReview` can't slash Approvers after the proposal is gone. Reverts (`ReviewNotOpen`) after `reviewEnd`, and after Block votes reach block quorum (symmetric to `cancelEmergency`, Sherlock run-2 #2) so a proposer can't dodge approver slashing by cancelling. Cold-start cohorts (`cohortTooSmall`) skip the quorum check. Idempotent. |
+| `openReview(governor, proposalId)` | Permissionless | Callable once `block.timestamp >= proposal.voteEnd`. Snapshots the quorum denominator at `openedAt = block.timestamp - 1` — the same `t-1` checkpoint the per-voter numerator uses, so a flash-stake / flash-delegation in the same block can't inflate the denominator while the matching numerator stays at `t-1` (Sherlock #35 / Run-1 #18). Stores `totalStakeAtOpen = sWOOD.getPastTotalVotes(openedAt)` (guardian own-stake) and `totalDelegatedAtOpen = sWOOD.getPastTotalActiveDelegated(openedAt)` (delegated weight, **active guardians only**). Cold-start gate: if `totalStakeAtOpen + totalDelegatedAtOpen` is below `MIN_COHORT_STAKE_AT_OPEN`, the review is marked `cohortTooSmall` and resolves `blocked=false` unconditionally. |
+| `voteOnProposal(governor, proposalId, support, slashBps)` | Active guardian | Vote `Approve` or `Block`, weighted by stake at first vote (`slashBps` carries a Block voter's proposed slash severity; ignored on Approve). Allowed only while `voteEnd <= now < reviewEnd`. Vote-change allowed in the early window; locked out in the final 10% (`LATE_VOTE_LOCKOUT_BPS`). |
+| `resolveReview(governor, proposalId)` | Permissionless | Finalizes the review after `reviewEnd`. Computes block quorum, slashes Approvers if blocked, and emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker for Merkl's off-chain reward attribution. Idempotent, `nonReentrant`, CEI-ordered. |
+| `cancelReview(proposalId)` | `onlyGovernor` (calling governor = `msg.sender`) | Driven by the proposer's `cancelProposal` while in `GuardianReview` — retracts the review so a stale `resolveReview` can't slash Approvers after the proposal is gone. Reverts (`ReviewNotOpen`) after `reviewEnd`, and after Block votes reach block quorum (symmetric to `cancelEmergency`, Sherlock run-2 #2) so a proposer can't dodge approver slashing by cancelling. Cold-start cohorts (`cohortTooSmall`) skip the quorum check. Idempotent. |
 
 **Guardian vote enum** is separate from the governor's `VoteType`: `GuardianVoteType = { None, Approve, Block }`. Keeping them distinct prevents enum-variant confusion across the governor/registry ABI boundary.
 
@@ -74,10 +74,10 @@ Guarded calldata override for broken pre-committed settlement:
 
 | Function | Who | What |
 |---|---|---|
-| `openEmergency(proposalId, callsHash, calls)` | `onlyGovernor` | Called from `emergencySettleWithCalls` on the governor. Stores the **full calls array** + its hash and opens a review window. |
-| `voteBlockEmergencySettle(proposalId)` | Active guardian | Adds stake weight to `blockStakeWeight`. Single-sided: no Approve votes needed — absence of Block = implicit allow. |
+| `openEmergency(proposalId, callsHash, calls)` | `onlyGovernor` | Called from `emergencySettleWithCalls` on the governor. Stores the **full calls array** + its hash — and the opening governor itself — and opens a review window. Storing the governor means a blocked emergency slashes the **correct vault's** owner bond, even with many governors sharing the registry. |
+| `voteBlockEmergencySettle(governor, proposalId)` | Active guardian | Adds stake weight to `blockStakeWeight`. Single-sided: no Approve votes needed — absence of Block = implicit allow. |
 | `finalizeEmergency(proposalId)` | `onlyGovernor` | Called from `finalizeEmergencySettle`. Returns `(blocked, calls)` — the governor executes the returned calls if not blocked, slashing the owner bond if blocked. |
-| `resolveEmergencyReview(proposalId)` | Permissionless | Finalizes after `reviewEnd`. Slashes owner bond if blocked. |
+| `resolveEmergencyReview(governor, proposalId)` | Permissionless | Finalizes after `reviewEnd`. Slashes the opening governor's vault-owner bond if blocked. |
 
 The governor-side counterparts are `emergencySettleWithCalls`, `cancelEmergencySettle`, and `finalizeEmergencySettle` (which takes `proposalId` only — the registry holds the calls). See [Execution & Settlement — Settlement Paths](/protocol/governance/settlement#settlement-paths).
 
@@ -158,7 +158,7 @@ During weeks 1–12 after mainnet launch, honest cohort size is small and review
 
 To close the fail-open window, the Sherwood protocol multisig commits to:
 
-- Running a guardian agent that votes on **every** proposal across every registered vault.
+- Running a guardian agent that votes on **every** proposal across every syndicate's governor.
 - Publishing weekly guardian-coverage reports in the Sherwood forum.
 - Staking ≥ `minGuardianStake` from protocol treasury.
 - Funding the Merkl block-reward distributor weekly during the bootstrap window (a plain WOOD transfer from the multisig), sized above expected guardian gas costs.
@@ -175,6 +175,6 @@ Documented so new guardians understand the honeymoon period:
 
 ## Integrator guidance
 
-- **Don't poll `getProposalState(id)` to detect `Rejected`.** After `voteEnd` the view returns `GuardianReview` until on-chain resolution runs. Subscribe to the `GuardianReviewResolved(proposalId, blocked)` event, or call `registry.resolveReview(id)` yourself (permissionless) to force resolution.
+- **Don't poll `getProposalState(id)` to detect `Rejected`.** After `voteEnd` the view returns `GuardianReview` until on-chain resolution runs. Subscribe to the `GuardianReviewResolved(proposalId, blocked)` event, or call `registry.resolveReview(governor, id)` yourself (permissionless) to force resolution.
 - **Execute path still `state == Approved`.** No integrator-visible change to `executeProposal` — the new gate is earlier.
 - **Timing:** `reviewEnd = voteEnd + reviewPeriod`, `executeBy = reviewEnd + executionWindow`. All stamped at proposal creation — no mid-flight drift.

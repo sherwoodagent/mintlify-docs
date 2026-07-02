@@ -35,11 +35,12 @@ Known gaps flagged in that reference that LPs and integrators should be aware of
 
 ## Fee Structure
 
-Three fees are distributed from strategy profits at settlement:
+Four fees are distributed from strategy profits at settlement:
 
 | Fee | Recipient | Set by | Purpose |
 |-----|-----------|--------|---------|
-| Protocol fee | `protocolFeeRecipient` | Governor owner (owner-instant setter) | Protocol revenue |
+| Protocol fee | `protocolFeeRecipient` | Protocol multisig via `ProtocolConfig` (snapshotted onto each proposal at propose) | Protocol revenue |
+| Guardian fee | `guardiansFeeRecipient` (team multisig; redistributed as WOOD via Merkl) | Protocol multisig via `ProtocolConfig` (snapshotted onto each proposal at propose) | Reward guardian review work |
 | Performance fee | Agent (proposer) | Vault owner — one `agentFeeBps` per vault (default 5%) | Incentivize good strategy proposals |
 | Management fee | Vault owner | Factory (per-vault, configurable) | Incentivize vault operation and curation |
 
@@ -51,8 +52,15 @@ A protocol-level fee taken from gross profit **before** agent and management fee
 
 - `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps)
 - `protocolFeeRecipient` — address that receives the protocol fee
-- Both live on the governor and apply to every registered vault
-- **`setProtocolFeeBps` and `setProtocolFeeRecipient` are owner-instant** like every other governance parameter — they apply immediately and emit `ParameterChangeFinalized(paramKey, old, new)` (the recipient address is encoded as `uint160`). There is no on-chain queue / delay / finalize step; the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). Setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first.
+- Both live on **`ProtocolConfig`** — a plain `Ownable2Step` global contract shared by every per-vault governor. Fee setters no longer exist on the governor.
+- **Snapshotted at propose time.** The governor reads `ProtocolConfig` only when a proposal is created, copying all four fee fields (`protocolFeeBps`, `protocolFeeRecipient`, `guardianFeeBps`, `guardiansFeeRecipient`) onto the proposal. Settlement charges the snapshot — what voters saw — so a later config change can never reprice an in-flight proposal.
+- `ProtocolConfig` setters are owner-instant and emit `ParameterChangeFinalized(paramKey, old, new)`; the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). Setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first (and the recipient cannot be zeroed while the fee is nonzero).
+
+### Guardian Fee
+
+A slice of gross profit (max 5% / 500 bps) routed at settlement to the `guardiansFeeRecipient` multisig, then swapped to WOOD and airdropped to approving guardians and their delegators weekly via Merkl. Like the protocol fee, `guardianFeeBps` / `guardiansFeeRecipient` live on `ProtocolConfig` and are snapshotted onto each proposal at propose time.
+
+**`GuardianFeeAccrued` is emitted only on actual fee delivery.** If the transfer to the recipient fails (e.g. blacklist), the amount goes to the standard unclaimed-fee escrow and `FeeTransferFailed` is emitted instead — the off-chain Merkl bot never attributes a fee that was not delivered, avoiding a double-pay when the escrow is later recovered.
 
 ### Performance (agent) fee
 
@@ -65,23 +73,27 @@ The performance fee is the cut a proposing agent earns on net profit (after the 
 
 ### Fee distribution order
 
-Fees are calculated and distributed in a strict order — protocol fee first, then agent fee, then management fee:
+Fees are calculated and distributed in a strict order — protocol and guardian fees first (from gross profit), then agent fee, then management fee:
 
 ```
 profit = balanceAfter - capitalSnapshot
 if profit > 0:
-  protocolFee   = profit * protocolFeeBps / 10000
-  netProfit     = profit - protocolFee
+  // protocol + guardian fees use the ProtocolConfig snapshot taken at propose
+  protocolFee   = profit * proposal.snapshotProtocolFeeBps / 10000
+  guardianFee   = profit * proposal.snapshotGuardianFeeBps / 10000
+  netProfit     = profit - protocolFee - guardianFee
   agentFeeBps   = min(proposal.performanceFeeBps, maxPerformanceFeeBps)   // snapshot taken at propose, clamped to the governor cap
   agentFee      = netProfit * agentFeeBps / 10000
   managementFee = (netProfit - agentFee) * managementFeeBps / 10000
-  transfer protocolFee to protocolFeeRecipient (try/catch → escrow on fail)
-  transfer agentFee to agent                   (try/catch → escrow on fail)
-  transfer managementFee to vault owner        (try/catch → escrow on fail)
+  transfer protocolFee to snapshotProtocolFeeRecipient   (try/catch → escrow on fail)
+  transfer guardianFee to snapshotGuardiansFeeRecipient  (try/catch → escrow on fail;
+                                                          GuardianFeeAccrued emitted only if delivered)
+  transfer agentFee to agent                             (try/catch → escrow on fail)
+  transfer managementFee to vault owner                  (try/catch → escrow on fail)
   remaining profit stays in vault (accrues to all shareholders)
 ```
 
-The protocol fee is calculated on gross profit. Agent and management fees are calculated on the net profit (after protocol fee). Management fee is calculated on the remaining profit after the agent's cut. This ensures combined fees never exceed profit and maintains a clear priority order.
+The protocol and guardian fees are calculated on gross profit. Agent and management fees are calculated on the net profit (after protocol and guardian fees). Management fee is calculated on the remaining profit after the agent's cut. This ensures combined fees never exceed profit and maintains a clear priority order.
 
 ### Management Fee
 
@@ -117,8 +129,8 @@ Tracked as item **W-1** in the pre-mainnet punch list; regression coverage in `t
 
 Only **one strategy can be live (Executed state) per vault at a time.** This simplifies capital accounting, eliminates cross-strategy risk, and makes the redemption lock/cooldown model clean.
 
-- Governor tracks `activeProposal[vault]` — the currently executing proposal ID (0 if none)
-- `executeProposal` reverts if `activeProposal[vault] != 0`
+- Each vault's governor tracks a scalar `_activeProposal` — the currently executing proposal ID (0 if none), read via the no-arg `getActiveProposal()`
+- `executeProposal` reverts if `getActiveProposal() != 0`
 - `executeProposal` also reverts if the vault is in its cooldown window
 - Multiple proposals can be in Pending/Approved state simultaneously — they queue up
 - Only one can be executed at a time

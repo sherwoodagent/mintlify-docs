@@ -67,9 +67,15 @@ Not all chains have the same protocol integrations. The CLI handles this gracefu
 |----------|------|----------|---------------------|
 | SyndicateFactory | `0xAC74EC56858d7F1f7618c8e77F65Fc26aDf33c82` | `0xd05Ae0E8bcf13075C29817c805d6Cc14F214393a` | `0x6d026e2f5Ff0C34A01690EC46Cb601B8fF391985` |
 | SyndicateGovernor | `0x9Fd3c87B34F254e3c5652A0394B9780c2F05d367` | `0x67AD3D5F3d127Ef923Fd6f67b178633c408D3fd3` | `0xd882056ba6b0aEd8908c541884B327121E2f2C9C` |
+| GovernorBeacon | deployed at next redeploy | deployed at next redeploy | deployed at next redeploy |
+| ProtocolConfig | deployed at next redeploy | deployed at next redeploy | deployed at next redeploy |
 | GuardianRegistry | `0x49E4163b5e4b23F8f3d469Cf6fa197FB6b06A26E` | `0x8b5710EB4e2fA639F364Dcc3F3B30c8f12F460b9` | — |
 | BatchExecutorLib | `0xbC79FbD5036C1Cc4A9d10BDf8628BF09a558496E` | `0x2c454bEF1b09c8a306a7058b8B510bF0DfF7179D` | `0x1493f5a7E5d82e1e56c34e2Ba300f56F97186017` |
 | SyndicateVaultImpl | `0xfce4bcE08E9C047E4736f75C2B8557e2754Ce36A` | `0x2cbBe36Cf907A2BB410bacB0e4Fd632C7b012846` | `0xF4720523325f9A4546F43391484DCd1D28dFc266` |
+
+<Note>
+**Per-vault governors are not listed in this table.** Under the per-vault governor model, each syndicate's governor is a `BeaconProxy` deployed at `createSyndicate` — resolve it at runtime via `factory.governorOf(vault)` (or `vault.governor()`, which reads through the factory). The `SyndicateGovernor` addresses above are the pre-redesign shared governors, kept for historical / settle-out access; they are superseded at the next redeploy, when `GovernorBeacon` (the shared implementation beacon, owned by the protocol multisig) and `ProtocolConfig` (global fee parameters) get concrete addresses here.
+</Note>
 
 <Note>
 Base and HyperEVM were both redeployed on the V1.5 strategy-on-proposal model. Old proxies remain on-chain for historical / settle-out access but are no longer surfaced through the CLI or the dashboard. Old Base proxies: factory `0x4a76…6C29`, governor `0x2F7C…186a`, vault impl `0x2523…cFE`, executor `0x4DB1…664a`. Old HyperEVM proxies: factory `0x7e7F…48d3`, governor `0x915F…7C21`, registry `0x121A…4069`, vault impl `0xB454…ECba`, executor `0xbEDa…9F5E`. HyperEVM strategy templates have been redeployed against the new factory; Base strategy templates are still pending.

@@ -8,7 +8,7 @@ A governance system where agents propose strategies, vault shareholders vote, an
 
 **One-liner:** Agents pitch trade plans. Shareholders vote. Winners execute and earn carry.
 
-**Multi-vault:** A single governor manages multiple vaults. Proposals target a specific vault. Only shareholders of that vault vote on its proposals.
+**One governor per syndicate:** Every syndicate gets its own governor at creation — the factory deploys a `BeaconProxy` governor bound to the new vault at initialize. Proposals are scoped to that vault by construction (`governor.vault()` returns it), and only shareholders of that vault vote on its proposals. The vault owner tunes their governor's parameters (voting period, veto threshold, cooldown, etc.) — changes are frozen while any proposal is open. All governor proxies read their implementation from a shared `GovernorBeacon`, so a protocol-wide governor upgrade is a single `beacon.upgradeTo(newImpl)` by the protocol multisig.
 
 ## Optimistic Governance
 
@@ -86,6 +86,10 @@ struct StrategyProposal {
                                    // (or Rejected / Expired / Cancelled)
     uint256 vetoThresholdBps;      // veto threshold snapshotted at Draft → Pending (G-H6)
     uint256 performanceFeeBps;     // agent fee snapshotted from the vault's agentFeeBps at propose (immutable; clamped to maxPerformanceFeeBps at settle)
+    uint256 snapshotProtocolFeeBps;         // ┐
+    address snapshotProtocolFeeRecipient;   // │ ProtocolConfig fields snapshotted at propose time —
+    uint256 snapshotGuardianFeeBps;         // │ settlement charges what voters saw; a later config
+    address snapshotGuardiansFeeRecipient;  // ┘ change cannot reprice an in-flight proposal
 }
 ```
 
@@ -115,16 +119,16 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | agentFeeBps | Vault owner | Performance fee for the vault (default 5%, max 15%). Snapshotted onto each proposal's `performanceFeeBps` at propose time; clamped to `maxPerformanceFeeBps` at settlement |
 | strategyDuration | Agent (proposer) | How long the position runs, capped by `maxStrategyDuration` |
 | metadataURI | Agent (proposer) | IPFS link to full strategy rationale |
-| votingPeriod | Governor (owner setter) | How long voting lasts |
-| reviewPeriod | GuardianRegistry (owner setter) | Guardian review window after voting ends (single global value) |
-| executionWindow | Governor (owner setter) | Time after guardian review ends to execute |
-| vetoThresholdBps | Governor (owner setter) | Min AGAINST votes (% of total shares) to reject a proposal. Capped at `MAX_VETO_THRESHOLD_BPS = 5000` (50%) — values above 50% would let a minority of FOR votes block any rejection regardless of opposition |
-| maxPerformanceFeeBps | Governor (owner setter) | Cap on agent fees |
-| maxStrategyDuration | Governor (owner setter) | Cap on how long a strategy can run |
-| cooldownPeriod | Governor (owner setter) | Withdrawal window between strategies |
+| votingPeriod | Vault owner (per-vault governor setter) | How long voting lasts. Hard floor `MIN_VOTING_PERIOD = 24 hours` |
+| reviewPeriod | GuardianRegistry (protocol-owner setter) | Guardian review window after voting ends (single global value) |
+| executionWindow | Vault owner (per-vault governor setter) | Time after guardian review ends to execute |
+| vetoThresholdBps | Vault owner (per-vault governor setter) | Min AGAINST votes (% of total shares) to reject a proposal. Bounded to `MIN_VETO_THRESHOLD_BPS = 2000` (20%) — `MAX_VETO_THRESHOLD_BPS = 5000` (50%). The floor stops an owner from making their vault trivially veto-proof; values above 50% would let a minority of FOR votes block any rejection regardless of opposition |
+| maxPerformanceFeeBps | Vault owner (per-vault governor setter) | Cap on agent fees |
+| maxStrategyDuration | Vault owner (per-vault governor setter) | Cap on how long a strategy can run |
+| cooldownPeriod | Vault owner (per-vault governor setter) | Withdrawal window between strategies |
 
 <Note>
-**Governance parameters are global, not per-syndicate.** A single `GovernorParameters` instance (inherited by the governor) serves every registered vault. Changing a parameter changes it for every vault at once. Setters are owner-instant (no on-chain timelock) — the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). There is no per-vault override.
+**Governance parameters are per-syndicate, managed by the vault owner.** Each vault's governor carries its own `GovernorParams`. Setters (`setVotingPeriod`, `setExecutionWindow`, `setVetoThresholdBps`, `setMaxPerformanceFeeBps`, `setMin`/`MaxStrategyDuration`, `setCooldownPeriod`, `setCollaborationWindow`, `setMaxCoProposers`) are callable by the **vault owner** (resolved live via `vault.owner()`), validate hard bounds at call time, and apply immediately — but revert with `ParamsFrozenDuringProposal` while any proposal is open (Draft included), so parameters cannot shift under an in-flight proposal. The protocol multisig has a rescue path: `factory.setParamsOverride(vault, params)` bypasses the freeze but **not** the bounds. Protocol-level fee parameters are separate — they live on `ProtocolConfig`, not the governor (see [Economics](/protocol/governance/economics#protocol-fee)).
 </Note>
 
 ## Voting
