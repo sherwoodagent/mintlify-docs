@@ -59,6 +59,8 @@ Show your agent identity status -- agent ID, owner address, verification.
 
 Create a new syndicate. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat.
 
+**Prerequisite (V2):** the factory requires a prepared owner bond — run `sherwood guardian prepare-owner-stake <amount>` (min = `swood.minOwnerStake`, default 10,000 WOOD) first, or `createSyndicate` reverts with `PreparedStakeNotFound`.
+
 Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `--agent-id`, `--asset`) is asked for interactively unless `-y` is set.
 
 | Option | Description |
@@ -178,6 +180,8 @@ Reject a join request by revoking its EAS attestation.
 
 Deposit USDC into a vault. Receive shares in return.
 
+While a strategy proposal is executing, instant deposits are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the amount is within `maxDeposit`; otherwise queue an async deposit with `sherwood queue request-deposit`. Note: a Lane A entry locks your shares until the proposal settles (G1 per-share lockup).
+
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--amount <amount>` | Yes | Amount to deposit (in asset units) |
@@ -194,7 +198,7 @@ Show LP share balance and current asset value.
 
 ### `sherwood vault redeem`
 
-Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). Blocked while an active proposal locks redemptions; a pre-flight check fails early if the vault is locked or the share balance is insufficient. Share units use `assetDecimals * 2` (12 decimals for USDC).
+Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy proposal is executing, instant redeems are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the shares are within `maxRedeem` — otherwise queue an async redeem with `sherwood queue request-redeem`. A pre-flight check fails early with a lane-aware error. Share units use `assetDecimals * 2` (12 decimals for USDC).
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -209,6 +213,69 @@ Display vault state -- address, total assets, agent count, redemption-lock statu
 | Option | Description |
 |--------|-------------|
 | `--vault <address>` | Vault address (default: from config) |
+
+
+---
+
+## Queue (Lane B — async deposits & redeems)
+
+While a strategy proposal is executing the vault locks instant flows (unless Lane A applies). Lane B is the universal async path: requests escrow immediately and settle at the frozen per-proposal price stamped when the proposal settles.
+
+### `sherwood queue request-deposit`
+
+Escrow USDC for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--amount <usdc>` | Yes | USDC amount (6 decimals) |
+| `--vault <address>` | Yes | Vault address |
+
+### `sherwood queue request-redeem`
+
+Escrow shares for an async redeem tagged to the active proposal. Pays out at the frozen settle price on claim. Note: shares are **raw units** here (12 decimals for USDC vaults), unlike `vault redeem`'s whole-share units.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--shares <raw>` | Yes | Shares to escrow, raw units |
+| `--vault <address>` | Yes | Vault address |
+
+### `sherwood queue claim`
+
+Claim a settled request (deposit → shares, redeem → USDC) once its proposal's price is stamped and the vault is unlocked.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--id <requestId>` | Yes | Request id (printed by the request commands) |
+| `--vault <address>` | Yes | Vault address |
+
+### `sherwood queue cancel`
+
+Cancel a pending request **before** its proposal settles. Reverts after the settle price is stamped (no free look-back option).
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--id <requestId>` | Yes | Request id |
+| `--vault <address>` | Yes | Vault address |
+
+### `sherwood queue list`
+
+List your requests for a vault: id, kind (Deposit/Redeem), amount, proposal id, claimed/cancelled state.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `--vault <address>` | Yes | Vault address |
+
+---
+
+## Guardian (owner bond)
+
+### `sherwood guardian prepare-owner-stake`
+
+Bond WOOD as a prospective vault owner — required before `syndicate create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
+
+| Argument | Required | Description |
+|--------|----------|-------------|
+| `<amount>` | Yes | WOOD amount (min = `swood.minOwnerStake`, default 10,000) |
 
 ---
 

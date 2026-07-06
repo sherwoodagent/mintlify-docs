@@ -142,7 +142,11 @@ strategy.updateParams(abi.encode(newMinAmountAOut, newMinAmountBOut));
 
 ## Live NAV
 
-This strategy does **not** expose live NAV — pricing an LP position (including any gauge-staked portion) across stable vs volatile curves is deferred (see issue #188). While an Aerodrome proposal is active, LP entry / exit goes through the **async-redeem queue** rather than minting/burning at a live mark.
+The strategy never self-reports a value. It reports one position of kind `AERODROME_LP` (venue + kind + locator) via `positions()`, and an `AerodromeLPAdapter` — pricing the LP via the pool's native `quote()` TWAP with a recency check and a spot/TWAP deviation guard — is **built and tested** for the governance-owned `PriceRouter`.
+
+However, Lane A is **not yet enabled** for `AERODROME_LP` (`laneAEnabled[AERODROME_LP] = false`, pending audit). Until governance enables it, this strategy is **Lane B only**: while an Aerodrome proposal is active, LP entry / exit goes through the **async queue** (`VaultWithdrawalQueue`) and settles at the frozen per-proposal price. Once the kind is enabled, instant Lane A pricing applies.
+
+See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane mechanics.
 
 ## Addresses (Base Mainnet)
 

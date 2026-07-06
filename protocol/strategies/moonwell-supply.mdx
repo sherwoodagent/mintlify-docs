@@ -101,7 +101,11 @@ strategy.updateParams(abi.encode(newSupplyAmount, newMinRedeemAmount));
 
 ## Live NAV
 
-Moonwell Supply is one of the strategies that exposes **live NAV**: `positionValue()` returns the current underlying value of the supplied position (`mToken balance * exchangeRateStored`). While a proposal is active, the vault marks shares to market and accepts deposits / withdrawals at fair NAV. New deposits forward through `onLiveDeposit`, which mints additional mTokens against the freshly-pushed underlying.
+The strategy never self-reports a value. It reports one position of kind `MOONWELL_SUPPLY` (venue + kind + locator) via `positions()`, and the governance-owned `PriceRouter` prices it through the `MoonwellSupplyAdapter` (from `mToken balance * exchangeRateStored`, with a haircut and instant-size cap).
+
+Because Lane A is **enabled** for `MOONWELL_SUPPLY` (post-audit), while a proposal is active users get **instant deposit / withdraw at live NAV** — with a per-share lockup on Lane A entries until that proposal settles. If any pricing precondition fails at call time (and always as the universal fallback), entry / exit routes through the **Lane B async queue** instead, settling at the frozen per-proposal price.
+
+See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane mechanics.
 
 ## Addresses (Base Mainnet)
 

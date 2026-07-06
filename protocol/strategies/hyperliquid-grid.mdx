@@ -23,9 +23,8 @@ graph TD
     P["Proposer / keeper"] -->|"updateParams: place / cancel / cancel-and-place"| S
     S -->|"sendLimitOrder (GTC) + tracked CLOID"| C3["HyperCore orderbook"]
 
-    subgraph "Live NAV"
-        S -->|"L1Read.accountMarginSummary"| C4["HyperCore equity"]
-        C4 -->|"positionValue (view)"| V
+    subgraph "Internal book accounting"
+        S -->|"L1Read.accountMarginSummary"| C4["HyperCore equity (strategy's own view)"]
     end
 
     subgraph "Settlement"
@@ -46,7 +45,7 @@ Pending → execute() → finalizeForHyperCore() → Executed → (place/cancel 
 | **Execute** | Pull USDC → `bridgeUsdcToSpot` (EVM → HC spot via Circle) → `sendUsdClassTransfer` (spot → perp margin). Leverage is set off-chain via the exchange API before the proposal opens. | Governor (proposal execution) |
 | **Finalize-for-HyperCore** | One-time `finalizeForHyperCore(0, FinalizeVariant.FirstStorageSlot, 0)` so HC auto-credits bridged USDC to this clone's spot account. `initialize()` stamps `address(this)` into slot 0 (`_hcSelf`); HC reads it post-block to confirm registration — no deployer-nonce math. The CLI runs it as a separate tx immediately after `initialize()`. | Proposer |
 | **Executed** | Keeper calls `updateParams` with one of: place batch of GTC orders, cancel a list of CLOIDs, atomic cancel-and-place. Each order's CLOID is tracked in `_liveCloids[ai]`. | Proposer only |
-| **Live NAV** | While Executed, `positionValue()` reads HyperCore `accountValue` so the vault stays open at fair NAV. New deposits forward via `onLiveDeposit` → `bridgeUsdcToSpot` then `sendUsdClassTransfer` (spot → perp margin). | Vault (read) |
+| **Book accounting** | While Executed, the strategy tracks its own HyperCore equity (`L1Read.accountMarginSummary`) for keeper/monitoring purposes. This is the strategy's internal book — it is **not** a vault live-NAV source. Vault deposits/redeems during the proposal go through the Lane B async queue. | Keeper (read) |
 | **Settle** | Walk every tracked CLOID and cancel, then force-close all asset positions (reduce-only IOC at min/max price), then request async USD transfer back to spot. | Governor |
 | **Sweep** | `sweepToVault()` pushes USDC to the vault when async transfer arrives. Repeatable for partial arrivals. `initiateReturn()` is permissionless and re-runs the spot transfer if residual perp equity remains. | Anyone |
 
@@ -98,11 +97,13 @@ Encoded as `updateParams(abi.encode(action, ...))`:
 
 Position state is **not** tracked on-chain — the keeper reads HyperCore directly (`L1Read.position2`) to know fills. The on-chain CLOID mirror exists purely so `_settle` can self-cancel resting orders before the IOC sweep.
 
-## Live NAV
+## Vault Liquidity During a Proposal
 
-`positionValue()` sums HyperCore perp equity (`L1Read.accountMarginSummary`), HyperCore spot USDC, and the strategy's EVM USDC balance, all in USDC-6-decimal units. It reconciles that observable total against the in-flight high-water mark (`inFlightToHc`) using a Circle-fee-sized tolerance: within tolerance it trusts observable; a genuine cross-block bridge window (gap ≫ tolerance) falls back to `inFlightToHc` so NAV stays stable. New deposits forward through `onLiveDeposit`, which bridges the freshly-pushed USDC EVM → HC spot (`bridgeUsdcToSpot`) and then class-transfers spot → perp margin.
+This strategy is **Lane B only by design** — it does not override `positions()`, so the vault reports no priceable position and there is no oracle instant-lane. While a grid proposal is active, vault deposits and redeems go through the [Lane B async queue](/protocol/vault-liquidity#lane-b-async-request-queue): `requestDeposit` / `requestRedeem` escrow in the `VaultWithdrawalQueue` and settle at the single frozen, realized per-proposal price stamped when the proposal settles. Outside a proposal, entry/exit is instant ERC-4626 against vault float. See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
 
-`positionValue()` always returns **`valid=true` while `Executed`**. The vault has already pulled funds in, so flagging invalid would degrade `totalAssets()` to the queue-only path and brick mid-proposal deposits. On a chain where the precompile staticcall returns nothing, the observable HC legs read as 0 and the function falls back to `inFlightToHc` — it does **not** return `valid=false`. Returning conservative live or high-water-mark equity is always preferred over flagging invalid.
+### Internal book accounting
+
+Separately from vault NAV, the strategy tracks its **own** HyperCore book for keeper and monitoring purposes: it sums HyperCore perp equity (`L1Read.accountMarginSummary`), HyperCore spot USDC, and the strategy's EVM USDC balance, all in USDC-6-decimal units, reconciling that observable total against the in-flight high-water mark (`inFlightToHc`) with a Circle-fee-sized tolerance (a cross-block bridge window falls back to `inFlightToHc` so the internal figure stays stable). This is the strategy's private accounting — **the vault never reads it as a live-NAV source**; vault pricing during a proposal is Lane B only.
 
 ## Risk Notes
 
