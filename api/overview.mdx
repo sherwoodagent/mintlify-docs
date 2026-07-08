@@ -79,9 +79,9 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /v1/prepare/settle` | `chainId, proposalId` | `sherwood proposal settle` |
 | `GET\|POST /v1/prepare/cancel` | `chainId, proposalId` | `sherwood proposal cancel` |
 | `GET\|POST /v1/prepare/veto` | `chainId, proposalId` | `sherwood proposal veto` |
-| `GET\|POST /v1/prepare/create-syndicate` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood syndicate create` |
-| `GET\|POST /v1/prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood syndicate approve-depositor` |
-| `GET\|POST /v1/prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood syndicate add` |
+| `GET\|POST /v1/prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood fund create` |
+| `GET\|POST /v1/prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood fund approve-depositor` |
+| `GET\|POST /v1/prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood fund add` |
 | `GET\|POST /v1/prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
 | `GET\|POST /v1/prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim", delegate?` | `sherwood guardian unstake` |
 | `GET\|POST /v1/prepare/guardian-delegate` | `chainId, delegate, amount` | `sherwood guardian delegate` |
@@ -95,7 +95,7 @@ Edge-cacheable reads return state on the fly — no key required.
 |---|---|
 | `GET /v1` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://www.sherwood.sh/api/v1` or simply `https://api.sherwood.sh/` (the subdomain rewrites root → `/api/v1`). |
 | `GET /v1/chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
-| `GET /v1/syndicates?chain=8453&limit=25` | Active syndicates on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/v1/vaults/:address` for richer data. |
+| `GET /v1/funds?chain=8453&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/v1/vaults/:address` for richer data. |
 | `GET /v1/governor?chain=8453` | Live governor parameters (voting period, veto bps, fees). |
 | `GET /v1/vaults/:address?chain=8453` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
 | `GET /v1/proposals?chain=8453&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. |

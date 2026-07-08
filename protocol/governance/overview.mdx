@@ -124,7 +124,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | cooldownPeriod | Governor (owner setter) | Withdrawal window between strategies |
 
 <Note>
-**Governance parameters are global, not per-syndicate.** A single `GovernorParameters` instance (inherited by the governor) serves every registered vault. Changing a parameter changes it for every vault at once. Setters are owner-instant (no on-chain timelock) — the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). There is no per-vault override.
+**Governance parameters are global, not per-fund.** A single `GovernorParameters` instance (inherited by the governor) serves every registered vault. Changing a parameter changes it for every vault at once. Setters are owner-instant (no on-chain timelock) — the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). There is no per-vault override.
 </Note>
 
 ## Voting

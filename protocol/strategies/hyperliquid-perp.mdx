@@ -4,7 +4,7 @@ description: "Leveraged perpetual futures on Hyperliquid via HyperEVM precompile
 icon: "chart-line"
 ---
 
-The `HyperliquidPerpStrategy` lets a syndicate run leveraged perpetual positions on Hyperliquid from an on-chain vault. USDC is pulled from the vault, **bridged EVM → HyperCore spot** via Circle's CoreDepositWallet (`HyperliquidBridge.bridgeUsdcToSpot`), and then moved **spot → perp margin** via `L1Write.sendUsdClassTransfer`. The proposer drives trading actions (open long, open short, stop-loss, close, plus multi-asset variants) through `updateParams`. Position state is read live from HyperCore via `L1Read.position2()` — nothing is cached on-chain.
+The `HyperliquidPerpStrategy` lets a fund run leveraged perpetual positions on Hyperliquid from an on-chain vault. USDC is pulled from the vault, **bridged EVM → HyperCore spot** via Circle's CoreDepositWallet (`HyperliquidBridge.bridgeUsdcToSpot`), and then moved **spot → perp margin** via `L1Write.sendUsdClassTransfer`. The proposer drives trading actions (open long, open short, stop-loss, close, plus multi-asset variants) through `updateParams`. Position state is read live from HyperCore via `L1Read.position2()` — nothing is cached on-chain.
 
 HyperEVM mainnet only.
 

@@ -1,22 +1,22 @@
 ---
 title: "Core Concepts"
-description: "Understand syndicates, vaults, agents, and governance"
+description: "Understand funds, vaults, agents, and governance"
 icon: "lightbulb"
 ---
 
 Sherwood organizes autonomous DeFi activity around a small set of primitives. This page defines each concept and how they fit together.
 
-## Syndicate
+## Fund
 
-A syndicate is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by the shared governor contract. Each syndicate claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
+A fund is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by the shared governor contract. Each fund claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
 
-Syndicates are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are **not** set per syndicate — they are global across the protocol (a single `GovernorParameters` instance) and managed by the protocol owner.
+Funds are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are **not** set per fund — they are global across the protocol (a single `GovernorParameters` instance) and managed by the protocol owner.
 
 ## Vault
 
-Every syndicate has an ERC-4626 vault that holds depositor capital denominated in USDC. The vault follows the standard tokenized vault interface: depositors supply USDC and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
+Every fund has an ERC-4626 vault that holds depositor capital denominated in USDC. The vault follows the standard tokenized vault interface: depositors supply USDC and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
 
-The vault is the single point of custody for syndicate capital. When a proposal is executed, the governor directs the vault to perform DeFi operations (lending, swapping, etc.) through a stateless batch executor. When a strategy is settled, returned capital flows back into the vault and is reflected in the share price.
+The vault is the single point of custody for fund capital. When a proposal is executed, the governor directs the vault to perform DeFi operations (lending, swapping, etc.) through a stateless batch executor. When a strategy is settled, returned capital flows back into the vault and is reflected in the share price.
 
 The vault includes built-in inflation protection through a dynamic decimals offset, preventing first-depositor attacks where an early depositor could manipulate the share price to steal from subsequent depositors.
 
@@ -28,9 +28,9 @@ When a depositor mints shares, voting power is automatically self-delegated so t
 
 ## Agent
 
-An agent is an AI-controlled wallet registered on a syndicate vault. Before an agent can join any syndicate, it must hold an ERC-8004 identity NFT, which is a standard ERC-721 token minted through the on-chain IdentityRegistry. This identity requirement ensures every agent has a verifiable on-chain presence.
+An agent is an AI-controlled wallet registered on a fund vault. Before an agent can join any fund, it must hold an ERC-8004 identity NFT, which is a standard ERC-721 token minted through the on-chain IdentityRegistry. This identity requirement ensures every agent has a verifiable on-chain presence.
 
-Agents are approved by the syndicate creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the syndicate. Agents earn a performance fee on profitable strategies as an incentive to compete on returns. The fee rate is a vault-level property (`agentFeeBps`, default 5%) set by the vault owner — not chosen per proposal — and the governor snapshots it onto each proposal at propose time, then clamps that snapshot to `maxPerformanceFeeBps` at settlement.
+Agents are approved by the fund creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the fund. Agents earn a performance fee on profitable strategies as an incentive to compete on returns. The fee rate is a vault-level property (`agentFeeBps`, default 5%) set by the vault owner — not chosen per proposal — and the governor snapshots it onto each proposal at propose time, then clamps that snapshot to `maxPerformanceFeeBps` at settlement.
 
 ## Proposal
 
@@ -40,13 +40,13 @@ Proposals also include metadata such as a strategy duration and a description. G
 
 ## Governor
 
-The governor is a single contract that manages the full proposal lifecycle across all syndicate vaults. It handles proposal submission, voting periods, execution authorization, and settlement. Rather than deploying a separate governor per syndicate, Sherwood uses one shared governor that maps proposals to their respective vaults.
+The governor is a single contract that manages the full proposal lifecycle across all fund vaults. It handles proposal submission, voting periods, execution authorization, and settlement. Rather than deploying a separate governor per fund, Sherwood uses one shared governor that maps proposals to their respective vaults.
 
 Governance follows an optimistic model. Proposals pass by default unless shareholders actively oppose them. Shareholders cast `Against` votes during the voting window, and a proposal is only rejected on the voting path if cumulative AGAINST votes reach the configured `vetoThresholdBps`. This design minimizes friction for routine strategies while preserving shareholder control over risky proposals.
 
 Shareholders cast votes; they do **not** call `vetoProposal`. That function is restricted to the vault owner and can only be called while the proposal is in the `Pending` state. Once voting ends, the proposal enters a `GuardianReview` window where staked guardians — a separate, economically incentivized third-party layer — can block malicious proposals by reaching a stake-weighted quorum. See [Guardian Review](/protocol/governance/guardian-review).
 
-Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **global across all syndicates** — a single `GovernorParameters` instance serves every registered vault. As of V1.5 there is **no on-chain parameter timelock**: setters apply immediately when the owner calls them and emit a uniform `ParameterChangeFinalized(key, old, new)` event, with bounds re-validated at call time. The owner is a multisig (Gnosis Safe + Zodiac Delay) that enforces a review delay externally, so the governance unit is the multisig's own process rather than an on-chain timer.
+Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **global across all funds** — a single `GovernorParameters` instance serves every registered vault. As of V1.5 there is **no on-chain parameter timelock**: setters apply immediately when the owner calls them and emit a uniform `ParameterChangeFinalized(key, old, new)` event, with bounds re-validated at call time. The owner is a multisig (Gnosis Safe + Zodiac Delay) that enforces a review delay externally, so the governance unit is the multisig's own process rather than an on-chain timer.
 
 ## Settlement
 

@@ -6,6 +6,10 @@ icon: "cubes"
 
 Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base, Robinhood L2, and HyperEVM. See [Deployments](/reference/deployments) for the full chain matrix.
 
+<Note>
+On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
+</Note>
+
 ## Architecture
 
 ```mermaid
@@ -35,7 +39,7 @@ USDC on Base has 6 decimals, not 18. Vault shares are 12-decimal tokens (6 USDC 
 ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeable`, `ERC20VotesUpgradeable`, `OwnableUpgradeable`, `PausableUpgradeable`, `UUPSUpgradeable`, `ERC721Holder`.
 
 **Permissions:**
-- **Layer 1 (onchain):** Syndicate-level checks enforced by the vault are narrow today — `registerAgent` gates which addresses can be named as proposers, the governor holds the single-active-proposal invariant per vault, and `redemptionsLocked()` blocks deposits / withdrawals / rescues while a strategy is live. The broader cap surface historically described here (`maxPerTx`, `maxDailyTotal`, `maxBorrowRatio`, per-agent caps, target allowlist) is **aspirational — none of those fields exist on `AgentConfig` or the vault in the current code.** Treat them as planned, not implemented. See [CLAUDE.md §Aspirational](https://github.com/imthatcarlos/sherwood/blob/main/CLAUDE.md#aspirational--not-yet-implemented-read-docs-with-caution) in the repo for the running list.
+- **Layer 1 (onchain):** Fund-level checks enforced by the vault are narrow today — `registerAgent` gates which addresses can be named as proposers, the governor holds the single-active-proposal invariant per vault, and `redemptionsLocked()` blocks deposits / withdrawals / rescues while a strategy is live. The broader cap surface historically described here (`maxPerTx`, `maxDailyTotal`, `maxBorrowRatio`, per-agent caps, target allowlist) is **aspirational — none of those fields exist on `AgentConfig` or the vault in the current code.** Treat them as planned, not implemented. See [CLAUDE.md §Aspirational](https://github.com/imthatcarlos/sherwood/blob/main/CLAUDE.md#aspirational--not-yet-implemented-read-docs-with-caution) in the repo for the running list.
 - **Layer 2 (offchain):** Agent-side off-chain policies — the caps above are enforced in the Hermes agent runtime as pre-flight checks, not on-chain.
 - **Layer 3 (economic, new in PR #229):** Guardian review + slashable owner bond on the `GuardianRegistry`. Vault owners must post a WOOD bond before the factory will deploy their vault, and arbitrary-calldata emergency settlement requires surviving a 24h guardian review. See [Guardian Review](/protocol/governance/guardian-review).
 
@@ -204,9 +208,9 @@ UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with t
 
 **Management fee:** Configurable `managementFeeBps` (max 10%) applied to new vaults at creation time. Existing vaults are unaffected by changes.
 
-**Vault upgrades:** Factory controls vault upgradeability via `upgradesEnabled` toggle (default: false) and `upgradeVault(vault)`. Only the syndicate creator can call `upgradeVault`, which upgrades the vault proxy to the current `vaultImpl`. Cannot upgrade while a strategy is active on the vault.
+**Vault upgrades:** Factory controls vault upgradeability via `upgradesEnabled` toggle (default: false) and `upgradeVault(vault)`. Only the fund creator can call `upgradeVault`, which upgrades the vault proxy to the current `vaultImpl`. Cannot upgrade while a strategy is active on the vault.
 
-**Pagination:** `getActiveSyndicates(offset, limit)` returns a paginated list of active syndicates with total count. `getAllActiveSyndicates()` returns all (may exceed gas at scale).
+**Pagination:** `getActiveSyndicates(offset, limit)` returns a paginated list of active funds with total count. `getAllActiveSyndicates()` returns all (may exceed gas at scale).
 
 **Config setters (owner-only):** `setVaultImpl`, `setCreationFee`, `setManagementFeeBps`, `setUpgradesEnabled`, `setEnsRegistrar`, `setGuardianRegistry`. There is no `setGovernor` — the governor is set once at `initialize()` (removed to close V-H2; a governor swap must go through a UUPS upgrade of the governor proxy itself).
 
@@ -284,7 +288,7 @@ forge fmt          # format before committing
 
 **SyndicateVault:** ERC-4626 deposits/withdrawals/redemptions, agent registration with ERC-8004 verification, batch execution, depositor whitelist, inflation attack mitigation, governor batch execution, pause/unpause, rescue functions (ETH/ERC20/ERC721), factory-gated UUPS upgrades, fuzz testing.
 
-**SyndicateFactory:** Syndicate creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
+**SyndicateFactory:** Fund creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
 
 **CollaborativeProposals:** Multi-agent co-proposer workflows — consent, rejection, fee splits, deadline enforcement.
 

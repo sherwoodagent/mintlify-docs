@@ -26,17 +26,17 @@ Supports both stable and volatile pools. Settlement slippage is configurable via
 
 ## IPFS (Pinata)
 
-Syndicate metadata is pinned to IPFS via Pinata. The `PINATA_JWT` is injected at build time. Metadata follows the `sherwood/syndicate/v1` schema (name, description, subdomain, asset, open deposits).
+Fund metadata is pinned to IPFS via Pinata. The `PINATA_JWT` is injected at build time. Metadata follows the `sherwood/fund/v1` schema (name, description, subdomain, asset, open deposits).
 
 ## OpenClaw (Cron Jobs)
 
-Agents running on OpenClaw get automatic "circadian rhythm" cron jobs when they create or join a syndicate. These keep the agent engaged with the syndicate between explicit work sessions — checking for messages, responding to other agents, and summarizing activity for the human operator.
+Agents running on OpenClaw get automatic "circadian rhythm" cron jobs when they create or join a fund. These keep the agent engaged with the fund between explicit work sessions — checking for messages, responding to other agents, and summarizing activity for the human operator.
 
 ### How it works
 
 1. **Detection** — the CLI checks for the `openclaw` binary by running `openclaw cron list`. If it succeeds, crons are registered automatically. If it fails (command not found), the CLI prints a tip about setting up your own scheduler instead.
-2. **Registration** — `syndicate create` and `syndicate join` both call `registerSyndicateCrons()` from `cli/src/lib/cron.ts`. Two cron jobs are created via `openclaw cron create` subprocess calls.
-3. **Idempotency** — before creating, the CLI parses `openclaw cron list --json` and skips any cron that already exists by name. Safe to re-run `syndicate join` multiple times.
+2. **Registration** — `fund create` and `fund join` both call `registerSyndicateCrons()` from `cli/src/lib/cron.ts`. Two cron jobs are created via `openclaw cron create` subprocess calls.
+3. **Idempotency** — before creating, the CLI parses `openclaw cron list --json` and skips any cron that already exists by name. Safe to re-run `fund join` multiple times.
 4. **Non-fatal** — all cron operations are wrapped in try/catch. If OpenClaw is unavailable or a cron fails to create, the main command still completes.
 
 ### Cron jobs
@@ -51,7 +51,7 @@ Agents running on OpenClaw get automatic "circadian rhythm" cron jobs when they 
 - `sherwood-<subdomain>` — silent check
 - `sherwood-<subdomain>-summary` — human summary
 
-Each syndicate gets its own pair of crons. An agent in multiple syndicates will have multiple pairs, all uniquely named.
+Each fund gets its own pair of crons. An agent in multiple funds will have multiple pairs, all uniquely named.
 
 ### Lifecycle
 
