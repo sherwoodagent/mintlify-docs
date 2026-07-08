@@ -12,6 +12,7 @@ Sherwood deploys across multiple chains. Vaults and governance are chain-native.
 |-------|----|------|--------|
 | Base | 8453 | Mainnet | Active |
 | HyperEVM | 999 | Mainnet | Active |
+| Robinhood Chain | 4663 | Mainnet | Pending deploy (externals wired) |
 | Robinhood L2 | 46630 | Testnet | Active (preview) |
 
 ### CLI chain selection
@@ -19,6 +20,7 @@ Sherwood deploys across multiple chains. Vaults and governance are chain-native.
 ```bash
 sherwood --chain base              # default
 sherwood --chain hyperevm          # HyperEVM mainnet
+sherwood --chain robinhood          # Robinhood Chain mainnet (4663 — pending Sherwood deploy)
 sherwood --chain robinhood-testnet # Robinhood L2 (testnet — preview only)
 ```
 
@@ -65,11 +67,18 @@ Not all chains have the same protocol integrations. The CLI handles this gracefu
 
 | Contract | Base | HyperEVM | Robinhood L2 Testnet |
 |----------|------|----------|---------------------|
-| SyndicateFactory | `0xAC74EC56858d7F1f7618c8e77F65Fc26aDf33c82` | `0xd05Ae0E8bcf13075C29817c805d6Cc14F214393a` | `0x6d026e2f5Ff0C34A01690EC46Cb601B8fF391985` |
-| SyndicateGovernor | `0x9Fd3c87B34F254e3c5652A0394B9780c2F05d367` | `0x67AD3D5F3d127Ef923Fd6f67b178633c408D3fd3` | `0xd882056ba6b0aEd8908c541884B327121E2f2C9C` |
-| GuardianRegistry | `0x49E4163b5e4b23F8f3d469Cf6fa197FB6b06A26E` | `0x8b5710EB4e2fA639F364Dcc3F3B30c8f12F460b9` | — |
-| BatchExecutorLib | `0xbC79FbD5036C1Cc4A9d10BDf8628BF09a558496E` | `0x2c454bEF1b09c8a306a7058b8B510bF0DfF7179D` | `0x1493f5a7E5d82e1e56c34e2Ba300f56F97186017` |
-| SyndicateVaultImpl | `0xfce4bcE08E9C047E4736f75C2B8557e2754Ce36A` | `0x2cbBe36Cf907A2BB410bacB0e4Fd632C7b012846` | `0xF4720523325f9A4546F43391484DCd1D28dFc266` |
+| SyndicateFactory | `0xAC74EC56858d7F1f7618c8e77F65Fc26aDf33c82` | `0xd05Ae0E8bcf13075C29817c805d6Cc14F214393a` | `0x81F785E31B9f31BC437978B5E7dEe8006F43dd8b` |
+| SyndicateGovernor | `0x9Fd3c87B34F254e3c5652A0394B9780c2F05d367` | `0x67AD3D5F3d127Ef923Fd6f67b178633c408D3fd3` | `0xdAB22196ac2c6C5C33445f3125C28aF98E0cA2d0` |
+| GuardianRegistry | `0x49E4163b5e4b23F8f3d469Cf6fa197FB6b06A26E` | `0x8b5710EB4e2fA639F364Dcc3F3B30c8f12F460b9` | `0x2fe810666E673Fbd87cA00f95EBf82a19A5b543F` |
+| StakedWood (sWOOD) | — | — | `0x320911DEF7Ec4c0C435B9cCEE3fAfE9EEad171C9` |
+| BatchExecutorLib | `0xbC79FbD5036C1Cc4A9d10BDf8628BF09a558496E` | `0x2c454bEF1b09c8a306a7058b8B510bF0DfF7179D` | `0xB869dF634679C6a36D6C82D47D1793486F4cba3a` |
+| SyndicateVaultImpl | `0xfce4bcE08E9C047E4736f75C2B8557e2754Ce36A` | `0x2cbBe36Cf907A2BB410bacB0e4Fd632C7b012846` | `0xB21b3af1E9f99222d136517363d0d185AF2449cd` |
+| PriceRouter | — | — | `0x7Cc36bcc6a1f0F2607BacC8692fe2aD52eB14fd7` |
+| StrategyFactory | — | — | `0xBBb2884dEAD8235d75a0405ecC3c9F5713cBE904` |
+
+<Note>
+Robinhood Chain mainnet (chain 4663) — **Sherwood contracts pending deploy**. Only the external protocol addresses (USDG, WETH, Uniswap v3/v4, Chainlink push feeds) are wired; see [External Protocols — Robinhood Chain Mainnet](#external-protocols-robinhood-chain-mainnet) below. Robinhood L2 (46630) was redeployed on the V2 live-NAV model with a full guardian layer (registry + sWOOD, WOOD fixture token `0x4435Aae199907f60588902Bcd7c4363a13Bb2951`) and a StrategyFactory keyless-deploy path.
+</Note>
 
 <Note>
 Base and HyperEVM were both redeployed on the V1.5 strategy-on-proposal model. Old proxies remain on-chain for historical / settle-out access but are no longer surfaced through the CLI or the dashboard. Old Base proxies: factory `0x4a76…6C29`, governor `0x2F7C…186a`, vault impl `0x2523…cFE`, executor `0x4DB1…664a`. Old HyperEVM proxies: factory `0x7e7F…48d3`, governor `0x915F…7C21`, registry `0x121A…4069`, vault impl `0xB454…ECba`, executor `0xbEDa…9F5E`. HyperEVM strategy templates have been redeployed against the new factory; Base strategy templates are still pending.
@@ -96,13 +105,12 @@ These templates clone correctly against the V1.5 factory `0xAC74…3c82`. Under 
 V1 templates (kept on-chain for in-flight settle-out against the old factory only):
 MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x49BF…E41b`, WstETHMoonwell `0xA318…D1e6`, MamoYield `0x9ca8…DF42`, Portfolio `0x7865…3f64`.
 
-**Robinhood L2 Testnet:**
+**Robinhood L2 Testnet (V2 redeploy):**
 
 | Template | Address |
 |----------|---------|
-| PortfolioStrategy | `0xAe981882923E0C76A7F10E7cAa3782023c0abd9B` |
-| SynthraSwapAdapter | `0x39a37537E179919cb2dDDb1D6920dD11bAf3aDF0` |
-| SynthraDirectAdapter | `0xdae81cDCfcB14c56fCeB788A147Fcd6CbEdfEeca` |
+| PortfolioStrategy | `0x3a6121371D51B59De3A14Bc401EfBd3fb726E109` |
+| UniswapSwapAdapter (Synthra-backed) | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
 
 **HyperEVM:**
 
@@ -113,10 +121,11 @@ MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x
 
 ### Tokens
 
-| Token | Base | HyperEVM | Robinhood L2 |
-|-------|------|----------|--------------|
-| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` | N/A |
-| WETH | `0x4200000000000000000000000000000000000006` | N/A | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
+| Token | Base | HyperEVM | Robinhood Chain (4663) | Robinhood L2 |
+|-------|------|----------|------------------------|--------------|
+| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` | N/A (use USDG) | N/A |
+| USDG | N/A | N/A | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | N/A |
+| WETH | `0x4200000000000000000000000000000000000006` | N/A | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
 
 ### Infrastructure
 
@@ -144,12 +153,33 @@ MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x
 
 ### External Protocols — Robinhood L2
 
+Synthra is Uniswap-V3-compatible; the deployed `UniswapSwapAdapter` is backed by the Synthra router plus a QuoterV2 shim.
+
 | Contract | Address |
 |----------|---------|
 | Synthra SwapRouter02 | `0x3Ce954107b1A675826B33bF23060Dd655e3758fE` |
 | Synthra QuoterV2 | `0x231606c321A99DE81e28fE48B07a93F1ba49e713` |
+| Synthra QuoterV2 shim | `0xC703139b5C7EA26D906fcd6d335798d2EC9A1262` |
 | Synthra V3 Factory | `0x911b4000D3422F482F4062a913885f7b035382Df` |
 | Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
+
+### External Protocols — Robinhood Chain Mainnet
+
+Chain 4663. Sherwood protocol contracts are **pending deploy** — only externals are wired. USDG is the canonical stable (no USDC on this chain). Prices come from Chainlink **push feeds** (AggregatorV3, 8 decimals) rather than Data Streams.
+
+| Contract | Address |
+|----------|---------|
+| USDG (canonical stable, 6 decimals) | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` |
+| WETH | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
+| Uniswap V3 Factory | `0x1f7d7550b1b028f7571e69a784071f0205fd2efa` |
+| Uniswap V3 SwapRouter02 | `0xcaf681a66d020601342297493863e78c959e5cb2` |
+| Uniswap V3 QuoterV2 | `0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7` |
+| Uniswap V4 PoolManager | `0x8366a39cc670b4001a1121b8f6a443a643e40951` |
+| Uniswap V4 Quoter | `0x8dc178efb8111bb0973dd9d722ebeff267c98f94` |
+| Chainlink ETH/USD feed | `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` |
+| Chainlink USDG/USD feed | `0x61B7e5650328764B076A108EFF5fa7282a1B9aD2` |
+
+Tokenized stocks (AAPL/TSLA/NVDA/AMD have verified default v4 routes; others require an explicit `--swap-routes`) and their Chainlink push feeds are wired in `cli/src/lib/addresses.ts` (`ROBINHOOD_TOKENS` / `ROBINHOOD_CHAINLINK`).
 
 ### Identity & Attestations (Base only)
 
