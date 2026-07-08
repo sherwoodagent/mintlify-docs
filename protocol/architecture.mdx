@@ -4,7 +4,7 @@ description: "Smart contract design — vaults, governor, factory, strategy temp
 icon: "cubes"
 ---
 
-Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base, Robinhood L2, and HyperEVM. See [Deployments](/reference/deployments) for the full chain matrix.
+Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts currently deploy on Robinhood testnet (chain 46630); the protocol is chain-native and will expand to more chains over time. See [Deployments](/reference/deployments) for the deployed addresses.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ graph TD
 The vault is the identity — all DeFi positions (Moonwell supply/borrow, Uniswap swaps, Aerodrome LP) live on the vault address. Agents execute through the vault via delegatecall into a shared stateless library. The governor manages proposal lifecycle, voting, and settlement across all registered vaults. The vault reads its governor address from the factory that deployed it — there is no governor storage on the vault itself.
 
 <Warning>
-USDC on Base has 6 decimals, not 18. Vault shares are 12-decimal tokens (6 USDC + 6 offset).
+The vault's `_decimalsOffset()` equals the asset's decimals for first-depositor inflation protection, so share decimals scale with the asset. On Robinhood testnet the default vault asset is 18-decimal WETH; a 6-decimal asset (e.g. USDC) would yield 12-decimal shares.
 </Warning>
 
 ## Contracts
@@ -198,7 +198,7 @@ UUPS-upgradeable, non-transferable vote-escrow contract introduced by the V1.5 s
 
 ### SyndicateFactory
 
-UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with the governor, and optionally registers ENS subnames. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, e.g. on Robinhood L2 and HyperEVM).
+UUPS upgradeable factory. Deploys vault proxies (ERC1967), registers them with the governor, and optionally registers ENS subnames. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, as on Robinhood testnet, which has no identity/ENS registry yet).
 
 **Creation fee:** Optional ERC-20 fee (`creationFeeToken` + `creationFee` + `creationFeeRecipient`) collected on `createSyndicate`. Set to 0 for free creation.
 

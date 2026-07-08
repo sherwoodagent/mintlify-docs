@@ -1,139 +1,109 @@
 ---
 title: "Deployments"
-description: "Supported chains, deployed addresses, and feature matrix"
+description: "Deployed chain, addresses, and feature matrix"
 icon: "server"
 ---
 
-Sherwood deploys across multiple chains. Vaults and governance are chain-native. Identity (ERC-8004) and attestations (EAS) live on Base.
+Sherwood currently deploys on **Robinhood testnet (chain 46630)** — an Arbitrum
+Orbit L2. This is the initial deployment target; the protocol is chain-native and
+will expand to other chains over time, but for now every vault, proposal, and
+strategy lives on Robinhood testnet. The CLI targets it by default — there is no
+chain to select.
 
-## Supported Chains
+## Chain
 
 | Chain | ID | Type | Status |
 |-------|----|------|--------|
-| Base | 8453 | Mainnet | Active |
-| HyperEVM | 999 | Mainnet | Active |
-| Robinhood Chain | 4663 | Mainnet | Pending deploy (externals wired) |
-| Robinhood L2 | 46630 | Testnet | Active (preview) |
+| Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active |
 
-### CLI chain selection
-
-```bash
-sherwood --chain base              # default
-sherwood --chain hyperevm          # HyperEVM mainnet
-sherwood --chain robinhood          # Robinhood Chain mainnet (4663 — pending Sherwood deploy)
-sherwood --chain robinhood-testnet # Robinhood L2 (testnet — preview only)
-```
-
-Beta is mainnet-only. Robinhood L2 (chain 46630) is the sole testnet kept in beta because Synthra DEX + Chainlink Data Streams + the tokenized stock universe (TSLA / AMZN / PLTR / NFLX / AMD) are testnet-only deployments today.
+The full V2 stack is deployed: vaults, governance, the guardian layer
+(GuardianRegistry + StakedWood with a WOOD fixture token), the StrategyFactory
+keyless clone+init path, and the V2 live-NAV surface (PriceRouter + a
+Uniswap-compatible swap adapter backed by Synthra via a QuoterV2 shim).
 
 ## Feature Matrix
 
-Not all chains have the same protocol integrations. The CLI handles this gracefully — commands that depend on unavailable features fail with a clear error.
+| Feature | Robinhood testnet (46630) |
+|---------|---------------------------|
+| Vaults + Factory | Yes |
+| Governor (proposals, voting) | Yes |
+| Guardian layer (registry + sWOOD) | Yes |
+| Strategy Factory (keyless deploy) | Yes |
+| Live NAV (PriceRouter + adapter) | Yes |
+| Portfolio strategy | Yes |
+| Synthra DEX (swaps) | Yes |
+| Chainlink Data Streams | Yes |
+| Stock Tokens (RWA) | Yes (TSLA / AMZN / PLTR / NFLX / AMD) |
+| XMTP Chat | Yes |
+| WETH (default vault asset) | Yes |
+| ERC-8004 Identity | Not yet |
+| EAS Attestations | Not yet |
+| ENS Subnames (Durin) | Not yet |
+| Moonwell / Aerodrome / Venice / Hyperliquid | Not yet |
+| USDC | No — not deployed |
 
-| Feature | Base | HyperEVM | Robinhood L2 |
-|---------|------|----------|--------------|
-| Vaults + Factory | Yes | Yes | Yes |
-| Governor (proposals, voting) | Yes | Yes | Yes |
-| Strategy Templates | Yes | Yes (Hyperliquid Perp) | Yes (Portfolio) |
-| ERC-8004 Identity | Yes | No | No |
-| EAS Attestations | Yes | No | No |
-| ENS Subnames (Durin) | Yes | No | No |
-| Moonwell (lending) | Yes | No | No |
-| Uniswap V3 (swaps) | Yes | No | No |
-| Synthra DEX (swaps) | No | No | Yes |
-| Chainlink Data Streams | No | No | Yes |
-| Stock Tokens (RWA) | No | No | Yes |
-| Venice (sVVV staking) | Yes | No | No |
-| Hyperliquid Perps | No | Yes | No |
-| XMTP Chat | Yes | Yes | Yes |
-| USDC | Yes | Yes | No |
-| WETH | Yes | No | Yes |
+### Key details
 
-### Key differences
-
-**Base** — Full-featured. Identity (ERC-8004), attestations (EAS), ENS subnames, DeFi integrations (Moonwell, Uniswap, Venice). USDC is the default vault asset.
-
-**Robinhood L2 (Arbitrum Orbit, chain 46630)** — Vaults, governance, and the Portfolio (basket) strategy. No identity verification, no EAS, no ENS registration. Uses Synthra DEX (Uniswap V3-compatible) for swaps and Chainlink Data Streams for price feeds. Tokenized stock tokens (TSLA, AMZN, PLTR, NFLX, AMD) are available on testnet. WETH is the default vault asset (no USDC deployed). Contracts accept `address(0)` for optional registries and skip those checks.
+**Robinhood testnet (Arbitrum Orbit, chain 46630)** — Vaults, governance, the
+guardian layer, and the Portfolio (basket) strategy. Swaps route through **Synthra**
+(a Uniswap-V3-compatible concentrated-liquidity DEX); pricing uses **Chainlink Data
+Streams** via a verifier proxy. Tokenized stock tokens (TSLA, AMZN, PLTR, NFLX, AMD)
+are available for portfolio strategies. **WETH** is the default vault asset (no USDC
+is deployed). Identity verification (ERC-8004), EAS attestations, and ENS
+registration are not active on this chain yet — the factory and vault accept
+`address(0)` for optional registries and skip those checks.
 
 <Note>
-**What's planned for the Robinhood launch.** Agentic trading strategies for tokenized real-world assets (RWAs) — stocks, ETFs, and other equities. The integration is live on Robinhood L2 testnet today (Synthra DEX + Chainlink Data Streams, with a tokenized stock universe of TSLA, AMZN, PLTR, NFLX, AMD). Robinhood L2 mainnet expansion is targeted for later 2026.
+**What's planned.** Agentic trading strategies for tokenized real-world assets
+(RWAs) — stocks, ETFs, and other equities — live on Robinhood testnet today
+(Synthra DEX + Chainlink Data Streams, with a tokenized stock universe of TSLA,
+AMZN, PLTR, NFLX, AMD). Sherwood is built to be multi-chain; additional chains will
+come online over time.
 </Note>
-
-**HyperEVM (chain 999)** — Vaults, governance, and the Hyperliquid Perp strategy. Native USDC (`0xb88339CB7199b77E23DB6E890353E22632Ba630f`) is the default vault asset. No Moonwell, no Uniswap, no Venice, no Aerodrome. No identity verification (ERC-8004), no EAS, no ENS — the factory and vault accept `address(0)` for `agentRegistry` and `ensRegistrar` and skip those checks.
 
 ## Deployed Addresses
 
+Source of truth: `contracts/chains/46630.json`.
+
 ### Sherwood Contracts
 
-| Contract | Base | HyperEVM | Robinhood L2 Testnet |
-|----------|------|----------|---------------------|
-| SyndicateFactory | `0xAC74EC56858d7F1f7618c8e77F65Fc26aDf33c82` | `0xd05Ae0E8bcf13075C29817c805d6Cc14F214393a` | `0x81F785E31B9f31BC437978B5E7dEe8006F43dd8b` |
-| SyndicateGovernor | `0x9Fd3c87B34F254e3c5652A0394B9780c2F05d367` | `0x67AD3D5F3d127Ef923Fd6f67b178633c408D3fd3` | `0xdAB22196ac2c6C5C33445f3125C28aF98E0cA2d0` |
-| GuardianRegistry | `0x49E4163b5e4b23F8f3d469Cf6fa197FB6b06A26E` | `0x8b5710EB4e2fA639F364Dcc3F3B30c8f12F460b9` | `0x2fe810666E673Fbd87cA00f95EBf82a19A5b543F` |
-| StakedWood (sWOOD) | — | — | `0x320911DEF7Ec4c0C435B9cCEE3fAfE9EEad171C9` |
-| BatchExecutorLib | `0xbC79FbD5036C1Cc4A9d10BDf8628BF09a558496E` | `0x2c454bEF1b09c8a306a7058b8B510bF0DfF7179D` | `0xB869dF634679C6a36D6C82D47D1793486F4cba3a` |
-| SyndicateVaultImpl | `0xfce4bcE08E9C047E4736f75C2B8557e2754Ce36A` | `0x2cbBe36Cf907A2BB410bacB0e4Fd632C7b012846` | `0xB21b3af1E9f99222d136517363d0d185AF2449cd` |
-| PriceRouter | — | — | `0x7Cc36bcc6a1f0F2607BacC8692fe2aD52eB14fd7` |
-| StrategyFactory | — | — | `0xBBb2884dEAD8235d75a0405ecC3c9F5713cBE904` |
-
-<Note>
-Robinhood Chain mainnet (chain 4663) — **Sherwood contracts pending deploy**. Only the external protocol addresses (USDG, WETH, Uniswap v3/v4, Chainlink push feeds) are wired; see [External Protocols — Robinhood Chain Mainnet](#external-protocols-robinhood-chain-mainnet) below. Robinhood L2 (46630) was redeployed on the V2 live-NAV model with a full guardian layer (registry + sWOOD, WOOD fixture token `0x4435Aae199907f60588902Bcd7c4363a13Bb2951`) and a StrategyFactory keyless-deploy path.
-</Note>
-
-<Note>
-Base and HyperEVM were both redeployed on the V1.5 strategy-on-proposal model. Old proxies remain on-chain for historical / settle-out access but are no longer surfaced through the CLI or the dashboard. Old Base proxies: factory `0x4a76…6C29`, governor `0x2F7C…186a`, vault impl `0x2523…cFE`, executor `0x4DB1…664a`. Old HyperEVM proxies: factory `0x7e7F…48d3`, governor `0x915F…7C21`, registry `0x121A…4069`, vault impl `0xB454…ECba`, executor `0xbEDa…9F5E`. HyperEVM strategy templates have been redeployed against the new factory; Base strategy templates are still pending.
-</Note>
+| Contract | Address (46630) |
+|----------|-----------------|
+| SyndicateFactory | `0x81F785E31B9f31BC437978B5E7dEe8006F43dd8b` |
+| SyndicateGovernor | `0xdAB22196ac2c6C5C33445f3125C28aF98E0cA2d0` |
+| SyndicateVaultImpl | `0xB21b3af1E9f99222d136517363d0d185AF2449cd` |
+| BatchExecutorLib | `0xB869dF634679C6a36D6C82D47D1793486F4cba3a` |
+| GuardianRegistry | `0x2fe810666E673Fbd87cA00f95EBf82a19A5b543F` |
+| StakedWood (sWOOD) | `0x320911DEF7Ec4c0C435B9cCEE3fAfE9EEad171C9` |
+| WOOD token (fixture) | `0x4435Aae199907f60588902Bcd7c4363a13Bb2951` |
+| PriceRouter | `0x7Cc36bcc6a1f0F2607BacC8692fe2aD52eB14fd7` |
+| StrategyFactory | `0xBBb2884dEAD8235d75a0405ecC3c9F5713cBE904` |
 
 ### Strategy Templates
 
-ERC-1167 clonable singletons. Each proposal clones a template and initializes it with custom parameters.
-
-**Base — V1.5 templates:**
-
-These templates clone correctly against the V1.5 factory `0xAC74…3c82`. Under the V2 live-NAV model the strategy is never trusted for value: each template reports its on-venue holdings via `IStrategy.positions()`, and the vault prices them through the governance-owned `PriceRouter` per position `kind` — but only when that kind's **Lane A** instant lane is enabled. Today **Moonwell Supply** is Lane A enabled (instant deposit/withdraw at live NAV during a proposal, with a per-share lockup until settle). The **Aerodrome LP** and **Hyperliquid Perp** adapters are built and tested but **disabled pending audit** — they currently route through Lane B. Every other template (Uniswap/Portfolio, wstETH Moonwell, Mamo, Venice, and the Hyperliquid grid) reports no priceable positions and is **Lane B only** — entry/exit during a proposal escrows in the async-redeem queue and settles at one frozen per-proposal price. See [Vault Liquidity](/protocol/vault-liquidity) for the two-lane mechanics.
-
-| Template | Address |
-|----------|---------|
-| MoonwellSupplyStrategy | `0xb9Cd6d6720fc224508A07f0e43254A3cD65770E0` |
-| AerodromeLPStrategy | `0x6fba9a6D3F40AA1848Ad196564B27a430D29FdB0` |
-| VeniceInferenceStrategy | `0x0dDFf301F8AeB9B95627277f70bb6824CEFf5dF3` |
-| WstETHMoonwellStrategy | `0x23d145Bd100599C7418164FEae235bcE391Ae032` |
-| MamoYieldStrategy | `0x73b9cdC8cAf8853AfE299E144A40e3D51E399463` |
-| PortfolioStrategy | `0x42069e51c415f4BF4442D80F1532Bd38140Bd135` |
-| UniswapSwapAdapter | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
-
-V1 templates (kept on-chain for in-flight settle-out against the old factory only):
-MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x49BF…E41b`, WstETHMoonwell `0xA318…D1e6`, MamoYield `0x9ca8…DF42`, Portfolio `0x7865…3f64`.
-
-**Robinhood L2 Testnet (V2 redeploy):**
+ERC-1167 clonable singletons. Each proposal clones a template and initializes it
+with custom parameters.
 
 | Template | Address |
 |----------|---------|
 | PortfolioStrategy | `0x3a6121371D51B59De3A14Bc401EfBd3fb726E109` |
 | UniswapSwapAdapter (Synthra-backed) | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
 
-**HyperEVM:**
-
-| Template | Address |
-|----------|---------|
-| HyperliquidPerpStrategy | `0x7Cc36bcc6a1f0F2607BacC8692fe2aD52eB14fd7` |
-| HyperliquidGridStrategy | `0x36C45dC52FbC267d8536E8456ADe5255eC83A5ab` |
+Under the V2 live-NAV model the strategy is never trusted for value: each template
+reports its on-venue holdings via `IStrategy.positions()`, and the vault prices them
+through the governance-owned `PriceRouter` per position `kind` — but only when that
+kind's **Lane A** instant lane is enabled. The Portfolio strategy reports no
+priceable positions and is **Lane B only** — entry/exit during a proposal escrows in
+the async-redeem queue and settles at one frozen per-proposal price. See
+[Vault Liquidity](/protocol/vault-liquidity) for the two-lane mechanics.
 
 ### Tokens
 
-| Token | Base | HyperEVM | Robinhood Chain (4663) | Robinhood L2 |
-|-------|------|----------|------------------------|--------------|
-| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` | N/A (use USDG) | N/A |
-| USDG | N/A | N/A | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | N/A |
-| WETH | `0x4200000000000000000000000000000000000006` | N/A | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
+| Token | Address (46630) |
+|-------|-----------------|
+| WETH (default vault asset) | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
 
-### Infrastructure
-
-| Contract | All Chains |
-|----------|-----------|
-| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
-
-### Stock Tokens (Robinhood L2 only)
+### Stock Tokens
 
 | Token | Address |
 |-------|---------|
@@ -143,17 +113,10 @@ MoonwellSupply `0x649f…9F00`, AerodromeLP `0x6ccd…26CE`, VeniceInference `0x
 | NFLX | `0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93` |
 | AMD | `0x71178BAc73cBeb415514eB542a8995b82669778d` |
 
-### External Protocols — Base
+### External Protocols
 
-| Contract | Address |
-|----------|---------|
-| Moonwell Comptroller | `0xfBb21d0380beE3312B33c4353c8936a0F13EF26C` |
-| Uniswap V3 SwapRouter | `0x2626664c2603336E57B271c5C0b26F421741e481` |
-| VVV Token | `0xacfe6019ed1a7dc6f7b508c02d1b04ec88cc21bf` |
-
-### External Protocols — Robinhood L2
-
-Synthra is Uniswap-V3-compatible; the deployed `UniswapSwapAdapter` is backed by the Synthra router plus a QuoterV2 shim.
+Synthra is Uniswap-V3-compatible; the deployed `UniswapSwapAdapter` is backed by the
+Synthra router plus a QuoterV2 shim.
 
 | Contract | Address |
 |----------|---------|
@@ -162,63 +125,42 @@ Synthra is Uniswap-V3-compatible; the deployed `UniswapSwapAdapter` is backed by
 | Synthra QuoterV2 shim | `0xC703139b5C7EA26D906fcd6d335798d2EC9A1262` |
 | Synthra V3 Factory | `0x911b4000D3422F482F4062a913885f7b035382Df` |
 | Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
-
-### External Protocols — Robinhood Chain Mainnet
-
-Chain 4663. Sherwood protocol contracts are **pending deploy** — only externals are wired. USDG is the canonical stable (no USDC on this chain). Prices come from Chainlink **push feeds** (AggregatorV3, 8 decimals) rather than Data Streams.
-
-| Contract | Address |
-|----------|---------|
-| USDG (canonical stable, 6 decimals) | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` |
-| WETH | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
-| Uniswap V3 Factory | `0x1f7d7550b1b028f7571e69a784071f0205fd2efa` |
-| Uniswap V3 SwapRouter02 | `0xcaf681a66d020601342297493863e78c959e5cb2` |
-| Uniswap V3 QuoterV2 | `0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7` |
-| Uniswap V4 PoolManager | `0x8366a39cc670b4001a1121b8f6a443a643e40951` |
-| Uniswap V4 Quoter | `0x8dc178efb8111bb0973dd9d722ebeff267c98f94` |
-| Chainlink ETH/USD feed | `0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9` |
-| Chainlink USDG/USD feed | `0x61B7e5650328764B076A108EFF5fa7282a1B9aD2` |
-
-Tokenized stocks (AAPL/TSLA/NVDA/AMD have verified default v4 routes; others require an explicit `--swap-routes`) and their Chainlink push feeds are wired in `cli/src/lib/addresses.ts` (`ROBINHOOD_TOKENS` / `ROBINHOOD_CHAINLINK`).
-
-### Identity & Attestations (Base only)
-
-| Contract | Base |
-|----------|------|
-| ERC-8004 IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| EAS | `0x4200000000000000000000000000000000000021` |
+| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
 
 ## Deployment Records
 
-Per-chain deployment records are stored in `contracts/chains/{chainId}.json`. These contain deployer address, contract addresses, and deployment date.
+Per-chain deployment records are stored in `contracts/chains/{chainId}.json` (here,
+`46630.json`). These contain the deployer address, contract addresses, and
+deployment metadata. Deploy scripts auto-write this file.
 
 ## Address Resolution
 
-All addresses are resolved at runtime in `cli/src/lib/addresses.ts` based on the active `--chain`. Each address family is a `Record<Network, ...>` map:
+Addresses are resolved at runtime in `cli/src/lib/addresses.ts`. Each address family
+is a `Record<Network, ...>` map keyed by chain; Robinhood testnet is the active
+network:
 
 ```
-TOKENS()           → USDC, WETH, cbETH, etc.
-MOONWELL()         → Comptroller, mTokens
-UNISWAP()          → SwapRouter, QuoterV2
-SHERWOOD()         → Factory, Governor
-AGENT_REGISTRY()   → IdentityRegistry, ReputationRegistry
-EAS_CONTRACTS()    → EAS, SchemaRegistry
-EAS_SCHEMAS()      → Schema UIDs
-VENICE()           → VVV, Staking, DIEM
-STRATEGY_TEMPLATES() → MoonwellSupply, AerodromeLP, VeniceInference, WstETHMoonwell, MamoYield, Portfolio, HyperliquidPerp
-SYNTHRA()          → Router, Quoter, Factory
-CHAINLINK()        → VerifierProxy
-ENS()              → L2Registrar, L2Registry
-INFRA()            → Multicall3
+TOKENS()             → WETH, stock tokens
+SYNTHRA()            → Router, Quoter, Factory
+UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter (Synthra-backed)
+SHERWOOD()           → Factory, Governor, StrategyFactory, PriceRouter
+STRATEGY_TEMPLATES() → Portfolio
+CHAINLINK()          → VerifierProxy
+INFRA()              → Multicall3
 ```
 
-Zero addresses (`0x000...000`) indicate the protocol is not deployed on that chain. Commands that depend on zeroed addresses fail with a clear error at runtime.
+Zero addresses (`0x000...000`) indicate a protocol is not deployed. Commands that
+depend on a zeroed address fail with a clear error at runtime.
 
 ## Adding a New Chain
 
-1. Define the chain in `cli/src/lib/network.ts` (add to `ChainConfig` registry)
+Sherwood is built to be multi-chain — Robinhood testnet is simply the first target.
+To bring up an additional chain:
+
+1. Define the chain in `cli/src/lib/network.ts` (add to the `ChainConfig` registry)
 2. Add address entries in `cli/src/lib/addresses.ts` (all `Record<Network, ...>` maps)
 3. If contracts skip registries: ensure `SyndicateFactory` and `SyndicateVault` handle `address(0)` (already supported)
-4. Create deployment script in `contracts/script/<chain>/Deploy.s.sol`
-5. Add RPC endpoint to `contracts/foundry.toml`
-6. Deploy and save record to `contracts/chains/{chainId}.json`
+4. Create a deployment script in `contracts/script/<chain>/Deploy.s.sol`
+5. Add the RPC endpoint to `contracts/foundry.toml`
+6. Deploy and save the record to `contracts/chains/{chainId}.json`

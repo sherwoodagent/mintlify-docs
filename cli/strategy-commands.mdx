@@ -6,6 +6,10 @@ icon: "cubes"
 
 Strategy templates are ERC-1167 clonable contracts deployed once per chain. Each proposal clones a template, initializes it with custom parameters, then uses the clone in governor batch calls.
 
+<Note>
+On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** (a weighted basket of tokenized stocks/crypto, rebalanced through Synthra). The other templates below (Moonwell, Aerodrome, Venice, Mamo, Hyperliquid) come online as Sherwood expands to more chains — the flag reference is kept for completeness.
+</Note>
+
 ## `strategy list`
 
 Show available strategy templates and their deployed addresses.
@@ -19,11 +23,11 @@ sherwood strategy list
 Clone a template and initialize it. Returns the clone address for use in proposal batch calls.
 
 ```bash
-sherwood strategy clone moonwell-supply \
+sherwood strategy clone portfolio \
   --vault 0x... \
-  --amount 10 \
-  --min-redeem 9.9 \
-  --token USDC
+  --amount 0.5 \
+  --tokens TSLA,AMZN,AMD \
+  --weights 4000,3000,3000
 ```
 
 The clone is deployed and initialized on-chain. The proposer (your wallet) pays gas for both transactions.
@@ -56,11 +60,11 @@ sherwood proposal create \
 ### Submit directly
 
 ```bash
-sherwood strategy propose moonwell-supply \
+sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 10000 --min-redeem 9900 --token USDC \
-  --name "Moonwell USDC Yield" \
-  --description "Supply 10k USDC for 7 days" \
+  --amount 0.5 --tokens TSLA,AMZN,AMD --weights 4000,3000,3000 \
+  --name "Tech Stock Basket" \
+  --description "Weighted basket of tokenized stocks for 7 days" \
   --duration 7d
 ```
 
@@ -100,7 +104,7 @@ sherwood strategy propose moonwell-supply \
 
 ### wsteth-moonwell
 
-Supply wstETH as Moonwell collateral. If the asset is not wstETH, the CLI swaps asset → wstETH via the Base Uniswap router before supply. Base only.
+Supply wstETH as Moonwell collateral. If the asset is not wstETH, the CLI swaps asset → wstETH via the Uniswap router before supply. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
 
 | Flag | Description | Default |
 |------|------------|---------|
@@ -110,7 +114,7 @@ Supply wstETH as Moonwell collateral. If the asset is not wstETH, the CLI swaps 
 
 ### mamo-yield
 
-Deposit asset into a Mamo yield strategy via the Mamo StrategyFactory. Base only.
+Deposit asset into a Mamo yield strategy via the Mamo StrategyFactory. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
 
 | Flag | Description | Default |
 |------|------------|---------|
@@ -119,7 +123,7 @@ Deposit asset into a Mamo yield strategy via the Mamo StrategyFactory. Base only
 
 ### portfolio
 
-Weighted basket of tokens (stock tokens, crypto) with on-chain rebalancing. Built on `UniswapSwapAdapter` with automatic multi-hop routing: the adapter tries direct USDC→token pools first, then falls back to USDC→WETH→token for tokens without direct pools (added in PR #176). Available on Base and Robinhood L2.
+Weighted basket of tokens (tokenized stocks, crypto) with on-chain rebalancing. Built on `UniswapSwapAdapter` with automatic multi-hop routing: the adapter tries direct pools first, then falls back to routing through WETH for tokens without direct pools. **This is the live strategy on Robinhood testnet** (chain 46630), routing through Synthra.
 
 | Flag | Description | Default |
 |------|------------|---------|
@@ -134,7 +138,7 @@ See the [Portfolio strategy reference](/protocol/strategies/portfolio) for mecha
 
 ### hyperliquid-perp
 
-Open a leveraged perpetual futures position on Hyperliquid via the HyperEVM strategy template. HyperEVM only.
+Open a leveraged perpetual futures position on Hyperliquid via the Hyperliquid strategy template. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
 
 | Flag | Description | Default |
 |------|------------|---------|

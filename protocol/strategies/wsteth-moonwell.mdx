@@ -4,6 +4,8 @@ description: "Stack Lido staking yield with Moonwell lending yield — WETH → 
 icon: "layer-group"
 ---
 
+<Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy will come online as Sherwood expands to more chains.</Note>
+
 The `WstETHMoonwellStrategy` is a stacked yield strategy: it swaps WETH to wstETH via Aerodrome, then supplies wstETH to Moonwell's lending market. The vault earns both Lido staking yield and Moonwell lending interest simultaneously.
 
 ## Architecture
@@ -127,7 +129,7 @@ This strategy is **Lane B only** — it does not override `positions()`, so the 
 
 The `chainlinkWstethEthFeed` is retained for off-chain reference only — it is **not** consumed on-chain and does not drive vault NAV. See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
 
-## Addresses (Base Mainnet)
+## Addresses (Base reference)
 
 | Contract | Address |
 |----------|---------|

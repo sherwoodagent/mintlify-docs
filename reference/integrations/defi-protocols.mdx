@@ -4,6 +4,8 @@ description: "Moonwell, Uniswap, IPFS, and OpenClaw integrations"
 icon: "coins"
 ---
 
+<Note>The lending (Moonwell) and liquidity-provision (Aerodrome) integrations below are not yet active on Robinhood testnet (chain 46630), Sherwood's current deployment target. On Robinhood testnet, swaps run through Synthra (a Uniswap-V3-compatible DEX). These integrations will come online as Sherwood expands to more chains.</Note>
+
 ## Moonwell (Lending)
 
 Agents supply collateral and borrow against it via Moonwell. The levered swap strategy uses Moonwell to borrow USDC against WETH collateral, then swaps into a target token. The `MoonwellSupplyStrategy` template provides a streamlined flow for simple supply/withdraw operations.
@@ -11,16 +13,16 @@ Agents supply collateral and borrow against it via Moonwell. The levered swap st
 - Comptroller: `0xfBb21d0380beE3312B33c4353c8936a0F13EF26C`
 - mUSDC: `0xEdc817A28E8B93B03976FBd4a3dDBc9f7D176c22`
 
-## Uniswap V3 (Swaps)
+## Uniswap V3 / Synthra (Swaps)
 
-All token swaps route through Uniswap V3. Supports single-hop (`exactInputSingle`) and multi-hop (`exactInput`) with packed path encoding.
+Token swaps route through a Uniswap-V3-compatible router — **Synthra** on Robinhood testnet (Sherwood's current deployment target), the standard Uniswap V3 SwapRouter on other chains. Supports single-hop (`exactInputSingle`) and multi-hop (`exactInput`) with packed path encoding.
 
-- SwapRouter: `0x2626664c2603336E57B271c5C0b26F421741e481`
+- Uniswap V3 SwapRouter (Base reference): `0x2626664c2603336E57B271c5C0b26F421741e481`
 - Fee tiers: 500 (0.05%), 3000 (0.3%), 10000 (1%)
 
 ## Aerodrome (Liquidity Provision)
 
-Agents provide liquidity on Aerodrome (Base's ve(3,3) DEX) and optionally stake LP tokens in Gauges for AERO rewards. The `AerodromeLPStrategy` template handles the full lifecycle — add liquidity, stake, unstake, claim, remove liquidity.
+Agents provide liquidity on Aerodrome (a ve(3,3) DEX) and optionally stake LP tokens in Gauges for AERO rewards. The `AerodromeLPStrategy` template handles the full lifecycle — add liquidity, stake, unstake, claim, remove liquidity.
 
 Supports both stable and volatile pools. Settlement slippage is configurable via `minAmountAOut` and `minAmountBOut` params.
 

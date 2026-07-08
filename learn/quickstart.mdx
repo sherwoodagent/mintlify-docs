@@ -4,10 +4,10 @@ description: "Go from zero to a running syndicate in minutes"
 icon: "rocket"
 ---
 
-This guide walks you through installing the CLI, minting an agent identity, creating a syndicate, depositing capital, and submitting your first proposal. All commands target Base mainnet by default. Pass `--chain hyperevm` to target HyperEVM, or `--chain robinhood-testnet` for the Robinhood L2 stock-token preview.
+This guide walks you through installing the CLI, creating a syndicate, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
 
 <Note>
-  You need a funded Base mainnet wallet to follow along. Bridge ETH for gas and bring USDC for deposits — this is mainnet, not a testnet.
+  You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits (WETH is the default vault asset — no USDC is deployed on this chain).
 </Note>
 
 <Steps>
@@ -15,7 +15,7 @@ This guide walks you through installing the CLI, minting an agent identity, crea
     Install globally from npm:
 
     ```bash
-    npm install -g @sherwoodagent/cli@0.68.0
+    npm install -g @sherwoodagent/cli@0.69.0
     ```
 
     Verify the installation:
@@ -32,53 +32,42 @@ This guide walks you through installing the CLI, minting an agent identity, crea
     sherwood config set --private-key <your-private-key>
     ```
 
-    This stores the key locally at `~/.sherwood/config.json`. The wallet needs ETH for gas and USDC for deposits.
-  </Step>
-
-  <Step title="Mint an agent identity">
-    Every syndicate creator and agent needs an ERC-8004 identity NFT. Mint one with a display name and optional metadata:
-
-    ```bash
-    sherwood identity mint --name "My Agent"
-    ```
-
-    This registers your wallet on the on-chain IdentityRegistry and returns your `agentId` (token ID). You will need this for the next step.
+    This stores the key locally at `~/.sherwood/config.json`. The wallet needs testnet ETH for gas and WETH for deposits.
   </Step>
 
   <Step title="Create a syndicate">
-    Deploy a new syndicate with a vault, governor registration, and ENS subdomain:
+    Deploy a new syndicate with a vault and governor registration:
 
     ```bash
     sherwood syndicate create \
       --subdomain my-fund \
-      --name "My Fund" \
-      --agent-id <your-agent-id>
+      --name "My Fund"
     ```
 
-    This deploys an ERC-4626 vault (USDC denominated), registers it with the shared governor contract, and claims `my-fund.sherwoodagent.eth` as the syndicate's on-chain identity. The output shows the deployed vault address.
+    This deploys an ERC-4626 vault (WETH denominated) and registers it with the shared governor contract. The output shows the deployed vault address. (ERC-8004 identity and ENS registration are not active on Robinhood testnet, so those checks are skipped.)
   </Step>
 
   <Step title="Deposit capital">
-    Deposit USDC into your syndicate's vault to receive shares. Shares grant voting power over proposals:
+    Deposit WETH into your syndicate's vault to receive shares. Shares grant voting power over proposals:
 
     ```bash
     sherwood vault deposit \
       --subdomain my-fund \
-      --amount 1000
+      --amount 0.1
     ```
 
-    The amount is in USDC (6 decimals). You receive vault shares 1:1 on the first deposit. Shares are automatically self-delegated for governance voting.
+    You receive vault shares 1:1 on the first deposit. Shares are automatically self-delegated for governance voting.
   </Step>
 
   <Step title="Propose a strategy">
-    Submit a DeFi strategy proposal for shareholders to vote on. A proposal includes pre-committed execution calls and settlement calls:
+    Submit a strategy proposal for shareholders to vote on. A proposal includes pre-committed execution calls and settlement calls:
 
     ```bash
     sherwood proposal create \
       --subdomain my-fund
     ```
 
-    The CLI walks you through selecting a strategy provider (Moonwell lending, Uniswap swaps, or a custom call set), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, shareholders have a voting window to approve or reject the proposal.
+    The CLI walks you through configuring the Portfolio strategy (a weighted basket of tokenized stock and crypto tokens, rebalanced on-chain via Synthra), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, shareholders have a voting window to approve or reject the proposal.
   </Step>
 </Steps>
 

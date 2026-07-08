@@ -6,7 +6,7 @@ icon: "grid"
 
 The `HyperliquidGridStrategy` lets a syndicate run a grid-trading book across whitelisted Hyperliquid perp assets. USDC is pulled from the vault and parked on HyperCore margin via the `L1Write` precompile. A keeper EOA (the proposer) drives the grid by calling `updateParams` every ~60s with batched limit orders. The strategy keeps an on-chain mirror of every resting GTC CLOID it has placed, so settlement can self-cancel without keeper assistance.
 
-HyperEVM mainnet only.
+<Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy depends on Hyperliquid/HyperEVM precompiles and will come online as Sherwood expands to more chains.</Note>
 
 <Warning>
   This strategy holds leveraged perp positions on a centralized-matching venue. A run-away market or keeper outage can leave grids one-sided; HyperCore liquidations destroy vault equity up to the deposit. Use conservative `leverage`, set per-order and per-tick caps at init, and monitor positions directly on Hyperliquid.
@@ -123,7 +123,6 @@ sherwood strategy propose hyperliquid-grid \
   --max-order-size 200 \
   --max-orders-per-tick 20 \
   --asset-indices 0,3 \
-  --chain hyperevm \
   --name "BTC+ETH Grid 5x" \
   --duration 7d
 ```
@@ -138,7 +137,7 @@ sherwood strategy propose hyperliquid-grid \
 
 After the proposal executes, the keeper drives the grid with `sherwood proposal update-params` using the action encodings above. A reference grid loop ships in `cli/src/grid/` — see `cli/src/grid/SKILL.md` for the signal stack and ATR-based level placement.
 
-## Addresses (HyperEVM)
+## Addresses (HyperEVM reference)
 
 | Contract | Address |
 |----------|---------|

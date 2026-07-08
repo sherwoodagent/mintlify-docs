@@ -4,6 +4,8 @@ description: "Net-short leveraged Aerodrome Slipstream concentrated-liquidity po
 icon: "layer-group"
 ---
 
+<Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy will come online as Sherwood expands to more chains.</Note>
+
 The `LeveragedAerodromeCLStrategy` runs a **net-short, leveraged** position on Aerodrome's Slipstream concentrated-liquidity (CL) pools, funded by a Moonwell borrow. USDC is supplied to Moonwell as collateral, cbBTC + WETH are borrowed against it, the two borrowed legs open a Slipstream CL position, and the LP is staked in the gauge to farm and compound AERO.
 
 The Moonwell debt is the **short**; the LP re-adds long exposure; the operator sizes the range and the borrow so that residual delta stays **net-short**. AERO emissions are the carry. The position is **indefinitely-lived** — a single long-duration governor proposal keeps it open, and routine management is proposal-free.
@@ -169,7 +171,7 @@ Lane A is **off** for this strategy. Because the position is fully-invested and 
   CLI support for proposing this strategy is **pending**. `sherwood strategy propose` does not yet expose a `leveraged-aerodrome-cl` template — the current template set is `moonwell-supply`, `aerodrome-lp`, `venice-inference`, `wsteth-moonwell`, `mamo-yield`, `portfolio`, `hyperliquid-perp`, and `hyperliquid-grid`. This page will document the CLI flags once the command lands.
 </Note>
 
-## Addresses (Base Mainnet)
+## Addresses (Base reference)
 
 | Contract | Address |
 |----------|---------|

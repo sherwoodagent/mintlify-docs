@@ -4,7 +4,9 @@ description: "Provide liquidity on Aerodrome with optional gauge staking for AER
 icon: "water"
 ---
 
-The `AerodromeLPStrategy` provides liquidity to an Aerodrome pool on Base and optionally stakes the LP tokens in a gauge to earn AERO rewards. On settlement, it unstakes, claims rewards, removes liquidity, and pushes all tokens back to the vault.
+<Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy will come online as Sherwood expands to more chains.</Note>
+
+The `AerodromeLPStrategy` provides liquidity to an Aerodrome pool and optionally stakes the LP tokens in a gauge to earn AERO rewards. On settlement, it unstakes, claims rewards, removes liquidity, and pushes all tokens back to the vault.
 
 ## Architecture
 
@@ -148,7 +150,7 @@ However, Lane A is **not yet enabled** for `AERODROME_LP` (`laneAEnabled[AERODRO
 
 See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane mechanics.
 
-## Addresses (Base Mainnet)
+## Addresses (Base reference)
 
 | Contract | Address |
 |----------|---------|
