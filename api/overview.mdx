@@ -19,7 +19,7 @@ Every response — success or failure, every endpoint — uses the same shape:
   "data": { /* endpoint payload */ },
   "meta": {
     "command": "prepare.deposit",
-    "chainId": 8453,
+    "chainId": 46630,
     "timestamp": "2026-05-15T14:56:14.292Z"
   }
 }
@@ -95,32 +95,32 @@ Edge-cacheable reads return state on the fly — no key required.
 |---|---|
 | `GET /v1` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://www.sherwood.sh/api/v1` or simply `https://api.sherwood.sh/` (the subdomain rewrites root → `/api/v1`). |
 | `GET /v1/chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
-| `GET /v1/funds?chain=8453&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/v1/vaults/:address` for richer data. |
-| `GET /v1/governor?chain=8453` | Live governor parameters (voting period, veto bps, fees). |
-| `GET /v1/vaults/:address?chain=8453` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
-| `GET /v1/proposals?chain=8453&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. |
-| `GET /v1/proposals/:id?chain=8453` | Single proposal: votes, voter snapshot, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. |
+| `GET /v1/funds?chain=46630&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/v1/vaults/:address` for richer data. |
+| `GET /v1/governor?chain=46630` | Live governor parameters (voting period, veto bps, fees). |
+| `GET /v1/vaults/:address?chain=46630` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
+| `GET /v1/proposals?chain=46630&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. |
+| `GET /v1/proposals/:id?chain=46630` | Single proposal: votes, voter snapshot, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. |
 | `GET /v1/health` | Shallow probe — always 200 if the worker is up. |
 | `GET /v1/health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
 
-## Worked example: deposit 100 USDC into a Base vault
+## Worked example: deposit 1 WETH into a Robinhood testnet vault
 
 ```bash
 # 1. Look up the vault to confirm it's open + read the asset
-curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=8453' | jq
+curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=46630' | jq
 
 # 2. Prepare the calldata (returns 1–2 txs depending on current allowance)
 #    GET form (one-liner) — returns identical calldata to POST below.
-curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=8453&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=100' | jq
+curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=46630&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=1' | jq
 
 # Or POST form — useful when args are dynamic / programmatically built.
 curl -sX POST https://api.sherwood.sh/prepare/deposit \
   -H 'content-type: application/json' \
   -d '{
-    "chainId": 8453,
+    "chainId": 46630,
     "vault": "0xVaultAddress",
     "receiver": "0xYourAddress",
-    "amountDecimal": "100"
+    "amountDecimal": "1"
   }' | jq
 ```
 
@@ -131,19 +131,19 @@ Response:
   "success": true,
   "data": {
     "txs": [
-      { "to": "0x833589...02913", "data": "0x095ea7b3...", "value": "0x0", "chainId": 8453 },
-      { "to": "0xVaultAddress",   "data": "0x6e553f65...", "value": "0x0", "chainId": 8453 }
+      { "to": "0xWETHAddress", "data": "0x095ea7b3...", "value": "0x0", "chainId": 46630 },
+      { "to": "0xVaultAddress",   "data": "0x6e553f65...", "value": "0x0", "chainId": 46630 }
     ],
     "preconditions": [
-      { "type": "balance",   "asset": "0x833589...", "assetSymbol": "USDC", "min": "100000000", "minDecimal": "100" },
-      { "type": "allowance", "token": "0x833589...", "spender": "0xVaultAddress", "min": "100000000", "minDecimal": "100" },
+      { "type": "balance",   "asset": "0xWETHAddress", "assetSymbol": "WETH", "min": "1000000000000000000", "minDecimal": "1" },
+      { "type": "allowance", "token": "0xWETHAddress", "spender": "0xVaultAddress", "min": "1000000000000000000", "minDecimal": "1" },
       { "type": "vault-not-locked",  "vault": "0xVaultAddress" },
       { "type": "depositor-approved","vault": "0xVaultAddress", "depositor": "0xYourAddress" }
     ],
-    "description": "Approve USDC for 0xVaultAddress, then deposit 100 USDC.",
+    "description": "Approve WETH for 0xVaultAddress, then deposit 1 WETH.",
     "note": "Both txs are gated by vault state. If `redemptionsLocked()` is true the deposit reverts unless live NAV is available; check the vault read endpoint before broadcasting."
   },
-  "meta": { "command": "prepare.deposit", "chainId": 8453, "timestamp": "..." }
+  "meta": { "command": "prepare.deposit", "chainId": 46630, "timestamp": "..." }
 }
 ```
 

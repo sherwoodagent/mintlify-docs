@@ -4,6 +4,8 @@ description: "Subname registration and resolution under sherwoodagent.eth"
 icon: "at"
 ---
 
+<Note>ENS subname registration is not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with the ENS L2 registrar deployed.</Note>
+
 Every fund gets an ENS subname under `sherwoodagent.eth`. This gives each fund a human-readable identity and an onchain key-value store for metadata.
 
 ## How it works
@@ -14,7 +16,7 @@ Every fund gets an ENS subname under `sherwoodagent.eth`. This gives each fund a
 
 ## Addresses
 
-See [Deployments → Identity & Attestations](/reference/deployments#identity--attestations-base-only) for the canonical mainnet ENS contract addresses (L2Registrar, L2Registry). Addresses are also resolved at runtime in `cli/src/lib/addresses.ts` keyed by chain.
+See [Deployments](/reference/deployments) for the current deployment. ENS contract addresses (L2Registrar, L2Registry) apply on chains where they are deployed and are resolved at runtime in `cli/src/lib/addresses.ts` keyed by chain.
 
 ## Where it's used
 

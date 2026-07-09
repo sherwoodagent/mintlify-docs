@@ -61,11 +61,14 @@ sherwood agent start \
 | `--dry-run` | `true` | Paper trading mode (default) |
 | `--tokens` | `ethereum,bitcoin,solana,aave,uniswap` | Comma-separated token watchlist |
 | `--log` | none | Path to write cycle log JSONL files |
-| `--mode` | `dry-run` | Execution mode: `dry-run` or `hyperliquid-perp` |
-| `--strategy-clone` | none | Strategy clone address on HyperEVM (required for `hyperliquid-perp`) |
-| `--chain` | `ethereum` | Chain for live execution (`hyperevm`) |
+| `--mode` | `dry-run` | Execution mode: `dry-run` or `hyperliquid-perp` (live perp not yet available on Robinhood testnet) |
+| `--strategy-clone` | none | Strategy clone address (required for `hyperliquid-perp`) |
 
 ### Live Execution (Hyperliquid Perp)
+
+<Note>
+Live Hyperliquid-perp execution requires a chain where the Hyperliquid strategy is deployed. It is **not yet available on Robinhood testnet** (chain 46630), Sherwood's current deployment target. The agent paper-trades here; live execution comes online as Sherwood expands to more chains.
+</Note>
 
 To run the agent in live mode against a deployed HyperliquidPerpStrategy:
 
@@ -73,7 +76,6 @@ To run the agent in live mode against a deployed HyperliquidPerpStrategy:
 SHERWOOD_PROPOSER_KEY=0x... sherwood agent start \
   --mode hyperliquid-perp \
   --strategy-clone 0x... \
-  --chain hyperevm \
   --tokens ethereum \
   --cycle 1h
 ```
