@@ -65,7 +65,7 @@ Redeeming is a **three-entrypoint** exit: an oracle-priced fast lane for the eve
 | `cancelRedeem(id)` | request owner | Return escrowed shares (only before fulfill). |
 | `emergencyRedeem(id, minAssetsOut)` | request owner | Deadman self-fulfill after `FULFILL_WINDOW` (2 days). |
 
-**Fast lane — `redeem(shares, minAssetsOut)`.** The everyday exit. Pays `shares × navNet / supply`, funded from the **Moonwell USDC collateral only** — no LP touch, no debt repay. It is **oracle-priced and fail-closed**: `navPre = nav()` is computed first and reverts on a down oracle, exactly like `deposit`. No protocol-fee skim runs on this path because `nav()` is already net of `protocolFeeOwed`. An **LTV gate** in `fastRedeemImpl` computes the post-withdraw LTV on pre-withdraw prices and reverts `FastRedeemExceedsLtv(ltvBps, maxLtvBps)` if it would breach `maxLtvBps` — the caller then routes to `requestRedeem`.
+**Fast lane — `redeem(shares, minAssetsOut)`.** The everyday exit. Pays `shares × navNet / supply`, funded **idle-USDC-first, then Moonwell USDC collateral** — no LP touch, no debt repay. If idle alone covers the payout, collateral (and the LTV gate) is never touched. It is **oracle-priced and fail-closed**: `navPre = nav()` is computed first and reverts on a down oracle, exactly like `deposit`. No protocol-fee skim runs on this path because `nav()` is already net of `protocolFeeOwed`. An **LTV gate** in `fastRedeemImpl` computes the post-withdraw LTV on pre-withdraw prices and reverts `FastRedeemExceedsLtv(ltvBps, maxLtvBps)` if it would breach `maxLtvBps` — the caller then routes to `requestRedeem`.
 
 **Async lane — `requestRedeem` → `fulfillRedeem`.** `requestRedeem` escrows the shares in the strategy with **no price stamped** (shares keep bearing PnL until fulfill, so `cancelRedeem` is not a free look-back option). The proposer then deleverages (via `adjustLeverage`) and calls `fulfillRedeem(id)` — deliberately `onlyProposer`, **not** owner-callable, so the demoted oracle-free path can't be resurrected through a side door. Fulfill runs the **oracle-free proportional unwind**: it removes fraction `f = shares / supply` of **every leg** — pays `f` of idle USDC, removes `f` of CL liquidity, repays `f` of each debt, withdraws `f` of collateral, sweeps the residual to USDC. The legs themselves define the amount (no `nav()` computation), which is what keeps this lane **never blocked by an oracle outage**. `cancelRedeem(id)` returns the escrowed shares any time before fulfill.
 
@@ -75,7 +75,7 @@ Redeeming is a **three-entrypoint** exit: an oracle-priced fast lane for the eve
   **Stayer-safe guarantee (async / deadman path).** The proportional unwind leaves a stayer (`f < 1`) fully oracle-free: stayers keep `(1 − f)` of every leg regardless of price, and the redeemer bears only their own fill via `minAssetsOut`.
 </Info>
 
-The **one** exception: a literal 100%-of-supply proportional unwind that *also* hits an IL shortfall after idle USDC is exhausted falls back to oracle-sizing a collateral→USDC swap to clear the residual debt (fail-safe — a stale feed reverts). This dilutes no one, since by definition there are no stayers.
+The **one** exception: a literal 100%-of-supply proportional unwind that *also* hits an IL shortfall after idle USDC is exhausted falls back to oracle-sizing a single collateral(USDC)→debt-asset swap to clear the residual debt (fail-safe — a stale feed reverts). This dilutes no one, since by definition there are no stayers.
 
 `previewRedeem(shares)` is an advisory view: it returns the predicted `assetsOut` and a `fastOk` flag (true iff the fast lane would both price *and* clear the LTV gate), so a frontend can pre-route to `requestRedeem` before submitting.
 
@@ -126,7 +126,7 @@ The strategy manages its own fees by minting **fee-shares** — it does not rely
 - The performance fee is **paused when NAV is unpriceable** — no phantom fees during an oracle outage.
 - `selfManagesFees()` returns **`true`**, so the governor skips **all** settle-fee distribution for this strategy (protocol, guardian, agent, and management settle-fees). Fees are the strategy's own share-dilution, not governor-routed.
 
-**Protocol fee is a USDC liability, not fee-shares.** The protocol slice is taken off the gross gain **first** (read live from the governor's `protocolFeeBps`), then accrued into `protocolFeeOwed` (6dp) rather than minted as shares. It is discharged where USDC naturally flows: the fast-redeem skim (`_dischargeRedeemSkim`), the compound skim, and `_settle`. `LeveragedAeroFees` returns this `protocolUsdc` slice separately from the perf-fee shares.
+**Protocol fee is a USDC liability, not fee-shares.** The protocol slice is taken off the gross gain **first** (read live from the governor's `protocolFeeBps`), then accrued into `protocolFeeOwed` (6dp) rather than minted as shares. It is discharged where USDC naturally flows: the async-redeem skim (`_dischargeRedeemSkim`, on fulfill / emergency), the compound skim, and `_settle`. The fast-lane `redeem` takes no skim (it prices at the already-net `navNet`). `LeveragedAeroFees` returns this `protocolUsdc` slice separately from the perf-fee shares.
 
 <Note>
   Only the **guardian** fee for custody strategies remains a documented off-chain follow-up. The protocol fee is collected on-chain as the `protocolFeeOwed` liability above.
@@ -181,6 +181,12 @@ Lane A is **off** for this strategy. Because the position is fully-invested and 
 <Warning>
   Integrators must read **`strategy.nav()`** for the position's value, not `vault.totalAssets()` or `vault.previewRedeem(...)`.
 </Warning>
+
+## Spec & integration guide
+
+The full contract-level spec — auth matrix, storage/delegatecall constraints, invariants, event/error
+catalogs, and viem/cast integration examples — ships with the contracts:
+[`docs/LeveragedAerodromeCLStrategy.md`](https://github.com/sherwoodagent/sherwood-protocol/blob/main/docs/LeveragedAerodromeCLStrategy.md).
 
 ## CLI Usage
 
