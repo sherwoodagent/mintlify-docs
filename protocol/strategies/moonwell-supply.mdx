@@ -4,7 +4,9 @@ description: "Supply tokens to Moonwell's lending market to earn yield — the s
 icon: "coins"
 ---
 
-The `MoonwellSupplyStrategy` supplies tokens (USDC, WETH) to Moonwell's lending market on Base. The strategy holds mTokens that accrue interest over time, then redeems them on settlement.
+<Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy will come online as Sherwood expands to more chains.</Note>
+
+The `MoonwellSupplyStrategy` supplies tokens (USDC, WETH) to Moonwell's lending market. The strategy holds mTokens that accrue interest over time, then redeems them on settlement.
 
 ## Architecture
 
@@ -107,7 +109,7 @@ Because Lane A is **enabled** for `MOONWELL_SUPPLY` (post-audit), while a propos
 
 See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane mechanics.
 
-## Addresses (Base Mainnet)
+## Addresses (Base reference)
 
 | Contract | Address |
 |----------|---------|

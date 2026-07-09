@@ -4,7 +4,7 @@ description: "Smart contract design — vaults, governor, factory, strategy temp
 icon: "cubes"
 ---
 
-Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts deploy on Base, Robinhood L2, and HyperEVM. See [Deployments](/reference/deployments) for the full chain matrix.
+Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts currently deploy on Robinhood testnet (chain 46630); the protocol is chain-native and will expand to more chains over time. See [Deployments](/reference/deployments) for the deployed addresses.
 
 ## Architecture
 
@@ -27,7 +27,7 @@ graph TD
 The vault is the identity — all DeFi positions (Moonwell supply/borrow, Uniswap swaps, Aerodrome LP) live on the vault address. Agents execute through the vault via delegatecall into a shared stateless library. **Each vault has its own governor** — the factory deploys a `BeaconProxy` governor per vault at `createSyndicate`, bound to that vault at initialize; the governor manages that one vault's proposal lifecycle, voting, and settlement. All governor proxies read their implementation from the shared `GovernorBeacon` (owned by the protocol multisig), so a protocol-wide governor upgrade is a single `beacon.upgradeTo(newImpl)`. The vault resolves its governor address via `factory.governorOf(vault)` — there is no governor storage on the vault itself.
 
 <Warning>
-USDC on Base has 6 decimals, not 18. Vault shares are 12-decimal tokens (6 USDC + 6 offset).
+The vault's `_decimalsOffset()` equals the asset's decimals for first-depositor inflation protection, so share decimals scale with the asset. On Robinhood testnet the default vault asset is 18-decimal WETH; a 6-decimal asset (e.g. USDC) would yield 12-decimal shares.
 </Warning>
 
 ## Contracts
@@ -144,8 +144,8 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 | Execution window | 1h - 7d |
 | Veto threshold (bps) | 20% - 50% (`MIN_VETO_THRESHOLD_BPS = 2000`) |
 | Max performance fee (bps) | 0% - 15% |
-| Min strategy duration | 1h - 30d |
-| Max strategy duration | 1h - 30d |
+| Min strategy duration | 1h - maxStrategyDuration |
+| Max strategy duration | 1h - 3650d (~10y) |
 | Cooldown period | 1h - 30d |
 | Collaboration window | 1h - 7d |
 | Max co-proposers | 1 - 10 |
@@ -163,7 +163,7 @@ Plain (non-upgradeable) `Ownable2Step` global contract holding the protocol-leve
 The governor reads it **only at propose time**, snapshotting all four fields into the proposal — settlement charges what voters saw, never the live config. If the contract ever needs replacement, governors accept a new address via the factory-only `setProtocolConfig(address)`; snapshotting means no in-flight proposal is affected.
 
 <Note>
-**`ABSOLUTE_MAX_STRATEGY_DURATION` raised 30 days → 3650 days (~10y).** This `public constant` is the ceiling that `setMaxStrategyDuration` validates against; raising it enables **indefinitely-lived strategies** (e.g. [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl), which keeps one long-duration proposal open and does routine management proposal-free). Because it is a compiled constant, the raise **takes effect only after a governor UUPS upgrade** (new impl + `upgradeToAndCall`); until then the deployed governor keeps the old 30-day ceiling and `setMaxStrategyDuration(> 30 days)` reverts. The constant is global to the single governor, so once raised any vault owner can set a multi-year `maxStrategyDuration` — the blast radius is acknowledged and a **per-vault duration cap is the recommended mainnet hardening (deferred)**. Note the owner emergency exits (`unstick` / `emergencySettleWithCalls`) are duration-gated, so a multi-year proposal keeps them dormant for that long.
+**`ABSOLUTE_MAX_STRATEGY_DURATION` raised 30 days → 3650 days (~10y).** This `public constant` is the ceiling that `setMaxStrategyDuration` validates against; raising it enables **indefinitely-lived strategies** (e.g. [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl), which keeps one long-duration proposal open and does routine management proposal-free). Because it is a compiled constant, fresh deployments pick it up immediately, while an **already-deployed governor** built from older code keeps the 30-day ceiling (`setMaxStrategyDuration(> 30 days)` reverts) until a governor UUPS upgrade (new impl + `upgradeToAndCall`). The constant is global to the single governor, so once raised any vault owner can set a multi-year `maxStrategyDuration` — the blast radius is acknowledged and a **per-vault duration cap is the recommended mainnet hardening (deferred)**. Note the owner emergency exits (`unstick` / `emergencySettleWithCalls`) are duration-gated, so a multi-year proposal keeps them dormant for that long.
 </Note>
 
 ### GovernorEmergency (abstract)
@@ -212,7 +212,7 @@ UUPS-upgradeable, non-transferable vote-escrow contract introduced by the V1.5 s
 
 ### SyndicateFactory
 
-UUPS upgradeable factory. Deploys vault proxies (ERC1967) **and a dedicated `BeaconProxy` governor per vault** (initialized against the vault, the shared `GuardianRegistry`, and `ProtocolConfig` in the same `createSyndicate` tx), records the pairing in the `governorOf(vault)` mapping, authorizes the new governor with the registry via `addGovernor`, and optionally registers ENS subnames. There is **no shared governor** — vaults resolve their governor through `factory.governorOf(vault)`. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, e.g. on Robinhood L2 and HyperEVM).
+UUPS upgradeable factory. Deploys vault proxies (ERC1967) **and a dedicated `BeaconProxy` governor per vault** (initialized against the vault, the shared `GuardianRegistry`, and `ProtocolConfig` in the same `createSyndicate` tx), records the pairing in the `governorOf(vault)` mapping, authorizes the new governor with the registry via `addGovernor`, and optionally registers ENS subnames. There is **no shared governor** — vaults resolve their governor through `factory.governorOf(vault)`. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, as on Robinhood testnet, which has no identity/ENS registry yet).
 
 **Creation fee:** Optional ERC-20 fee (`creationFeeToken` + `creationFee` + `creationFeeRecipient`) collected on `createSyndicate`. Set to 0 for free creation.
 

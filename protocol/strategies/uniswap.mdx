@@ -6,7 +6,7 @@ icon: "chart-pie"
 
 The `PortfolioStrategy` manages a weighted basket of up to 20 tokens. On execute it swaps the vault's asset into each token at the target weight; on settle it sells everything back to the asset. The proposer can rebalance at any time while the proposal is `Executed`, either by selling everything and re-buying at current weights or by using Chainlink Data Streams prices to swap only the deltas (gas-efficient).
 
-Swaps go through `UniswapSwapAdapter` (Base) or `SynthraSwapAdapter` / `SynthraDirectAdapter` (Robinhood L2). Route selection is done **CLI-side**: the CLI probes direct asset→token pools at multiple fee tiers and falls back to an asset→WETH→token multi-hop when no direct pool exists, then encodes the chosen route into each token's `swapExtraData`. The on-chain `UniswapSwapAdapter` does not auto-detect — it reads a leading mode byte from `extraData` and executes exactly that route. This is how you can hold tokens without liquid USDC pairs.
+Swaps route through **Synthra** (a Uniswap-V3-compatible DEX), Robinhood testnet's live venue, via the deployed swap adapter (`SynthraSwapAdapter` / `SynthraDirectAdapter`, sharing the `UniswapSwapAdapter` interface). Route selection is done **CLI-side**: the CLI probes direct asset→token pools at multiple fee tiers and falls back to an asset→WETH→token multi-hop when no direct pool exists, then encodes the chosen route into each token's `swapExtraData`. The on-chain adapter does not auto-detect — it reads a leading mode byte from `extraData` and executes exactly that route. This is how you can hold tokens without liquid direct pairs.
 
 ### `swapExtraData` encoding
 
@@ -70,7 +70,7 @@ Init data is an **ABI-encoded positional tuple** (not a named struct). Tokens, w
 
 ```solidity
 (
-    address   asset,            // Vault asset (USDC on Base, WETH on Robinhood L2)
+    address   asset,            // Vault asset (WETH on Robinhood testnet)
     address   swapAdapter,      // UniswapSwapAdapter or SynthraSwapAdapter
     address   chainlinkVerifier,// Used by rebalanceDelta (Data Streams) to size delta swaps; pass address(0) to opt out
     address[] tokens,           // Basket tokens
@@ -140,10 +140,10 @@ sherwood strategy propose portfolio \
 
 ## Addresses
 
-| Contract | Base | Robinhood L2 Testnet |
-|----------|------|---------------------|
-| PortfolioStrategy template | `0x42069e51c415f4BF4442D80F1532Bd38140Bd135` | `0xAe981882923E0C76A7F10E7cAa3782023c0abd9B` |
-| Swap adapter | `0x679400a781A66d801C20DfD9E0020704e21e9d54` (Uniswap) | `0x39a37537E179919cb2dDDb1D6920dD11bAf3aDF0` (Synthra) |
-| Chainlink Verifier Proxy | `0xDE1A28D87Afd0f546505B28AB50410A5c3a7387a` | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
+| Contract | Robinhood Testnet (chain 46630) |
+|----------|---------------------|
+| PortfolioStrategy template | `0xAe981882923E0C76A7F10E7cAa3782023c0abd9B` |
+| Swap adapter (Synthra) | `0x39a37537E179919cb2dDDb1D6920dD11bAf3aDF0` |
+| Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
 
-Robinhood L2 (chain 46630) is the sole testnet network kept in beta because Synthra DEX + Chainlink Data Streams + the tokenized stock universe (TSLA / AMZN / PLTR / NFLX / AMD) are testnet-only deployments today.
+Robinhood testnet (chain 46630) is Sherwood's current deployment target: Synthra DEX + Chainlink Data Streams + the tokenized stock universe (TSLA / AMZN / PLTR / NFLX / AMD) live there today. The vault asset is WETH (no USDC is deployed on this chain). Support for more chains will follow.

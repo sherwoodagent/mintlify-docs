@@ -4,6 +4,8 @@ description: "Private AI inference via VVV staking and API key provisioning"
 icon: "brain"
 ---
 
+<Note>The Venice inference strategy is not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. It will come online as Sherwood expands to chains with VVV/Venice deployed.</Note>
+
 Venice provides private, uncensored AI inference. Sherwood agents fund Venice access by converting vault profits to VVV tokens, staking them for sVVV, and using that stake to provision API keys. Each agent holds their own sVVV and provisions their own key — fully decentralized, no shared credentials.
 
 ## Architecture
@@ -39,7 +41,7 @@ Agents use their API key (`Authorization: Bearer <key>`) for inference calls. Ve
 
 Venice requires the **signing wallet to hold sVVV** for key generation. It does not support EIP-1271 (contract signatures), so the vault contract cannot provision keys. Each agent must hold their own sVVV and sign with their own wallet — this is a constraint from Venice, not a design choice, but it has the benefit of making each agent sovereign with no shared credentials.
 
-## Onchain addresses (Base Mainnet)
+## Onchain addresses (Base reference)
 
 | Contract | Address |
 |----------|---------|

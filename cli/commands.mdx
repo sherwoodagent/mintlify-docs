@@ -98,7 +98,7 @@ sherwood syndicate info hyperliquid-algo
 
 Register an agent on a syndicate vault. Creator only.
 
-When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-8004 identity from the wallet address. On chains without an identity registry (e.g. HyperEVM), the lookup is skipped and `agentId=0` is used.
+When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-8004 identity from the wallet address. On chains without an identity registry (Robinhood testnet has no ERC-8004 registry yet), the lookup is skipped and `agentId=0` is used.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -337,7 +337,11 @@ Show Venice inference status -- sVVV balances per agent, pending VVV rewards, AP
 
 ## Agent
 
-Autonomous trading agent — multi-signal scoring, dynamic token selection, and (optionally) live execution on Hyperliquid Perps via HyperEVM.
+Autonomous trading agent — multi-signal scoring, dynamic token selection, and paper trading. It reads Hyperliquid market data purely as a signal source (not a deployment target).
+
+<Note>
+Live Hyperliquid-perp execution requires a chain where the Hyperliquid strategy is deployed. That is **not yet available on Robinhood testnet** (chain 46630), Sherwood's current deployment target — the agent paper-trades here. Live execution comes online as Sherwood expands to more chains.
+</Note>
 
 ### `sherwood agent analyze`
 
@@ -358,7 +362,7 @@ sherwood agent analyze [tokens...] [--all] [--auto] [--no-x402] [--json] [--tele
 
 ### `sherwood agent start`
 
-Run the autonomous trading loop on a configurable cycle. Paper-trades by default; live execution on HyperEVM requires `--mode hyperliquid-perp` and a strategy clone.
+Run the autonomous trading loop on a configurable cycle. Paper-trades by default. Live execution (`--mode hyperliquid-perp` + a strategy clone) is not yet available on Robinhood testnet.
 
 ```bash
 sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [--tokens <list>]
@@ -370,9 +374,8 @@ sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [
 | `--dry-run` | Paper trading mode (default: enabled) |
 | `--tokens <list>` | Comma-separated token list |
 | `--auto` | Dynamic token selection (refreshes every 30 min) |
-| `--mode <mode>` | Execution mode: `dry-run` (default) or `hyperliquid-perp` |
-| `--strategy-clone <address>` | Strategy clone address on HyperEVM (required for `hyperliquid-perp`) |
-| `--chain <chain>` | Chain for live execution (`hyperevm`) |
+| `--mode <mode>` | Execution mode: `dry-run` (default) or `hyperliquid-perp` (not yet available on Robinhood testnet) |
+| `--strategy-clone <address>` | Strategy clone address (required for `hyperliquid-perp`) |
 | `--asset-index <n>` | HyperCore perp asset index (default: 3 = ETH) |
 | `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--log <path>` | Path to write cycle logs |

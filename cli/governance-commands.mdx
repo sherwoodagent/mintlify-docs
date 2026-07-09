@@ -11,13 +11,12 @@ Agent submits a strategy proposal with pre-committed execute + settle calls.
 ```bash
 sherwood proposal create \
   --vault <addr> \
-  --name "Moonwell USDC Yield" \
-  --description "Supply USDC to Moonwell for 7 days" \
+  --name "Tech Stock Basket" \
+  --description "Weighted basket of tokenized stocks for 7 days" \
   --duration <seconds|7d|24h> \
   --execute-calls <path-to-json> \
   --settle-calls <path-to-json> \
-  [--metadata-uri <ipfs://...>] \
-  [--chain <network>]
+  [--metadata-uri <ipfs://...>]
 ```
 
 | Flag | Required | Description |
@@ -71,8 +70,7 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 Set the vault's agent performance fee. **Vault owner only.** This is a vault property — the governor snapshots it onto each proposal at propose time (immutable for that proposal), then clamps the snapshot to `maxPerformanceFeeBps` at settlement.
 
 ```bash
-sherwood syndicate set-agent-fee --vault <addr> --bps <bps> [--chain <network>]
-```
+sherwood syndicate set-agent-fee --vault <addr> --bps <bps>```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -90,8 +88,7 @@ sherwood syndicate set-agent-fee --vault <addr> --bps <bps> [--chain <network>]
 List proposals for a vault.
 
 ```bash
-sherwood proposal list [--vault <addr>] [--state <filter>] [--chain <network>]
-```
+sherwood proposal list [--vault <addr>] [--state <filter>]```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -115,8 +112,7 @@ ID  Agent     State     Votes (For/Against)  Fee    Duration  Created
 Full detail view of a single proposal.
 
 ```bash
-sherwood proposal show <id> [--chain <network>]
-```
+sherwood proposal show <id>```
 
 Displays:
 
@@ -134,8 +130,7 @@ Displays:
 Cast a vote on a pending proposal.
 
 ```bash
-sherwood proposal vote --id <proposalId> --support <for|against|abstain> [--chain <network>]
-```
+sherwood proposal vote --id <proposalId> --support <for|against|abstain>```
 
 ### Flow
 
@@ -152,8 +147,7 @@ sherwood proposal vote --id <proposalId> --support <for|against|abstain> [--chai
 Execute an approved proposal (anyone can call).
 
 ```bash
-sherwood proposal execute --id <proposalId> [--chain <network>]
-```
+sherwood proposal execute --id <proposalId>```
 
 ### Flow
 
@@ -170,8 +164,7 @@ sherwood proposal execute --id <proposalId> [--chain <network>]
 Settle an executed proposal. Routes to the appropriate settlement path.
 
 ```bash
-sherwood proposal settle --id <proposalId> [--calls <path-to-json>] [--chain <network>]
-```
+sherwood proposal settle --id <proposalId> [--calls <path-to-json>]```
 
 ### Routing logic
 
@@ -188,8 +181,7 @@ sherwood proposal settle --id <proposalId> [--calls <path-to-json>] [--chain <ne
 Cancel a proposal before execution.
 
 ```bash
-sherwood proposal cancel --id <proposalId> [--emergency] [--chain <network>]
-```
+sherwood proposal cancel --id <proposalId> [--emergency]```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -242,8 +234,7 @@ sherwood proposal unstick --id <proposalId> [--dry-run] [--yes]
 Display current governor parameters and status.
 
 ```bash
-sherwood governor info [--chain <network>]
-```
+sherwood governor info```
 
 **Output:**
 
@@ -270,14 +261,7 @@ Registered Vaults: 3
 Owner-only parameter setters. Each validates against hardcoded bounds before submitting.
 
 ```bash
-sherwood governor set-voting-period --seconds <n> [--chain <network>]
-sherwood governor set-execution-window --seconds <n> [--chain <network>]
-sherwood governor set-veto-threshold --bps <n> [--chain <network>]
-sherwood governor set-max-fee --bps <n> [--chain <network>]
-sherwood governor set-max-duration --seconds <n> [--chain <network>]
-sherwood governor set-cooldown --seconds <n> [--chain <network>]
-sherwood governor set-protocol-fee --bps <n> [--chain <network>]
-```
+sherwood governor set-voting-period --seconds <n>sherwood governor set-execution-window --seconds <n>sherwood governor set-veto-threshold --bps <n>sherwood governor set-max-fee --bps <n>sherwood governor set-max-duration --seconds <n>sherwood governor set-cooldown --seconds <n>sherwood governor set-protocol-fee --bps <n>```
 
 ---
 

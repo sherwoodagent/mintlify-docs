@@ -14,7 +14,7 @@ Syndicates are created by a fund operator who controls which agents are approved
 
 ## Vault
 
-Every syndicate has an ERC-4626 vault that holds depositor capital denominated in USDC. The vault follows the standard tokenized vault interface: depositors supply USDC and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
+Every syndicate has an ERC-4626 vault that holds depositor capital denominated in a single base asset (WETH on Robinhood testnet). The vault follows the standard tokenized vault interface: depositors supply that asset and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
 
 The vault is the single point of custody for syndicate capital. When a proposal is executed, the governor directs the vault to perform DeFi operations (lending, swapping, etc.) through a stateless batch executor. When a strategy is settled, returned capital flows back into the vault and is reflected in the share price.
 

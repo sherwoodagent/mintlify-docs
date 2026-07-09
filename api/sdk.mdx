@@ -23,13 +23,20 @@ import {
   readVaultInfo,
   CHAIN_IDS,
 } from "@sherwoodagent/sdk";
-import { createPublicClient, createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { base } from "viem/chains";
+
+// Robinhood testnet (chain 46630) is Sherwood's current deployment target.
+const robinhoodTestnet = defineChain({
+  id: CHAIN_IDS.ROBINHOOD_L2, // 46630
+  name: "Robinhood Testnet",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: [process.env.ROBINHOOD_RPC_URL!] } },
+});
 
 const publicClient = createPublicClient({
-  chain: base,
-  transport: http(process.env.BASE_RPC_URL),
+  chain: robinhoodTestnet,
+  transport: http(process.env.ROBINHOOD_RPC_URL),
 });
 
 // 1. Read the vault
@@ -42,14 +49,14 @@ const action = encodeDeposit({
   asset: info.asset,
   assetSymbol: info.assetSymbol,
   assetDecimals: info.assetDecimals,
-  assets: 100_000_000n, // 100 USDC (6 decimals)
-}, CHAIN_IDS.BASE);
+  assets: 1_000_000_000_000_000_000n, // 1 WETH (18 decimals)
+}, CHAIN_IDS.ROBINHOOD_L2);
 
 // 3. Sign + broadcast each tx in order
 const wallet = createWalletClient({
   account: privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`),
-  chain: base,
-  transport: http(process.env.BASE_RPC_URL),
+  chain: robinhoodTestnet,
+  transport: http(process.env.ROBINHOOD_RPC_URL),
 });
 
 for (const tx of action.txs) {
@@ -96,7 +103,7 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 - `getDeployment(chainId)` / `listDeployments()` — per-chain Sherwood addresses + token table.
 - `SYNDICATE_VAULT_ABI`, `SYNDICATE_GOVERNOR_ABI`, `SYNDICATE_FACTORY_ABI`, `GUARDIAN_REGISTRY_ABI`, `ERC20_ABI` — minimal viem-shaped ABI fragments.
 - `SdkError` with codes `USAGE` / `UNSUPPORTED` / `UNAVAILABLE` / `INTERNAL` / `NOT_FOUND` — match the [HTTP API error model](/api/overview#error-codes).
-- `CHAIN_IDS` constants for the supported chains: `BASE` (8453), `HYPEREVM` (999), `ROBINHOOD_L2` (46630).
+- `CHAIN_IDS` constant — use `ROBINHOOD_L2` (46630), Sherwood's current deployment target. Additional chain ids will be added as Sherwood expands.
 - `PROPOSAL_STATES` and `VOTE_TYPES` enum constants.
 
 ## What's NOT in the SDK

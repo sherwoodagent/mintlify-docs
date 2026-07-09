@@ -60,7 +60,7 @@ The three fees above are the **governor's** settle-fee path — computed at `set
 
 A protocol-level fee taken from gross profit **before** agent and management fees. This funds protocol development and operations.
 
-- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps)
+- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 1% / 100 bps, `MAX_PROTOCOL_FEE_BPS`)
 - `protocolFeeRecipient` — address that receives the protocol fee
 - Both live on **`ProtocolConfig`** — a plain `Ownable2Step` global contract shared by every per-vault governor. Fee setters no longer exist on the governor.
 - **Snapshotted at propose time.** The governor reads `ProtocolConfig` only when a proposal is created, copying all four fee fields (`protocolFeeBps`, `protocolFeeRecipient`, `guardianFeeBps`, `guardiansFeeRecipient`) onto the proposal. Settlement charges the snapshot — what voters saw — so a later config change can never reprice an in-flight proposal.
