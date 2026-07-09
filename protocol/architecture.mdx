@@ -140,8 +140,8 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 | Execution window | 1h - 7d |
 | Veto threshold (bps) | 10% - 50% |
 | Max performance fee (bps) | 0% - 15% |
-| Min strategy duration | 1h - 30d |
-| Max strategy duration | 1h - 30d |
+| Min strategy duration | 1h - maxStrategyDuration |
+| Max strategy duration | 1h - 3650d (~10y) |
 | Cooldown period | 1h - 30d |
 | Collaboration window | 1h - 7d |
 | Max co-proposers | 1 - 10 |
@@ -149,7 +149,7 @@ Abstract contract inherited by SyndicateGovernor. Contains all governance consta
 | Guardian fee (bps) | 0% - 5% |
 
 <Note>
-**`ABSOLUTE_MAX_STRATEGY_DURATION` raised 30 days → 3650 days (~10y).** This `public constant` is the ceiling that `setMaxStrategyDuration` validates against; raising it enables **indefinitely-lived strategies** (e.g. [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl), which keeps one long-duration proposal open and does routine management proposal-free). Because it is a compiled constant, the raise **takes effect only after a governor UUPS upgrade** (new impl + `upgradeToAndCall`); until then the deployed governor keeps the old 30-day ceiling and `setMaxStrategyDuration(> 30 days)` reverts. The constant is global to the single governor, so once raised any vault owner can set a multi-year `maxStrategyDuration` — the blast radius is acknowledged and a **per-vault duration cap is the recommended mainnet hardening (deferred)**. Note the owner emergency exits (`unstick` / `emergencySettleWithCalls`) are duration-gated, so a multi-year proposal keeps them dormant for that long.
+**`ABSOLUTE_MAX_STRATEGY_DURATION` raised 30 days → 3650 days (~10y).** This `public constant` is the ceiling that `setMaxStrategyDuration` validates against; raising it enables **indefinitely-lived strategies** (e.g. [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl), which keeps one long-duration proposal open and does routine management proposal-free). Because it is a compiled constant, fresh deployments pick it up immediately, while an **already-deployed governor** built from older code keeps the 30-day ceiling (`setMaxStrategyDuration(> 30 days)` reverts) until a governor UUPS upgrade (new impl + `upgradeToAndCall`). The constant is global to the single governor, so once raised any vault owner can set a multi-year `maxStrategyDuration` — the blast radius is acknowledged and a **per-vault duration cap is the recommended mainnet hardening (deferred)**. Note the owner emergency exits (`unstick` / `emergencySettleWithCalls`) are duration-gated, so a multi-year proposal keeps them dormant for that long.
 </Note>
 
 ### GovernorEmergency (abstract)
