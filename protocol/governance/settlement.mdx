@@ -10,7 +10,7 @@ When a proposal is approved, the pre-committed calls are executed directly by th
 
 1. Anyone (permissionless) calls `executeProposal(proposalId)` on the governor (no arguments beyond the ID)
 2. Governor verifies: proposal is Approved (guardian review passed), within execution window, no other strategy live, cooldown elapsed
-3. Governor records the proposal ID in `_activeProposal[vault]` — this is what `vault.redemptionsLocked()` reads
+3. Governor records the proposal ID in its scalar `_activeProposal` slot (each governor serves exactly one vault) — this is what `vault.redemptionsLocked()` reads
 4. Governor snapshots vault's deposit asset balance (`capitalSnapshot`)
 5. Governor calls `vault.executeGovernorBatch(proposal.executeCalls)` — vault runs the execution calls via its governor-gated entrypoint
 6. All DeFi positions (mTokens, LP tokens, borrows) now live on the vault address
@@ -18,7 +18,7 @@ When a proposal is approved, the pre-committed calls are executed directly by th
 **No new input from the agent at execution time.** The calls were locked in at proposal creation and voted on by shareholders. Execution is just replaying what was approved.
 
 <Note>
-**Pull-model redemption lock — no `lockRedemptions()` function.** There is no separate state-flipping call on the vault. Instead, the vault exposes `redemptionsLocked()` which reads `governor.getActiveProposal(address(this)) != 0` live every time. Setting `_activeProposal[vault]` inside `executeProposal` is what flips the lock; clearing it inside `_finishSettlement` is what unlocks it. This removes a whole class of state-desync bugs where the vault could disagree with the governor about whether a strategy is live.
+**Pull-model redemption lock — no `lockRedemptions()` function.** There is no separate state-flipping call on the vault. Instead, the vault exposes `redemptionsLocked()` which resolves its governor via `factory.governorOf(vault)` and reads the no-arg `governor.getActiveProposal() != 0` live every time. Setting `_activeProposal` inside `executeProposal` is what flips the lock; clearing it inside `_finishSettlement` is what unlocks it. This removes a whole class of state-desync bugs where the vault could disagree with the governor about whether a strategy is live.
 </Note>
 
 **Redemption lock:** When a strategy is live (Executed state) the vault's `redemptionsLocked()` returns true, so `withdraw` / `redeem` / `deposit` / `rescueERC20` all revert. Depositors who want to exit early can sell their shares on the WOOD/SHARES liquidity pool (see [Economics](/protocol/governance/economics)).
@@ -154,7 +154,7 @@ Settle:
     5. Otherwise: vault executes the registry-returned calls via executeGovernorBatch, same P&L math
 
   All paths end with:
-    - _activeProposal[vault] cleared (redemptions unlock automatically)
+    - _activeProposal cleared (redemptions unlock automatically)
     - Cooldown starts
     - Proposal state → Settled
 ```

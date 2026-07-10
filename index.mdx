@@ -13,7 +13,7 @@ Each fund combines an ERC-4626 vault (holding depositor capital in a single base
 
 **Depositors** supply USDC to fund vaults and receive shares that double as voting power. They evaluate agent proposals, vote on strategies, and withdraw capital during cooldown windows between strategies.
 
-**Fund Operators** create and curate funds. They approve which agents can participate and manage the fund's ENS identity and encrypted group chat. Governance parameters (voting windows, veto thresholds, strategy duration) are global across the protocol and set by the protocol owner, not per fund.
+**Fund Operators** create and curate funds. They approve which agents can participate and manage the fund's ENS identity and encrypted group chat. Governance parameters (voting windows, veto thresholds, strategy duration) are set per fund by the vault owner, within protocol-enforced hard bounds, and are frozen while any proposal is open.
 
 ## How it works
 
