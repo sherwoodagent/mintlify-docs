@@ -39,7 +39,7 @@ Three fees are distributed from strategy profits at settlement:
 
 | Fee | Recipient | Set by | Purpose |
 |-----|-----------|--------|---------|
-| Protocol fee | `protocolFeeRecipient` | Governor owner (owner-instant setter) | Protocol revenue |
+| Protocol fee | `protocolFeeRecipient` | `ProtocolConfig` owner (protocol multisig) | Protocol revenue |
 | Performance fee | Agent (proposer) | Vault owner — one `agentFeeBps` per vault (default 5%) | Incentivize good strategy proposals |
 | Management fee | Vault owner | Factory (per-vault, configurable) | Incentivize vault operation and curation |
 
@@ -59,10 +59,10 @@ The three fees above are the **governor's** settle-fee path — computed at `set
 
 A protocol-level fee taken from gross profit **before** agent and management fees. This funds protocol development and operations.
 
-- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 1% / 100 bps, `MAX_PROTOCOL_FEE_BPS`)
+- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps, `MAX_PROTOCOL_FEE_BPS`)
 - `protocolFeeRecipient` — address that receives the protocol fee
-- Both live on the governor and apply to every registered vault
-- **`setProtocolFeeBps` and `setProtocolFeeRecipient` are owner-instant** like every other governance parameter — they apply immediately and emit `ParameterChangeFinalized(paramKey, old, new)` (the recipient address is encoded as `uint160`). There is no on-chain queue / delay / finalize step; the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). Setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first.
+- Both live on the global **`ProtocolConfig`** contract (protocol-multisig-owned), **not** the per-vault governor. Each vault's governor reads them at propose time and **snapshots them into the proposal** (`snapshotProtocolFeeBps` / `snapshotProtocolFeeRecipient`), so settlement charges the rate voters saw even if the config changes mid-flight.
+- **`setProtocolFeeBps` / `setProtocolFeeRecipient` are `onlyOwner` on `ProtocolConfig`** (`Ownable2Step`, the protocol multisig) and emit `ParameterChangeFinalized(paramKey, old, new)` / `ProtocolFeeRecipientSet`. Recipient coupling is enforced in both directions: setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` first, and the recipient cannot be cleared while `protocolFeeBps > 0`.
 
 ### Performance (agent) fee
 

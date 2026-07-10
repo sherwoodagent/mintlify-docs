@@ -44,7 +44,7 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
       --name "My Fund"
     ```
 
-    This deploys an ERC-4626 vault (WETH denominated) and registers it with the shared governor contract. The output shows the deployed vault address. (ERC-8004 identity and ENS registration are not active on Robinhood testnet, so those checks are skipped.)
+    This deploys an ERC-4626 vault (WETH denominated) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. The output shows the deployed vault address. (ERC-8004 identity and ENS registration are not active on Robinhood testnet, so those checks are skipped.)
   </Step>
 
   <Step title="Deposit capital">
