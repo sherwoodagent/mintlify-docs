@@ -168,12 +168,12 @@ Every position-touching op enforces invariants: post-op LTV `≤ maxLtvBps` and 
 ## Genesis window & lifecycle
 
 - A single **long-duration** proposal keeps the position deployed. Routine management (`deployIdle`, `compound`, `rerange`, `adjustLeverage`) is proposal-free.
-- Opening and final settle each carry a **one-time governance window** (voting period `≥ 1h`, cold-start guardians → review auto-passes, owner veto while `Pending`).
+- Opening and final settle each carry a **one-time governance window** (voting period `≥ 24h`, cold-start guardians → review auto-passes, owner veto while `Pending`).
 - Before the genesis proposal is `Executed`, the strategy's own lifecycle gate blocks entry: `deposit` / `redeem` revert `NotExecuted()` while `_state != State.Executed` — the one-time **genesis blackout** that precedes the first deposit. (The vault's `activeStrategyAdapter()` view also returns `address(0)` pre-execution, but the strategy checks its own `_state`, not that view.)
 - Once `Executed`, anytime deposit / redeem is live **indefinitely**.
 
 <Note>
-  The indefinite lifecycle depends on `ABSOLUTE_MAX_STRATEGY_DURATION`, which is **3650 days (~10y)** in current source. Fresh deployments pick it up immediately; it is a compiled `public constant`, so an **already-deployed** governor built from older code keeps the old 30-day ceiling until a governor UUPS upgrade. The constant is global to the single governor, so once live any vault owner can set a multi-year `maxStrategyDuration` — a **per-vault duration cap is the recommended mainnet hardening**.
+  The indefinite lifecycle depends on `ABSOLUTE_MAX_STRATEGY_DURATION`, which is **3650 days (~10y)** in current source. Fresh deployments pick it up immediately; it is a compiled `public constant`, so a governor impl built from older code keeps the old 30-day ceiling until the shared `GovernorBeacon` is upgraded (`beacon.upgradeTo` migrates every vault governor at once). Governance is **per-vault (PR #421)**: each vault owner sets their own `maxStrategyDuration` under the global ceiling (default 30 days), so a long-duration proposal only affects that one vault — the per-vault duration cap that earlier releases deferred is now the shipped model.
 </Note>
 
 ## Live NAV

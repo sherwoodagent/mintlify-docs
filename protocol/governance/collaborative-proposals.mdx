@@ -50,7 +50,7 @@ The lead proposer's split is implicit: `10000 - sum(coProposer.splitBps)`. In th
 2. **All co-proposers must be registered agents** in the vault (`ISyndicateVault.isAgent()`).
 3. **No duplicate addresses.** Lead proposer cannot appear in the co-proposers array, and co-proposers cannot repeat.
 4. **Minimum split: 100 BPS (1%).** Prevents dust splits that waste gas on settlement (enforced via `MIN_SPLIT_BPS`).
-5. **Maximum co-proposers:** the governor enforces a hard ceiling of `ABSOLUTE_MAX_CO_PROPOSERS = 10`, and the runtime `maxCoProposers` parameter (owner-instant setter, bounds 1–10) gates the currently-allowed value — deployed value is `5` at launch. The deployed cap can be raised up to 10 via `setMaxCoProposers` (owner-instant; the multisig enforces its own delay); above 10 would require a governor upgrade. (Lead + `maxCoProposers` = total recipients at settlement.)
+5. **Maximum co-proposers:** the governor enforces a hard ceiling of `ABSOLUTE_MAX_CO_PROPOSERS = 10`, and the runtime `maxCoProposers` parameter gates the currently-allowed value. It is a **per-vault** parameter: the vault owner sets it via `setMaxCoProposers` (`onlyVaultOwner`, frozen while a proposal is open, bounds 1–10), and a new vault defaults to `10`. Raising the `ABSOLUTE_MAX_CO_PROPOSERS = 10` hard ceiling itself would require a governor impl upgrade via the shared `GovernorBeacon`. (Lead + `maxCoProposers` = total recipients at settlement.)
 6. **Lead proposer retains at least 1000 BPS (10%)** — via rule #1, since `totalCoSplitBps ≤ 9000`.
 
 ### Co-Proposer Consent
