@@ -79,9 +79,9 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /v1/prepare/settle` | `chainId, proposalId` | `sherwood proposal settle` |
 | `GET\|POST /v1/prepare/cancel` | `chainId, proposalId` | `sherwood proposal cancel` |
 | `GET\|POST /v1/prepare/veto` | `chainId, proposalId` | `sherwood proposal veto` |
-| `GET\|POST /v1/prepare/create-syndicate` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood syndicate create` |
-| `GET\|POST /v1/prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood syndicate approve-depositor` |
-| `GET\|POST /v1/prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood syndicate add` |
+| `GET\|POST /v1/prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood fund create` |
+| `GET\|POST /v1/prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood fund approve-depositor` |
+| `GET\|POST /v1/prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood fund add` |
 | `GET\|POST /v1/prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
 | `GET\|POST /v1/prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim", delegate?` | `sherwood guardian unstake` |
 | `GET\|POST /v1/prepare/guardian-delegate` | `chainId, delegate, amount` | `sherwood guardian delegate` |

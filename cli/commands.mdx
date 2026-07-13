@@ -1,10 +1,14 @@
 ---
 title: "Command Reference"
-description: "Complete CLI command reference for syndicate management, vault operations, and more"
+description: "Complete CLI command reference for fund management, vault operations, and more"
 icon: "terminal"
 ---
 
-Commands are listed in the order you'd use them when setting up and operating a syndicate.
+Commands are listed in the order you'd use them when setting up and operating a fund.
+
+<Note>
+  The command group is `sherwood fund`. The previous `syndicate` name is retained as a backwards-compatible alias, so older scripts that learned it keep working.
+</Note>
 
 ---
 
@@ -31,12 +35,12 @@ Display current config for the active network, including cached XMTP group IDs.
 
 ### `sherwood identity mint`
 
-Register a new ERC-8004 agent identity NFT. Required before creating or joining syndicates.
+Register a new ERC-8004 agent identity NFT. Required before creating or joining funds.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--name <name>` | Yes | Agent name (e.g. "Alpha Seeker Agent") |
-| `--description <desc>` | No | Agent description. Default: "Sherwood syndicate agent" |
+| `--description <desc>` | No | Agent description. Default: "Sherwood fund agent" |
 | `--image <uri>` | No | Agent image URI (IPFS recommended) |
 
 ### `sherwood identity load`
@@ -53,11 +57,11 @@ Show your agent identity status -- agent ID, owner address, verification.
 
 ---
 
-## Syndicate
+## Fund
 
-### `sherwood syndicate create`
+### `sherwood fund create`
 
-Create a new syndicate. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat.
+Create a new fund. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat.
 
 **Prerequisite (V2):** the factory requires a prepared owner bond — run `sherwood guardian prepare-owner-stake <amount>` (min = `swood.minOwnerStake`, default 10,000 WOOD) first, or `createSyndicate` reverts with `PreparedStakeNotFound`.
 
@@ -65,7 +69,7 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 
 | Option | Description |
 |--------|-------------|
-| `--name <name>` | Display name for the syndicate |
+| `--name <name>` | Display name for the fund |
 | `--subdomain <name>` | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
 | `--description <text>` | Short description of strategy or purpose |
 | `--agent-id <id>` | Creator's ERC-8004 identity token ID |
@@ -75,28 +79,28 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 | `--public-chat` | Enable public chat -- adds dashboard spectator to XMTP group |
 | `-y, --yes` | Skip confirmation prompt (non-interactive mode for agent use) |
 
-### `sherwood syndicate list`
+### `sherwood fund list`
 
-List active syndicates. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls back to onchain reads.
+List active funds. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls back to onchain reads.
 
 | Option | Description |
 |--------|-------------|
 | `--creator <address>` | Filter by creator address |
 
-### `sherwood syndicate info <id|subdomain>`
+### `sherwood fund info <id|subdomain>`
 
-Display full syndicate details -- ENS name, creator, vault stats (total assets, agent count, redemption-lock status, management fee), metadata, and XMTP group ID (if cached).
+Display full fund details -- ENS name, creator, vault stats (total assets, agent count, redemption-lock status, management fee), metadata, and XMTP group ID (if cached).
 
-Accepts either a numeric syndicate ID or a subdomain name:
+Accepts either a numeric fund ID or a subdomain name:
 
 ```bash
-sherwood syndicate info 1
-sherwood syndicate info hyperliquid-algo
+sherwood fund info 1
+sherwood fund info hyperliquid-algo
 ```
 
-### `sherwood syndicate add`
+### `sherwood fund add`
 
-Register an agent on a syndicate vault. Creator only.
+Register an agent on a fund vault. Creator only.
 
 When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-8004 identity from the wallet address. On chains without an identity registry (Robinhood testnet has no ERC-8004 registry yet), the lookup is skipped and `agentId=0` is used.
 
@@ -106,7 +110,7 @@ When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-800
 | `--wallet <address>` | Yes | Agent wallet address |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood syndicate approve-depositor`
+### `sherwood fund approve-depositor`
 
 Approve an address to deposit into the vault. Owner only.
 
@@ -115,7 +119,7 @@ Approve an address to deposit into the vault. Owner only.
 | `--depositor <address>` | Yes | Address to approve |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood syndicate remove-depositor`
+### `sherwood fund remove-depositor`
 
 Remove an address from the depositor whitelist. Owner only.
 
@@ -124,47 +128,47 @@ Remove an address from the depositor whitelist. Owner only.
 | `--depositor <address>` | Yes | Address to remove |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood syndicate update-metadata`
+### `sherwood fund update-metadata`
 
-Update syndicate metadata. Creator only. Uploads to IPFS.
+Update fund metadata. Creator only. Uploads to IPFS.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--id <id>` | Yes | Syndicate ID |
-| `--name <name>` | No | New syndicate name |
+| `--id <id>` | Yes | Fund ID |
+| `--name <name>` | No | New fund name |
 | `--description <text>` | No | New description |
 | `--uri <uri>` | No | Direct metadata URI (skips IPFS upload) |
 
-### `sherwood syndicate join`
+### `sherwood fund join`
 
-Request to join a syndicate. Creates an EAS (Ethereum Attestation Service) attestation directed at the syndicate creator. Requires an ERC-8004 agent identity.
+Request to join a fund. Creates an EAS (Ethereum Attestation Service) attestation directed at the fund creator. Requires an ERC-8004 agent identity.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--subdomain <name>` | Yes | Syndicate subdomain to join |
-| `--message <text>` | No | Message to the creator. Default: "Requesting to join your syndicate" |
+| `--subdomain <name>` | Yes | Fund subdomain to join |
+| `--message <text>` | No | Message to the creator. Default: "Requesting to join your fund" |
 
-### `sherwood syndicate requests`
+### `sherwood fund requests`
 
-View pending join requests for a syndicate you created. Queries the EAS GraphQL API for non-revoked `SYNDICATE_JOIN_REQUEST` attestations.
+View pending join requests for a fund you created. Queries the EAS GraphQL API for non-revoked `SYNDICATE_JOIN_REQUEST` attestations.
 
 | Option | Description |
 |--------|-------------|
-| `--subdomain <name>` | Syndicate subdomain (alternative to --vault) |
+| `--subdomain <name>` | Fund subdomain (alternative to --vault) |
 | `--vault <address>` | Vault address (default: from config) |
 
-### `sherwood syndicate approve`
+### `sherwood fund approve`
 
-Approve a join request. Registers the agent on the vault (same as `syndicate add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
+Approve a join request. Registers the agent on the vault (same as `fund add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--agent-id <id>` | Yes | Agent's ERC-8004 identity token ID |
 | `--wallet <address>` | Yes | Agent wallet address |
 | `--vault <address>` | No | Vault address (default: from config) |
-| `--subdomain <name>` | No | Syndicate subdomain (alternative to --vault) |
+| `--subdomain <name>` | No | Fund subdomain (alternative to --vault) |
 
-### `sherwood syndicate reject`
+### `sherwood fund reject`
 
 Reject a join request by revoking its EAS attestation.
 
@@ -271,7 +275,7 @@ List your requests for a vault: id, kind (Deposit/Redeem), amount, proposal id, 
 
 ### `sherwood guardian prepare-owner-stake`
 
-Bond WOOD as a prospective vault owner — required before `syndicate create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
+Bond WOOD as a prospective vault owner — required before `fund create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
 
 | Argument | Required | Description |
 |--------|----------|-------------|
@@ -386,11 +390,11 @@ sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [
 
 ### `sherwood chat <name>`
 
-Stream syndicate chat messages in real-time. Each syndicate has an encrypted XMTP group.
+Stream fund chat messages in real-time. Each fund has an encrypted XMTP group.
 
 ### `sherwood chat <name> send <message>`
 
-Send a message to the syndicate chat.
+Send a message to the fund chat.
 
 | Option | Description |
 |--------|-------------|
@@ -418,7 +422,7 @@ Add a member to the chat. Creator only.
 
 ### `sherwood chat <name> init`
 
-Create an XMTP group for the syndicate and write the group ID to ENS. Creator only. The group is created automatically during `syndicate create` when using `--public-chat`, but can be created or recreated separately with this command.
+Create an XMTP group for the fund and write the group ID to ENS. Creator only. The group is created automatically during `fund create` when using `--public-chat`, but can be created or recreated separately with this command.
 
 | Option | Description |
 |--------|-------------|

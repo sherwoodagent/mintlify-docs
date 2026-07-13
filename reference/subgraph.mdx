@@ -212,8 +212,8 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 The Sherwood CLI queries the subgraph automatically when `SUBGRAPH_URL` is set:
 
 ```bash
-sherwood syndicate list                       # All active syndicates
-sherwood syndicate list --creator 0xabc...    # Filter by creator
+sherwood fund list                            # All active funds
+sherwood fund list --creator 0xabc...         # Filter by creator
 ```
 
 If `SUBGRAPH_URL` is not set, the CLI falls back to on-chain contract calls.

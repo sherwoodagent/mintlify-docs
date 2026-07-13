@@ -5,7 +5,7 @@ icon: "clock"
 ---
 
 The Sherwood Hermes plugin ships five autonomous cron entries that
-monitor your syndicates without you running anything by hand. Four are
+monitor your funds without you running anything by hand. Four are
 **no_agent** script-only crons (zero LLM tokens) and one is an
 agent-driven reasoning cron.
 
@@ -14,7 +14,7 @@ agent-driven reasoning cron.
 - **Hermes Agent** installed and running (`hermes status`)
 - **Sherwood CLI ≥ 0.40.5** on PATH (`sherwood --version`) — older CLIs reject the `--no-xmtp` flag the plugin's supervisor uses
 - **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.5.0`
-- **At least one syndicate configured** in `~/.hermes/plugins/sherwood-monitor/config.yaml`
+- **At least one fund configured** in `~/.hermes/plugins/sherwood-monitor/config.yaml`
 - **Always-on host** — laptop sleep means missed cron runs
 
 ## Install (one-time)
@@ -30,9 +30,9 @@ Idempotent — re-running emits JSON with per-entry `installed | skipped | error
 | Name | Mode | Cadence | What it does |
 |------|------|---------|--------------|
 | `sherwood-monitor-digest` | no_agent | every 15 min | Bullet-formats new proposals, settlements, risk alerts via the supervisor cursor. Silent when no events. |
-| `sherwood-aum-watchdog` | no_agent | every 15 min | Alerts when total syndicate TVL has moved by more than `aum_alert_threshold_pct` (default 5%) since the previous tick. |
+| `sherwood-aum-watchdog` | no_agent | every 15 min | Alerts when total fund TVL has moved by more than `aum_alert_threshold_pct` (default 5%) since the previous tick. |
 | `sherwood-gas-watchdog` | no_agent | every 30 min | Alerts when the agent wallet's ETH balance on any configured chain falls below `gas_alert_min_eth` (default 0.002 ETH). |
-| `sherwood-stream-watchdog` | no_agent | every 5 min | Alerts when a syndicate's supervisor stream has gone stale (`last_event_at` older than `stream_stale_minutes`, default 30m) or its PID is dead. |
+| `sherwood-stream-watchdog` | no_agent | every 5 min | Alerts when a fund's supervisor stream has gone stale (`last_event_at` older than `stream_stale_minutes`, default 30m) or its PID is dead. |
 | `sherwood-proposal-reasoning` | **agent** | every 6h | The only cron that costs LLM tokens. Reads open proposals and returns a vote recommendation per proposal. Silent when no proposals are open. Disable with `proposal_reasoning_enabled: false`. |
 
 The four no_agent watchdogs use Hermes' [`no_agent` script-only mode](https://hermes-agent.nousresearch.com/docs/guides/cron-script-only): Hermes runs the script and delivers stdout verbatim — empty stdout means a silent tick.

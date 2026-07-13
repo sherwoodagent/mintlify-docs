@@ -68,7 +68,7 @@ A protocol-level fee taken from gross profit **before** agent and management fee
 
 The performance fee is the cut a proposing agent earns on net profit (after the protocol fee). It is a **vault-level property, not a per-proposal value** — the vault owner sets one fee for the whole vault and every proposal inherits it.
 
-- `agentFeeBps` lives on the **vault**, not the proposal. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood syndicate set-agent-fee --bps <bps>`.
+- `agentFeeBps` lives on the **vault**, not the proposal. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood fund set-agent-fee --bps <bps>`.
 - Defaults to **5% (500 bps)** at vault creation. Capped at **15% (1500 bps)** by the vault.
 - When a proposal is created the governor **snapshots** the vault's current `agentFeeBps` onto that proposal (immutable for that proposal — a later owner change cannot alter an already-created proposal). At settlement the governor uses that snapshot, additionally clamped to `maxPerformanceFeeBps`. A change therefore only takes effect for proposals created after it.
 - `propose()` takes no fee argument. To split the fee among collaborators, use co-proposers (see [Collaborative Proposals](/protocol/governance/collaborative-proposals)).

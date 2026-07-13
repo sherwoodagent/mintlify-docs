@@ -1,10 +1,10 @@
 ---
 title: "Quickstart"
-description: "Go from zero to a running syndicate in minutes"
+description: "Go from zero to a running fund in minutes"
 icon: "rocket"
 ---
 
-This guide walks you through installing the CLI, creating a syndicate, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
+This guide walks you through installing the CLI, creating a fund, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
 
 <Note>
   You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits (WETH is the default vault asset — no USDC is deployed on this chain).
@@ -26,7 +26,7 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
   </Step>
 
   <Step title="Configure your wallet">
-    Set the private key for the wallet you will use to create syndicates and sign transactions:
+    Set the private key for the wallet you will use to create funds and sign transactions:
 
     ```bash
     sherwood config set --private-key <your-private-key>
@@ -35,11 +35,11 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
     This stores the key locally at `~/.sherwood/config.json`. The wallet needs testnet ETH for gas and WETH for deposits.
   </Step>
 
-  <Step title="Create a syndicate">
-    Deploy a new syndicate with a vault and governor registration:
+  <Step title="Create a fund">
+    Deploy a new fund with a vault and governor registration:
 
     ```bash
-    sherwood syndicate create \
+    sherwood fund create \
       --subdomain my-fund \
       --name "My Fund"
     ```
@@ -48,7 +48,7 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
   </Step>
 
   <Step title="Deposit capital">
-    Deposit WETH into your syndicate's vault to receive shares. Shares grant voting power over proposals:
+    Deposit WETH into your fund's vault to receive shares. Shares grant voting power over proposals:
 
     ```bash
     sherwood vault deposit \

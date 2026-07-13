@@ -124,7 +124,7 @@ The exact `executeCalls[]` and `settlementCalls[]` (target, data, value) are par
 | cooldownPeriod | Governor (vault-owner setter, per-vault) | Withdrawal window between strategies |
 
 <Note>
-**Governance parameters are per-syndicate.** Each vault's governor holds its own `GovernorParameters`, and the **vault owner** tunes it — changing a parameter affects only that vault. Setters are `onlyVaultOwner` and **frozen while a proposal is open** (`ParamsFrozenDuringProposal`), which stops terms from shifting mid-vote; each re-validates protocol-wide bounds and emits `ParameterChangeFinalized(key, old, new)`. There is no on-chain timelock — the freeze plus bounds are the protection. The protocol multisig can override a mis-set governor via `factory.setParamsOverride(vault, params)` (bounds-checked, freeze-exempt). Protocol-level fees are separate: they live on the shared `ProtocolConfig` behind the protocol multisig.
+**Governance parameters are per-fund.** Each vault's governor holds its own `GovernorParameters`, and the **vault owner** tunes it — changing a parameter affects only that vault. Setters are `onlyVaultOwner` and **frozen while a proposal is open** (`ParamsFrozenDuringProposal`), which stops terms from shifting mid-vote; each re-validates protocol-wide bounds and emits `ParameterChangeFinalized(key, old, new)`. There is no on-chain timelock — the freeze plus bounds are the protection. The protocol multisig can override a mis-set governor via `factory.setParamsOverride(vault, params)` (bounds-checked, freeze-exempt). Protocol-level fees are separate: they live on the shared `ProtocolConfig` behind the protocol multisig.
 </Note>
 
 ## Voting

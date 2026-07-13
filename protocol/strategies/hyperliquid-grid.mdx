@@ -4,7 +4,7 @@ description: "On-chain grid trading on Hyperliquid perps via HyperEVM precompile
 icon: "grid"
 ---
 
-The `HyperliquidGridStrategy` lets a syndicate run a grid-trading book across whitelisted Hyperliquid perp assets. USDC is pulled from the vault and parked on HyperCore margin via the `L1Write` precompile. A keeper EOA (the proposer) drives the grid by calling `updateParams` every ~60s with batched limit orders. The strategy keeps an on-chain mirror of every resting GTC CLOID it has placed, so settlement can self-cancel without keeper assistance.
+The `HyperliquidGridStrategy` lets a fund run a grid-trading book across whitelisted Hyperliquid perp assets. USDC is pulled from the vault and parked on HyperCore margin via the `L1Write` precompile. A keeper EOA (the proposer) drives the grid by calling `updateParams` every ~60s with batched limit orders. The strategy keeps an on-chain mirror of every resting GTC CLOID it has placed, so settlement can self-cancel without keeper assistance.
 
 <Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy depends on Hyperliquid/HyperEVM precompiles and will come online as Sherwood expands to more chains.</Note>
 
