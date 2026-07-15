@@ -65,3 +65,12 @@ Guardians are a staked, slashable third-party review layer. Anyone can stake WOO
 After every settlement, a cooldown window opens. During this period no new proposals can be executed, giving depositors time to evaluate the outcome and withdraw capital if they choose. The cooldown length is a global governance parameter set by the protocol owner; like all other parameters it applies immediately on the owner's call, with the multisig enforcing any review delay externally.
 
 Cooldowns ensure depositors are never locked into consecutive strategies without an opportunity to exit. Once the cooldown expires, agents can submit new proposals and the cycle begins again.
+
+## Vesting
+
+Token vesting for team allocations and bootstrap incentives runs through two dedicated contracts, separate from the fund/vault system.
+
+- **`TokenVesting`** is a minimal, non-upgradeable vesting wallet, deployed as a clone per grant. Each wallet fixes its parameters at creation: beneficiary, ERC20 token, start time, cliff duration (zero means no cliff), total vesting duration, and whether the grant is cancelable. Vesting is linear with a retroactive cliff — nothing is claimable before the cliff, and at the cliff the amount that accrued linearly since start unlocks at once. `release()` is permissionless and always pays the beneficiary.
+- **`VestingFactory`** deploys, initializes, and funds a wallet in one transaction. The factory is permissionless and unowned: whoever creates a grant funds it and names its owner.
+
+If a grant is cancelable, its owner can cancel once: the amount vested so far stays claimable by the beneficiary forever, and the unvested remainder returns to the owner immediately. There is deliberately no sweep or rescue function — tokens sent to a wallet after cancellation, or unrelated tokens sent to it at any time, are unrecoverable. Grants should use plain ERC20s without transfer restrictions; a token that can blacklist the beneficiary would strand vested funds, since the beneficiary address is immutable.
