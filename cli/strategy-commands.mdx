@@ -37,7 +37,7 @@ The clone is deployed and initialized on-chain. The proposer (your wallet) pays 
 All-in-one command: clone + initialize + build batch calls + submit proposal (or write JSON files).
 
 <Note>
-This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`, set by the vault owner via [`sherwood syndicate set-agent-fee`](/cli/governance-commands#sherwood-syndicate-set-agent-fee) (default 5%, capped 15%). Each proposal snapshots it at propose time; the governor clamps that snapshot to `maxPerformanceFeeBps` at settlement.
+This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`, set by the vault owner via [`sherwood fund set-agent-fee`](/cli/governance-commands#sherwood-fund-set-agent-fee) (default 5%, capped 15%). Each proposal snapshots it at propose time; the governor clamps that snapshot to `maxPerformanceFeeBps` at settlement.
 </Note>
 
 ### Write calls to files (for manual proposal creation)

@@ -35,7 +35,7 @@ Known gaps flagged in that reference that LPs and integrators should be aware of
 
 ## Fee Structure
 
-Three fees are distributed from strategy profits at settlement:
+Four fees are distributed from strategy profits at settlement:
 
 | Fee | Recipient | Set by | Purpose |
 |-----|-----------|--------|---------|
@@ -68,30 +68,34 @@ A protocol-level fee taken from gross profit **before** agent and management fee
 
 The performance fee is the cut a proposing agent earns on net profit (after the protocol fee). It is a **vault-level property, not a per-proposal value** — the vault owner sets one fee for the whole vault and every proposal inherits it.
 
-- `agentFeeBps` lives on the **vault**, not the proposal. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood syndicate set-agent-fee --bps <bps>`.
+- `agentFeeBps` lives on the **vault**, not the proposal. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood fund set-agent-fee --bps <bps>`.
 - Defaults to **5% (500 bps)** at vault creation. Capped at **15% (1500 bps)** by the vault.
 - When a proposal is created the governor **snapshots** the vault's current `agentFeeBps` onto that proposal (immutable for that proposal — a later owner change cannot alter an already-created proposal). At settlement the governor uses that snapshot, additionally clamped to `maxPerformanceFeeBps`. A change therefore only takes effect for proposals created after it.
 - `propose()` takes no fee argument. To split the fee among collaborators, use co-proposers (see [Collaborative Proposals](/protocol/governance/collaborative-proposals)).
 
 ### Fee distribution order
 
-Fees are calculated and distributed in a strict order — protocol fee first, then agent fee, then management fee:
+Fees are calculated and distributed in a strict order — protocol and guardian fees first (from gross profit), then agent fee, then management fee:
 
 ```
 profit = balanceAfter - capitalSnapshot
 if profit > 0:
-  protocolFee   = profit * protocolFeeBps / 10000
-  netProfit     = profit - protocolFee
+  // protocol + guardian fees use the ProtocolConfig snapshot taken at propose
+  protocolFee   = profit * proposal.snapshotProtocolFeeBps / 10000
+  guardianFee   = profit * proposal.snapshotGuardianFeeBps / 10000
+  netProfit     = profit - protocolFee - guardianFee
   agentFeeBps   = min(proposal.performanceFeeBps, maxPerformanceFeeBps)   // snapshot taken at propose, clamped to the governor cap
   agentFee      = netProfit * agentFeeBps / 10000
   managementFee = (netProfit - agentFee) * managementFeeBps / 10000
-  transfer protocolFee to protocolFeeRecipient (try/catch → escrow on fail)
-  transfer agentFee to agent                   (try/catch → escrow on fail)
-  transfer managementFee to vault owner        (try/catch → escrow on fail)
+  transfer protocolFee to snapshotProtocolFeeRecipient   (try/catch → escrow on fail)
+  transfer guardianFee to snapshotGuardiansFeeRecipient  (try/catch → escrow on fail;
+                                                          GuardianFeeAccrued emitted only if delivered)
+  transfer agentFee to agent                             (try/catch → escrow on fail)
+  transfer managementFee to vault owner                  (try/catch → escrow on fail)
   remaining profit stays in vault (accrues to all shareholders)
 ```
 
-The protocol fee is calculated on gross profit. Agent and management fees are calculated on the net profit (after protocol fee). Management fee is calculated on the remaining profit after the agent's cut. This ensures combined fees never exceed profit and maintains a clear priority order.
+The protocol and guardian fees are calculated on gross profit. Agent and management fees are calculated on the net profit (after protocol and guardian fees). Management fee is calculated on the remaining profit after the agent's cut. This ensures combined fees never exceed profit and maintains a clear priority order.
 
 ### Management Fee
 
@@ -127,8 +131,8 @@ Tracked as item **W-1** in the pre-mainnet punch list; regression coverage in `t
 
 Only **one strategy can be live (Executed state) per vault at a time.** This simplifies capital accounting, eliminates cross-strategy risk, and makes the redemption lock/cooldown model clean.
 
-- Governor tracks `activeProposal[vault]` — the currently executing proposal ID (0 if none)
-- `executeProposal` reverts if `activeProposal[vault] != 0`
+- Each vault's governor tracks a scalar `_activeProposal` — the currently executing proposal ID (0 if none), read via the no-arg `getActiveProposal()`
+- `executeProposal` reverts if `getActiveProposal() != 0`
 - `executeProposal` also reverts if the vault is in its cooldown window
 - Multiple proposals can be in Pending/Approved state simultaneously — they queue up
 - Only one can be executed at a time

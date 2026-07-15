@@ -1,22 +1,22 @@
 ---
 title: "Core Concepts"
-description: "Understand syndicates, vaults, agents, and governance"
+description: "Understand funds, vaults, agents, and governance"
 icon: "lightbulb"
 ---
 
 Sherwood organizes autonomous DeFi activity around a small set of primitives. This page defines each concept and how they fit together.
 
-## Syndicate
+## Fund
 
-A syndicate is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by its **own governor contract** (one per syndicate, deployed at creation). Each syndicate claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
+A fund is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by its **own governor contract** (one per fund, deployed at creation). Each fund claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
 
-Syndicates are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per syndicate** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. (Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.)
+Funds are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per fund** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. (Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.)
 
 ## Vault
 
-Every syndicate has an ERC-4626 vault that holds depositor capital denominated in a single base asset (WETH on Robinhood testnet). The vault follows the standard tokenized vault interface: depositors supply that asset and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
+Every fund has an ERC-4626 vault that holds depositor capital denominated in a single base asset (WETH on Robinhood testnet). The vault follows the standard tokenized vault interface: depositors supply that asset and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
 
-The vault is the single point of custody for syndicate capital. When a proposal is executed, the governor directs the vault to perform DeFi operations (lending, swapping, etc.) through a stateless batch executor. When a strategy is settled, returned capital flows back into the vault and is reflected in the share price.
+The vault is the single point of custody for fund capital. When a proposal is executed, the governor directs the vault to perform DeFi operations (lending, swapping, etc.) through a stateless batch executor. When a strategy is settled, returned capital flows back into the vault and is reflected in the share price.
 
 The vault includes built-in inflation protection through a dynamic decimals offset, preventing first-depositor attacks where an early depositor could manipulate the share price to steal from subsequent depositors.
 
@@ -28,9 +28,9 @@ When a depositor mints shares, voting power is automatically self-delegated so t
 
 ## Agent
 
-An agent is an AI-controlled wallet registered on a syndicate vault. Before an agent can join any syndicate, it must hold an ERC-8004 identity NFT, which is a standard ERC-721 token minted through the on-chain IdentityRegistry. This identity requirement ensures every agent has a verifiable on-chain presence.
+An agent is an AI-controlled wallet registered on a fund vault. Before an agent can join any fund, it must hold an ERC-8004 identity NFT, which is a standard ERC-721 token minted through the on-chain IdentityRegistry. This identity requirement ensures every agent has a verifiable on-chain presence.
 
-Agents are approved by the syndicate creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the syndicate. Agents earn a performance fee on profitable strategies as an incentive to compete on returns. The fee rate is a vault-level property (`agentFeeBps`, default 5%) set by the vault owner — not chosen per proposal — and the governor snapshots it onto each proposal at propose time, then clamps that snapshot to `maxPerformanceFeeBps` at settlement.
+Agents are approved by the fund creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the fund. Agents earn a performance fee on profitable strategies as an incentive to compete on returns. The fee rate is a vault-level property (`agentFeeBps`, default 5%) set by the vault owner — not chosen per proposal — and the governor snapshots it onto each proposal at propose time, then clamps that snapshot to `maxPerformanceFeeBps` at settlement.
 
 ## Proposal
 
@@ -40,13 +40,13 @@ Proposals also include metadata such as a strategy duration and a description. G
 
 ## Governor
 
-Each syndicate has its **own governor contract**, deployed by the factory at creation as a `BeaconProxy`. It manages that one vault's full proposal lifecycle — submission, voting periods, execution authorization, and settlement. Because every governor serves a single vault, its proposal state is scalar rather than a per-vault mapping. All governors share one implementation through a `GovernorBeacon`, so a protocol-wide governor upgrade is a single `beacon.upgradeTo(newImpl)` rather than an upgrade of each proxy. A vault (and the CLI) resolves its governor via `factory.governorOf(vault)`.
+Each fund has its **own governor contract**, deployed by the factory at creation as a `BeaconProxy`. It manages that one vault's full proposal lifecycle — submission, voting periods, execution authorization, and settlement. Because every governor serves a single vault, its proposal state is scalar rather than a per-vault mapping. All governors share one implementation through a `GovernorBeacon`, so a protocol-wide governor upgrade is a single `beacon.upgradeTo(newImpl)` rather than an upgrade of each proxy. A vault (and the CLI) resolves its governor via `factory.governorOf(vault)`.
 
 Governance follows an optimistic model. Proposals pass by default unless shareholders actively oppose them. Shareholders cast `Against` votes during the voting window, and a proposal is only rejected on the voting path if cumulative AGAINST votes reach the configured `vetoThresholdBps`. This design minimizes friction for routine strategies while preserving shareholder control over risky proposals.
 
 Shareholders cast votes; they do **not** call `vetoProposal`. That function is restricted to the vault owner and can only be called while the proposal is in the `Pending` state. Once voting ends, the proposal enters a `GuardianReview` window where staked guardians — a separate, economically incentivized third-party layer — can block malicious proposals by reaching a stake-weighted quorum. See [Guardian Review](/protocol/governance/guardian-review).
 
-Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **per syndicate** — each governor holds its own `GovernorParameters`, and the **vault owner** tunes them within protocol-wide bounds (e.g. voting period ≥ 24h, veto threshold 20%–50%). There is **no on-chain parameter timelock**; instead the setters are `onlyVaultOwner` and **frozen while a proposal is open** (`ParamsFrozenDuringProposal`), so terms can't shift under an in-flight vote. Each setter re-validates bounds and emits a uniform `ParameterChangeFinalized(key, old, new)` event. The protocol multisig can rescue a mis-set governor via `factory.setParamsOverride(vault, params)`. Protocol-level fees are the one exception — they live on the shared `ProtocolConfig` behind the protocol multisig and are snapshotted into each proposal at propose time.
+Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **per fund** — each governor holds its own `GovernorParameters`, and the **vault owner** tunes them within protocol-wide bounds (e.g. voting period ≥ 24h, veto threshold 20%–50%). There is **no on-chain parameter timelock**; instead the setters are `onlyVaultOwner` and **frozen while a proposal is open** (`ParamsFrozenDuringProposal`), so terms can't shift under an in-flight vote. Each setter re-validates bounds and emits a uniform `ParameterChangeFinalized(key, old, new)` event. The protocol multisig can rescue a mis-set governor via `factory.setParamsOverride(vault, params)`. Protocol-level fees are the one exception — they live on the shared `ProtocolConfig` behind the protocol multisig and are snapshotted into each proposal at propose time.
 
 ## Settlement
 
@@ -62,6 +62,6 @@ Guardians are a staked, slashable third-party review layer. Anyone can stake WOO
 
 ## Cooldown
 
-After every settlement, a cooldown window opens. During this period no new proposals can be executed, giving depositors time to evaluate the outcome and withdraw capital if they choose. The cooldown length is a global governance parameter set by the protocol owner; like all other parameters it applies immediately on the owner's call, with the multisig enforcing any review delay externally.
+After every settlement, a cooldown window opens. During this period no new proposals can be executed, giving depositors time to evaluate the outcome and withdraw capital if they choose. The cooldown length is a per-fund governance parameter set by the vault owner; like all other parameters it applies immediately, within protocol-enforced bounds, and cannot be changed while a proposal is open.
 
 Cooldowns ensure depositors are never locked into consecutive strategies without an opportunity to exit. Once the cooldown expires, agents can submit new proposals and the cycle begins again.

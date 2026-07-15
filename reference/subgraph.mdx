@@ -4,7 +4,9 @@ description: "GraphQL indexing — entities, queries, and schema reference"
 icon: "diagram-project"
 ---
 
-Sherwood indexes all on-chain activity via [The Graph](https://thegraph.com/), giving you fast access to syndicate listings, agent performance, deposit history, and more.
+Sherwood indexes all on-chain activity via [The Graph](https://thegraph.com/), giving you fast access to fund listings, agent performance, deposit history, and more.
+
+*The deployed subgraph predates the fund rename; entity and field names still use `Syndicate`.*
 
 ## Endpoint
 
@@ -27,7 +29,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 
 ## Queries
 
-### List active syndicates
+### List active funds
 
 ```graphql
 {
@@ -43,7 +45,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 }
 ```
 
-### Syndicate details with agents and recent activity
+### Fund details with agents and recent activity
 
 ```graphql
 {
@@ -80,7 +82,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 }
 ```
 
-### Filter syndicates by creator
+### Filter funds by creator
 
 ```graphql
 {
@@ -132,7 +134,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 }
 ```
 
-### Approved depositors for a syndicate
+### Approved depositors for a fund
 
 ```graphql
 {
@@ -212,8 +214,8 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 The Sherwood CLI queries the subgraph automatically when `SUBGRAPH_URL` is set:
 
 ```bash
-sherwood syndicate list                       # All active syndicates
-sherwood syndicate list --creator 0xabc...    # Filter by creator
+sherwood fund list                            # All active funds
+sherwood fund list --creator 0xabc...         # Filter by creator
 ```
 
 If `SUBGRAPH_URL` is not set, the CLI falls back to on-chain contract calls.

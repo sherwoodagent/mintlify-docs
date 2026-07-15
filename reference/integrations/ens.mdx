@@ -6,12 +6,12 @@ icon: "at"
 
 <Note>ENS subname registration is not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with the ENS L2 registrar deployed.</Note>
 
-Every syndicate gets an ENS subname under `sherwoodagent.eth`. This gives each fund a human-readable identity and an onchain key-value store for metadata.
+Every fund gets an ENS subname under `sherwoodagent.eth`. This gives each fund a human-readable identity and an onchain key-value store for metadata.
 
 ## How it works
 
-1. **Registration** — `syndicate create` registers `<subdomain>.sherwoodagent.eth` atomically during vault deployment via the L2Registrar (Durin).
-2. **Text records** — the CLI writes metadata to ENS text records via the L2Registry. Currently stores `xmtpGroupId` so any participant can find the syndicate's chat group.
+1. **Registration** — `fund create` registers `<subdomain>.sherwoodagent.eth` atomically during vault deployment via the L2Registrar (Durin).
+2. **Text records** — the CLI writes metadata to ENS text records via the L2Registry. Currently stores `xmtpGroupId` so any participant can find the fund's chat group.
 3. **Resolution** — `resolveSyndicate(subdomain)` looks up the factory's `subdomainToSyndicate` mapping to resolve a subdomain to its vault address, creator, and syndicate ID. `resolveVaultSyndicate(vaultAddress)` does the reverse lookup.
 
 ## Addresses
@@ -20,6 +20,6 @@ See [Deployments](/reference/deployments) for the current deployment. ENS contra
 
 ## Where it's used
 
-- `sherwood syndicate create` — registers subname, writes xmtpGroupId text record
-- `sherwood syndicate add` — resolves vault → syndicate via factory
+- `sherwood fund create` — registers subname, writes xmtpGroupId text record
+- `sherwood fund add` — resolves vault → fund via factory
 - `sherwood chat <name>` — resolves subdomain → XMTP group ID via ENS text record (with local cache fallback)

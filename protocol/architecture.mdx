@@ -6,6 +6,10 @@ icon: "cubes"
 
 Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts currently deploy on Robinhood testnet (chain 46630); the protocol is chain-native and will expand to more chains over time. See [Deployments](/reference/deployments) for the deployed addresses.
 
+<Note>
+On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
+</Note>
+
 ## Architecture
 
 ```mermaid
@@ -37,7 +41,7 @@ The vault's `_decimalsOffset()` equals the asset's decimals for first-depositor 
 ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeable`, `ERC20VotesUpgradeable`, `OwnableUpgradeable`, `PausableUpgradeable`, `UUPSUpgradeable`, `ERC721Holder`.
 
 **Permissions:**
-- **Layer 1 (onchain):** Syndicate-level checks enforced by the vault are narrow today — `registerAgent` gates which addresses can be named as proposers, the governor holds the single-active-proposal invariant per vault, and `redemptionsLocked()` blocks deposits / withdrawals / rescues while a strategy is live. The broader cap surface historically described here (`maxPerTx`, `maxDailyTotal`, `maxBorrowRatio`, per-agent caps, target allowlist) is **aspirational — none of those fields exist on `AgentConfig` or the vault in the current code.** Treat them as planned, not implemented. See [CLAUDE.md §Aspirational](https://github.com/imthatcarlos/sherwood/blob/main/CLAUDE.md#aspirational--not-yet-implemented-read-docs-with-caution) in the repo for the running list.
+- **Layer 1 (onchain):** Fund-level checks enforced by the vault are narrow today — `registerAgent` gates which addresses can be named as proposers, the governor holds the single-active-proposal invariant per vault, and `redemptionsLocked()` blocks deposits / withdrawals / rescues while a strategy is live. The broader cap surface historically described here (`maxPerTx`, `maxDailyTotal`, `maxBorrowRatio`, per-agent caps, target allowlist) is **aspirational — none of those fields exist on `AgentConfig` or the vault in the current code.** Treat them as planned, not implemented. See [CLAUDE.md §Aspirational](https://github.com/imthatcarlos/sherwood/blob/main/CLAUDE.md#aspirational--not-yet-implemented-read-docs-with-caution) in the repo for the running list.
 - **Layer 2 (offchain):** Agent-side off-chain policies — the caps above are enforced in the Hermes agent runtime as pre-flight checks, not on-chain.
 - **Layer 3 (economic, new in PR #229):** Guardian review + slashable owner bond on the `GuardianRegistry`. Vault owners must post a WOOD bond before the factory will deploy their vault, and arbitrary-calldata emergency settlement requires surviving a 24h guardian review. See [Guardian Review](/protocol/governance/guardian-review).
 
@@ -110,10 +114,14 @@ ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeabl
 
 **Collaborative proposals:** Proposers can include co-proposers with fee splits. Co-proposers must approve within the collaboration window before the proposal advances to voting.
 
-**Storage:**
+**Storage (per-vault — each governor holds state for exactly one vault):**
 | Slot | Type | Description |
 |------|------|-------------|
-| `_proposals` | mapping | proposal ID → `StrategyProposal` struct |
+| `vault` | address | the one vault this governor serves (set at initialize; lives on `GovernorParameters`) |
+| `protocolConfig` | address | `ProtocolConfig` reference — read at propose time for fee snapshots (lives on `GovernorParameters`) |
+| `factory` | address | authorized factory (can call `forceSetParams` / `setProtocolConfig`; lives on `GovernorParameters`) |
+| `_params` | struct | this vault's `GovernorParams` (voting/execution windows, veto, fee caps, durations, collaboration) |
+| `_proposals` | mapping | proposal ID → `StrategyProposal` struct — includes the four `snapshot*Fee*` fields captured from `ProtocolConfig` at propose |
 | `_executeCalls` / `_settlementCalls` | mapping | separate call arrays per proposal |
 | `_capitalSnapshots` | mapping | vault balance at execution time |
 | `_activeProposal` | uint256 | the vault's current live proposal (scalar — this governor serves one vault; one active proposal at a time) |
@@ -125,15 +133,17 @@ ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeabl
 | `_reentrancyStatus` | uint256 | simple reentrancy lock for execute/settle |
 | `_unclaimedFees` | mapping | `keccak256(vault, recipient, token)` → escrowed fee (set when `transferPerformanceFee` reverts in try/catch; claimed via `claimUnclaimedFees`) — W-1 |
 | `_guardianRegistry` | address | `GuardianRegistry` address, stamped at init |
-| `__gap` | uint256[] | reserved storage for future upgrades (sized to cover W-1 + guardian additions) |
+| `__gap` | uint256[] | reserved storage for future upgrades |
 
 ### GovernorParameters
 
-Abstract contract inherited by SyndicateGovernor. Contains all governance constants, parameter setters, and validation helpers.
+Abstract contract inherited by SyndicateGovernor. Contains all governance constants, parameter setters, and validation helpers. Since the per-vault governor redesign it also holds the governor's wiring slots (`vault`, `protocolConfig`, `factory`) and the vault's own `GovernorParams` struct.
 
 **Per-vault setters (frozen during open proposals):** Each setter is `onlyVaultOwner` (the owner is resolved live from the vault, `vault.owner()`) and `whenNoActiveProposal` — it reverts with `ParamsFrozenDuringProposal` while `openProposalCount() > 0`, so a vault owner cannot shift the terms under an in-flight vote; the freeze lifts at settle/cancel. Each validates bounds at call time and emits a uniform `ParameterChangeFinalized(paramKey, oldValue, newValue)` event. There is no on-chain timelock — the freeze + bounds are the protection. Setters: `setVotingPeriod`, `setExecutionWindow`, `setVetoThresholdBps`, `setMaxPerformanceFeeBps`, `setMinStrategyDuration`, `setMaxStrategyDuration`, `setCooldownPeriod`, `setCollaborationWindow`, `setMaxCoProposers`. The **fee** params (`protocolFeeBps` / `guardianFeeBps` + recipients) moved OFF the governor to the protocol-wide `ProtocolConfig`. `forceSetParams(params)` (factory-only, bounds-checked, freeze-exempt) is the multisig rescue path, reachable via `factory.setParamsOverride(vault, params)`.
 
-**Parameter bounds:**
+**Rescue path:** `factory.setParamsOverride(vault, params)` (protocol-multisig-only) drives the governor's factory-only `forceSetParams` — it bypasses the proposal freeze but **not** the bounds validation.
+
+**Parameter bounds (hardcoded):**
 
 Per-vault parameters (validated on each `onlyVaultOwner` setter):
 
@@ -166,7 +176,7 @@ Abstract contract inherited by `SyndicateGovernor`. Houses the four post-executi
 
 ### GuardianRegistry
 
-UUPS upgradeable contract (owned by the Sherwood protocol multisig) coordinating the guardian review layer. **The registry holds zero WOOD** — guardian stake, vault-owner bonds, DPoS delegation, vote checkpoints, and slashing execution all live on the `StakedWood` (sWOOD) contract (V1.5 sWOOD-staking split, PRs #353/#355). The registry reads vote weight from sWOOD and *calls* sWOOD to slash; it owns the review accounting and the slash-appeal reserve. Post the **guardian-fee-buyback** refactor it also holds **zero vault assets** — guardian performance fees no longer pool/claim on-chain. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
+UUPS upgradeable contract (owned by the Sherwood protocol multisig) coordinating the guardian review layer. **One shared registry serves all per-vault governors**: proposal-keyed state is keyed by `keccak256(abi.encode(governor, proposalId))`, governors are authorized via the factory-only `addGovernor` hook at `createSyndicate`, and the review/emergency views plus `voteOnProposal` take `address governor` as their first parameter. Each `EmergencyReview` stores the governor that opened it, so a blocked emergency slashes the correct vault's owner bond. **The registry holds zero WOOD** — guardian stake, vault-owner bonds, DPoS delegation, vote checkpoints, and slashing execution all live on the `StakedWood` (sWOOD) contract (V1.5 sWOOD-staking split, PRs #353/#355). The registry reads vote weight from sWOOD and *calls* sWOOD to slash; it owns the review accounting and the slash-appeal reserve. Post the **guardian-fee-buyback** refactor it also holds **zero vault assets** — guardian performance fees no longer pool/claim on-chain. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
 
 **Responsibilities:**
 - Review windows (`openReview(governor, pid)`, `voteOnProposal(governor, pid, …)`, `resolveReview(governor, pid)`) with the quorum denominator snapshot at `openReview()` time (read from sWOOD's `getPastTotalVotes` + `getPastTotalActiveDelegated` at `t-1`) to close denominator-manipulation attacks
@@ -212,9 +222,9 @@ UUPS upgradeable factory. `createSyndicate` deploys the vault proxy (ERC1967), i
 
 **Management fee:** Configurable `managementFeeBps` (max 10%) applied to new vaults at creation time. Existing vaults are unaffected by changes.
 
-**Vault upgrades:** Factory controls vault upgradeability via `upgradesEnabled` toggle (default: false) and `upgradeVault(vault)`. Only the syndicate creator can call `upgradeVault`, which upgrades the vault proxy to the current `vaultImpl`. Cannot upgrade while a strategy is active on the vault.
+**Vault upgrades:** Factory controls vault upgradeability via `upgradesEnabled` toggle (default: false) and `upgradeVault(vault)`. Only the fund creator can call `upgradeVault`, which upgrades the vault proxy to the current `vaultImpl`. Cannot upgrade while a strategy is active on the vault.
 
-**Pagination:** `getActiveSyndicates(offset, limit)` returns a paginated list of active syndicates with total count. `getAllActiveSyndicates()` returns all (may exceed gas at scale).
+**Pagination:** `getActiveSyndicates(offset, limit)` returns a paginated list of active funds with total count. `getAllActiveSyndicates()` returns all (may exceed gas at scale).
 
 **Config setters (owner-only):** `setVaultImpl`, `setCreationFee`, `setManagementFeeBps`, `setUpgradesEnabled`, `setEnsRegistrar`, `setGuardianRegistry`, `setBeacon`, `setProtocolConfig` (the last two repoint **future** deploys only), and `setParamsOverride(vault, params)` — the multisig rescue into a vault governor's `forceSetParams`. There is **no `setGovernor` and no governor slot at all**: each vault's governor is a `BeaconProxy` recorded once in `_governorOf[vault]` at creation, with no rewire path, so V-H2's retroactive-switch surface is structurally gone. Protocol-wide governor upgrades are a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
 
@@ -294,7 +304,7 @@ forge fmt          # format before committing
 
 **SyndicateVault:** ERC-4626 deposits/withdrawals/redemptions, agent registration with ERC-8004 verification, batch execution, depositor whitelist, inflation attack mitigation, governor batch execution, pause/unpause, rescue functions (ETH/ERC20/ERC721), factory-gated UUPS upgrades, fuzz testing.
 
-**SyndicateFactory:** Syndicate creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
+**SyndicateFactory:** Fund creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
 
 **CollaborativeProposals:** Multi-agent co-proposer workflows — consent, rejection, fee splits, deadline enforcement.
 
