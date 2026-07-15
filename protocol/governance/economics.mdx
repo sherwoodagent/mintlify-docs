@@ -39,8 +39,7 @@ Four fees are distributed from strategy profits at settlement:
 
 | Fee | Recipient | Set by | Purpose |
 |-----|-----------|--------|---------|
-| Protocol fee | `protocolFeeRecipient` | Protocol multisig via `ProtocolConfig` (snapshotted onto each proposal at propose) | Protocol revenue |
-| Guardian fee | `guardiansFeeRecipient` (team multisig; redistributed as WOOD via Merkl) | Protocol multisig via `ProtocolConfig` (snapshotted onto each proposal at propose) | Reward guardian review work |
+| Protocol fee | `protocolFeeRecipient` | `ProtocolConfig` owner (protocol multisig) | Protocol revenue |
 | Performance fee | Agent (proposer) | Vault owner — one `agentFeeBps` per vault (default 5%) | Incentivize good strategy proposals |
 | Management fee | Vault owner | Factory (per-vault, configurable) | Incentivize vault operation and curation |
 
@@ -60,17 +59,10 @@ The three fees above are the **governor's** settle-fee path — computed at `set
 
 A protocol-level fee taken from gross profit **before** agent and management fees. This funds protocol development and operations.
 
-- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps, `MAX_PROTOCOL_FEE_BPS` on `ProtocolConfig`)
+- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps, `MAX_PROTOCOL_FEE_BPS`)
 - `protocolFeeRecipient` — address that receives the protocol fee
-- Both live on **`ProtocolConfig`** — a plain `Ownable2Step` global contract shared by every per-vault governor. Fee setters no longer exist on the governor.
-- **Snapshotted at propose time.** The governor reads `ProtocolConfig` only when a proposal is created, copying all four fee fields (`protocolFeeBps`, `protocolFeeRecipient`, `guardianFeeBps`, `guardiansFeeRecipient`) onto the proposal. Settlement charges the snapshot — what voters saw — so a later config change can never reprice an in-flight proposal.
-- `ProtocolConfig` setters are owner-instant and emit `ParameterChangeFinalized(paramKey, old, new)`; the owner is a multisig that enforces its own delay externally (e.g. Gnosis Safe + Zodiac Delay). Setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first (and the recipient cannot be zeroed while the fee is nonzero).
-
-### Guardian Fee
-
-A slice of gross profit (max 5% / 500 bps) routed at settlement to the `guardiansFeeRecipient` multisig, then swapped to WOOD and airdropped to approving guardians and their delegators weekly via Merkl. Like the protocol fee, `guardianFeeBps` / `guardiansFeeRecipient` live on `ProtocolConfig` and are snapshotted onto each proposal at propose time.
-
-**`GuardianFeeAccrued` is emitted only on actual fee delivery.** If the transfer to the recipient fails (e.g. blacklist), the amount goes to the standard unclaimed-fee escrow and `FeeTransferFailed` is emitted instead — the off-chain Merkl bot never attributes a fee that was not delivered, avoiding a double-pay when the escrow is later recovered.
+- Both live on the global **`ProtocolConfig`** contract (protocol-multisig-owned), **not** the per-vault governor. Each vault's governor reads them at propose time and **snapshots them into the proposal** (`snapshotProtocolFeeBps` / `snapshotProtocolFeeRecipient`), so settlement charges the rate voters saw even if the config changes mid-flight.
+- **`setProtocolFeeBps` / `setProtocolFeeRecipient` are `onlyOwner` on `ProtocolConfig`** (`Ownable2Step`, the protocol multisig) and emit `ParameterChangeFinalized(paramKey, old, new)` / `ProtocolFeeRecipientSet`. Recipient coupling is enforced in both directions: setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` first, and the recipient cannot be cleared while `protocolFeeBps > 0`.
 
 ### Performance (agent) fee
 

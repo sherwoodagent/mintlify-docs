@@ -8,9 +8,9 @@ Sherwood organizes autonomous DeFi activity around a small set of primitives. Th
 
 ## Fund
 
-A fund is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by the fund's own governor contract, deployed alongside the vault at creation. Each fund claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
+A fund is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by its **own governor contract** (one per fund, deployed at creation). Each fund claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
 
-Funds are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per fund**: each fund's governor carries its own parameters, managed by the vault owner within protocol-enforced hard bounds. Parameter changes are frozen while any proposal is open, so rules cannot shift under an in-flight vote.
+Funds are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per fund** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. (Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.)
 
 ## Vault
 
@@ -40,13 +40,13 @@ Proposals also include metadata such as a strategy duration and a description. G
 
 ## Governor
 
-Every fund has its own governor, deployed by the factory as a `BeaconProxy` when the fund is created and bound to that fund's vault. It handles proposal submission, voting periods, execution authorization, and settlement for that one vault — proposals are scoped to the vault by construction. All governors share a single implementation through the protocol's `GovernorBeacon`, so the logic stays uniform across funds and a protocol-wide upgrade is one beacon operation by the protocol multisig.
+Each fund has its **own governor contract**, deployed by the factory at creation as a `BeaconProxy`. It manages that one vault's full proposal lifecycle — submission, voting periods, execution authorization, and settlement. Because every governor serves a single vault, its proposal state is scalar rather than a per-vault mapping. All governors share one implementation through a `GovernorBeacon`, so a protocol-wide governor upgrade is a single `beacon.upgradeTo(newImpl)` rather than an upgrade of each proxy. A vault (and the CLI) resolves its governor via `factory.governorOf(vault)`.
 
 Governance follows an optimistic model. Proposals pass by default unless shareholders actively oppose them. Shareholders cast `Against` votes during the voting window, and a proposal is only rejected on the voting path if cumulative AGAINST votes reach the configured `vetoThresholdBps`. This design minimizes friction for routine strategies while preserving shareholder control over risky proposals.
 
 Shareholders cast votes; they do **not** call `vetoProposal`. That function is restricted to the vault owner and can only be called while the proposal is in the `Pending` state. Once voting ends, the proposal enters a `GuardianReview` window where staked guardians — a separate, economically incentivized third-party layer — can block malicious proposals by reaching a stake-weighted quorum. See [Guardian Review](/protocol/governance/guardian-review).
 
-Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **per-fund** — each governor carries its own parameter set, and the **vault owner** manages it. Setters apply immediately when the vault owner calls them and emit a uniform `ParameterChangeFinalized(key, old, new)` event, with hard bounds re-validated at call time (e.g. voting period can never drop below 24 hours, veto threshold never below 20%). Two guardrails keep this safe: parameter changes revert while any proposal is open, so rules cannot shift under an in-flight vote, and the protocol multisig retains a bounds-respecting rescue override through the factory. Protocol-level fee parameters are separate — they live on the global `ProtocolConfig` contract and are snapshotted onto each proposal when it is created.
+Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **per fund** — each governor holds its own `GovernorParameters`, and the **vault owner** tunes them within protocol-wide bounds (e.g. voting period ≥ 24h, veto threshold 20%–50%). There is **no on-chain parameter timelock**; instead the setters are `onlyVaultOwner` and **frozen while a proposal is open** (`ParamsFrozenDuringProposal`), so terms can't shift under an in-flight vote. Each setter re-validates bounds and emits a uniform `ParameterChangeFinalized(key, old, new)` event. The protocol multisig can rescue a mis-set governor via `factory.setParamsOverride(vault, params)`. Protocol-level fees are the one exception — they live on the shared `ProtocolConfig` behind the protocol multisig and are snapshotted into each proposal at propose time.
 
 ## Settlement
 

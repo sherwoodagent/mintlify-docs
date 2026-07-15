@@ -4,6 +4,10 @@ description: "Proposal lifecycle and governor parameter management"
 icon: "gavel"
 ---
 
+<Note>
+**Every proposal and governor command requires `--vault` (CLI ≥ 0.71.1).** Each vault has its own governor (a `BeaconProxy` deployed at creation), so the CLI resolves the target governor on the fly via `factory.governorOf(vault)`. Proposal IDs are scoped per vault. The one exception is `sherwood governor set-protocol-fee`, which targets the protocol-wide `ProtocolConfig` and takes no `--vault`.
+</Note>
+
 ## `sherwood proposal create`
 
 Agent submits a strategy proposal with pre-committed execute + settle calls.
@@ -89,11 +93,11 @@ sherwood fund set-agent-fee --vault <addr> --bps <bps>
 List proposals for a vault.
 
 ```bash
-sherwood proposal list [--vault <addr>] [--state <filter>]```
+sherwood proposal list --vault <addr> [--state <filter>]```
 
 | Flag | Required | Description |
 |------|----------|-------------|
-| `--vault` | No | Filter by vault (default: configured vault) |
+| `--vault` | Yes | Vault whose proposals to list (per-vault governor) |
 | `--state` | No | Filter by state: `pending`, `approved`, `executed`, `settled`, `all` (default: `all`) |
 
 Queries subgraph for `Proposal` entities filtered by vault/state. Falls back to on-chain iteration via `governor.proposalCount()` + `governor.getProposal(id)`.
@@ -113,7 +117,7 @@ ID  Agent     State     Votes (For/Against)  Fee    Duration  Created
 Full detail view of a single proposal.
 
 ```bash
-sherwood proposal show <id>```
+sherwood proposal show <id> --vault <addr>```
 
 Displays:
 
@@ -131,7 +135,7 @@ Displays:
 Cast a vote on a pending proposal.
 
 ```bash
-sherwood proposal vote --id <proposalId> --support <for|against|abstain>```
+sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|abstain>```
 
 ### Flow
 
@@ -148,7 +152,7 @@ sherwood proposal vote --id <proposalId> --support <for|against|abstain>```
 Execute an approved proposal (anyone can call).
 
 ```bash
-sherwood proposal execute --id <proposalId>```
+sherwood proposal execute --id <proposalId> --vault <addr>```
 
 ### Flow
 
@@ -165,7 +169,7 @@ sherwood proposal execute --id <proposalId>```
 Settle an executed proposal. Routes to the appropriate settlement path.
 
 ```bash
-sherwood proposal settle --id <proposalId> [--calls <path-to-json>]```
+sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json>]```
 
 ### Routing logic
 
@@ -182,11 +186,12 @@ sherwood proposal settle --id <proposalId> [--calls <path-to-json>]```
 Cancel a proposal before execution.
 
 ```bash
-sherwood proposal cancel --id <proposalId> [--emergency]```
+sherwood proposal cancel --id <proposalId> --vault <addr> [--emergency]```
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--id` | Yes | Proposal ID to cancel |
+| `--vault` | Yes | Vault the proposal belongs to (per-vault governor) |
 | `--emergency` | No | Use the vault-owner `emergencyCancel` path (Draft / Pending only) instead of the proposer `cancelProposal` path |
 
 - **Proposer** (default): can cancel from `Draft`, `Pending`, `GuardianReview`, or `Approved`. A cancel during `GuardianReview` also drives `registry.cancelReview` so approvers can't be slashed by a stale resolution.
@@ -201,7 +206,7 @@ Vault-owner-only recovery command for the rare case where an `Executed` proposal
 The command is hidden from `--help` because it should be a last resort — it's listed here so owners can find it when they need it.
 
 ```bash
-sherwood proposal unstick --id <proposalId> [--dry-run] [--yes]
+sherwood proposal unstick --id <proposalId> --vault <addr> [--dry-run] [--yes]
 ```
 
 **Preconditions (all checked before broadcasting):**
@@ -216,6 +221,7 @@ sherwood proposal unstick --id <proposalId> [--dry-run] [--yes]
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--id <proposalId>` | Yes | Proposal ID to unstick |
+| `--vault <addr>` | Yes | Vault the proposal belongs to (per-vault governor) |
 | `--dry-run` | No | Check preconditions and print the fallback call without broadcasting |
 | `--yes` | No | Skip the interactive confirmation |
 
@@ -232,37 +238,55 @@ sherwood proposal unstick --id <proposalId> [--dry-run] [--yes]
 
 ## `sherwood governor info`
 
-Display current governor parameters and status.
+Display a vault's governor address and parameters. Resolves the governor via `factory.governorOf(vault)`.
 
 ```bash
-sherwood governor info```
+sherwood governor info --vault <addr>```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--vault` | Yes | Vault whose governor to inspect |
 
 **Output:**
 
 ```
-Governor Parameters
-  Voting Period:         1 day
-  Execution Window:      1 day
-  Veto Threshold:        40%
-  Max Performance Fee:   30%
+  ◆ Governor Parameters
+  Vault:                0xabc… (sherwood)
+  Governor:             0xG0v…
+  Voting Period:        1 day
+  Execution Window:     1 day
+  Veto Threshold:       40%
+  Max Performance Fee:  30%
   Max Strategy Duration: 30 days
-  Cooldown Period:       1 day
-  Protocol Fee:          5%
-
-Registered Vaults: 3
-  0xabc... (sherwood)
-  0xdef... (alpha-seekers)
-  0x123... (yield-hunters)
+  Cooldown Period:      1 day
 ```
+
+<Note>
+There is no "Registered Vaults" list any more — each governor serves exactly one vault. Protocol/guardian fees are not shown here either; they live on the shared `ProtocolConfig`, not the per-vault governor.
+</Note>
 
 ---
 
 ## `sherwood governor set-*`
 
-Owner-only parameter setters. Each validates against hardcoded bounds before submitting.
+**Vault-owner** parameter setters, one governor per vault — each requires `--vault` and validates against protocol-wide bounds before submitting. They apply immediately but **revert (`ParamsFrozenDuringProposal`) if the vault has an open proposal**.
 
 ```bash
-sherwood governor set-voting-period --seconds <n>sherwood governor set-execution-window --seconds <n>sherwood governor set-veto-threshold --bps <n>sherwood governor set-max-fee --bps <n>sherwood governor set-max-duration --seconds <n>sherwood governor set-cooldown --seconds <n>sherwood governor set-protocol-fee --bps <n>```
+sherwood governor set-voting-period    --vault <addr> --seconds <n>
+sherwood governor set-execution-window --vault <addr> --seconds <n>
+sherwood governor set-veto-threshold   --vault <addr> --bps <n>
+sherwood governor set-max-fee          --vault <addr> --bps <n>
+sherwood governor set-max-duration     --vault <addr> --seconds <n>
+sherwood governor set-cooldown         --vault <addr> --seconds <n>
+```
+
+### `sherwood governor set-protocol-fee` (ProtocolConfig)
+
+The protocol fee moved off the per-vault governor to the protocol-wide `ProtocolConfig` (resolved via `factory.protocolConfig()`), so this one takes **no `--vault`** and is **protocol-owner only** (the protocol multisig), not the vault owner. Max 1000 bps (10%).
+
+```bash
+sherwood governor set-protocol-fee --bps <n>   # e.g. 500 = 5%, max 1000 = 10%
+```
 
 ---
 

@@ -36,7 +36,7 @@ Key invariants enforced by the registry + governor:
 
 ## GuardianRegistry — contract surface
 
-UUPS upgradeable contract, owned by the Sherwood protocol multisig. Single instance per deployment, **shared by every per-vault governor**: proposal-keyed state is keyed by `keccak256(abi.encode(governor, proposalId))`, so two governors can use the same proposal ID without collision. Governors are authorized via the factory-only `addGovernor` hook as each fund is created; the factory wiring is stamped at init. Review and emergency views — and guardian-facing calls like `voteOnProposal` — take `address governor` as their first parameter. (Governor-only hooks such as `openEmergency`, `finalizeEmergency`, and `cancelReview` don't — the calling governor is `msg.sender`.)
+UUPS upgradeable contract, owned by the Sherwood protocol multisig. **One registry per deployment, serving every vault's governor** (PR #421). Its `factory` and `swood` handles are stamped set-once at init; each vault's governor is authorized at `createSyndicate` via the factory-only `addGovernor(governor)` (the registry keeps an `EnumerableSet` of governors and gates `onlyGovernor` on it). All proposal- and emergency-keyed state is keyed by `keccak256(abi.encode(governor, proposalId))`, and the review / emergency entrypoints (`openReview`, `voteOnProposal`, `resolveReview`, `getApproverWeights`, …) take `address governor` as their first argument.
 
 ### Guardian role
 
@@ -158,7 +158,7 @@ During weeks 1–12 after mainnet launch, honest cohort size is small and review
 
 To close the fail-open window, the Sherwood protocol multisig commits to:
 
-- Running a guardian agent that votes on **every** proposal across every fund's governor.
+- Running a guardian agent that votes on **every** proposal across every vault's governor.
 - Publishing weekly guardian-coverage reports in the Sherwood forum.
 - Staking ≥ `minGuardianStake` from protocol treasury.
 - Funding the Merkl block-reward distributor weekly during the bootstrap window (a plain WOOD transfer from the multisig), sized above expected guardian gas costs.

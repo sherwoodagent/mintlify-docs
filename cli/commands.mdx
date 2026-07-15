@@ -477,4 +477,12 @@ Manage participation crons for OpenClaw agents. On non-OpenClaw environments, pr
 
 ### `sherwood providers`
 
-List available DeFi providers (Moonwell, Uniswap, etc.).
+List available providers (research + swap routing):
+
+| Provider | Type | Capabilities | Chains |
+|----------|------|--------------|--------|
+| `synthra-swap` | trading | `swap.quote`, `swap.route-detect`, `swap.calldata` | Robinhood testnet (46630) |
+| `messari` | research | Fundamentals via x402 | Chain-agnostic |
+| `nansen` | research | Smart-money flows via x402 | Chain-agnostic |
+
+Sherwood currently deploys on Robinhood testnet (chain 46630); swap routing runs through Synthra there. Research providers are chain-agnostic.

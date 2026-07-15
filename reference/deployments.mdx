@@ -73,22 +73,23 @@ On-chain contracts keep the `Syndicate*` naming for audit continuity; the produc
 
 | Contract | Address (46630) |
 |----------|-----------------|
-| SyndicateFactory | `0xa5351b91E0A6348a78dA4E47bcd7DFC49fa353F3` |
-| SyndicateGovernor (bootstrap) | `0xde53b07058d88b9C063478E601De621A347b7318` |
-| GovernorBeacon | deployed at next redeploy |
-| ProtocolConfig | deployed at next redeploy |
-| SyndicateVaultImpl | `0x382cCfe80c430De671b15A45A7EDED96b5bFB383` |
-| BatchExecutorLib | `0x039825a3750c27C5f85Bb8486860B867A8D201E5` |
-| GuardianRegistry | `0xA1b4C376c9C9e7257F654Fe1C4c10f51760407D4` |
-| StakedWood (sWOOD) | `0xdcC7D11930769E6dcaEA0a8130B34254cFBE8dB2` |
-| WOOD token (fixture) | `0x41F40A0E3E6e5718c1dA12678a5332384b49396f` |
-| PriceRouter | `0x7DcC6E3419Ab0aC2B29b288Cdc5A0471DA745229` |
-| StrategyFactory | `0x85a598ADA4fb9654BaF77234864fa100C4B5a204` |
+| SyndicateFactory | `0xB9E71Fb33075328d6e94eCFFf8a8629D6d057cce` |
+| GovernorBeacon | `0x11B726c49E0bAc95bEafF8d648cf3030Dc11B73a` |
+| ProtocolConfig | `0xEe6DfE03353CEf1d80F38FbDdD30ce5Fb0531929` |
+| SyndicateVaultImpl | `0x189160156d470B9ce8A55206DE19Ea60D2638ec6` |
+| BatchExecutorLib | `0xd83dc3A79Bb41a02Ca7aC812c0f52212C1BdBC1B` |
+| GuardianRegistry | `0x57f0fa384d0d7e2F234535d1235440312866872B` |
+| StakedWood (sWOOD) | `0x15F48A9f24c8ECaa8f03c28Ecd1a3b4784CdCb3c` |
+| WOOD token (fixture) | `0xCCb4fB59cf40de1E23083037ee81Da1DD747D8d7` |
+| PriceRouter | `0xDd302ffcfA08071780eC1A2f12BccFB9ba6b6731` |
+| StrategyFactory | `0xE1D082ef1CE17f9C6a46e97928337267BFF0C309` |
 
-<Note>
-**Per-vault governors are not listed in this table.** Under the per-vault governor model, each fund's governor is a `BeaconProxy` deployed at `createSyndicate` — resolve it at runtime via `factory.governorOf(vault)` (or `vault.governor()`, which reads through the factory). The `SyndicateGovernor` address above is the deploy-time bootstrap instance; `GovernorBeacon` (the shared implementation beacon, owned by the protocol multisig) and `ProtocolConfig` (global fee parameters) get concrete addresses here at the next redeploy.
-</Note>
-
+There is **no singleton `SyndicateGovernor`**. Since PR #421 each vault's governor is
+deployed **per-vault** — a `BeaconProxy` the factory creates at `createSyndicate`,
+all sharing one implementation through the `GovernorBeacon` above — and is resolved
+at runtime via `factory.governorOf(vault)`. Protocol-level fees live on the shared
+`ProtocolConfig` (protocol-multisig-owned) and are snapshotted into each proposal at
+propose time.
 
 ### Strategy Templates
 
@@ -97,8 +98,8 @@ with custom parameters.
 
 | Template | Address |
 |----------|---------|
-| PortfolioStrategy | `0x3a6121371D51B59De3A14Bc401EfBd3fb726E109` |
-| UniswapSwapAdapter (Synthra-backed) | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
+| PortfolioStrategy | `0x67420Cc504d70a42Adfd8867d878afe0978C7d10` |
+| UniswapSwapAdapter (Synthra-backed) | `0x4fc3492117cC3bbcE0b210D22a8DC244f9d86490` |
 
 Under the V2 live-NAV model the strategy is never trusted for value: each template
 reports its on-venue holdings via `IStrategy.positions()`, and the vault prices them
@@ -133,7 +134,7 @@ Synthra router plus a QuoterV2 shim.
 |----------|---------|
 | Synthra SwapRouter02 | `0x3Ce954107b1A675826B33bF23060Dd655e3758fE` |
 | Synthra QuoterV2 | `0x231606c321A99DE81e28fE48B07a93F1ba49e713` |
-| Synthra QuoterV2 shim | `0xC703139b5C7EA26D906fcd6d335798d2EC9A1262` |
+| Synthra QuoterV2 shim | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
 | Synthra V3 Factory | `0x911b4000D3422F482F4062a913885f7b035382Df` |
 | Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
@@ -155,11 +156,15 @@ network:
 TOKENS()             → WETH, stock tokens
 SYNTHRA()            → Router, Quoter, Factory
 UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter (Synthra-backed)
-SHERWOOD()           → Factory, Governor, StrategyFactory, PriceRouter
+SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, StrategyFactory, PriceRouter
 STRATEGY_TEMPLATES() → Portfolio
 CHAINLINK()          → VerifierProxy
 INFRA()              → Multicall3
 ```
+
+Per-vault governors are not in this table — each vault's governor is resolved at
+runtime via `factory.governorOf(vault)` (see `cli/src/lib/governor.ts`). There is no
+singleton governor address to configure.
 
 Zero addresses (`0x000...000`) indicate a protocol is not deployed. Commands that
 depend on a zeroed address fail with a clear error at runtime.
