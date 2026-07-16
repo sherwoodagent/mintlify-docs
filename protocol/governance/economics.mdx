@@ -1,170 +1,75 @@
 ---
-title: "Economics"
-description: "Fee structure, early exit, and single-strategy model"
-icon: "coins"
+title: "Proposal economics"
+description: "How Sherwood calculates proposal profit and distributes fees."
 ---
 
-## Deposits and Withdrawals During Active Strategy
+The governor charges proposal fees only when settlement records a positive realized profit. Fee rates are expressed in basis points, where `100` means 1%.
 
-When a strategy is live (proposal in `Executed` state), `redemptionsLocked()` returns `true`. The vault uses a **two-lane** model to keep liquidity available without trusting unverified prices:
+## Fee order
 
-- **Lane A (oracle instant):** instant deposit / redeem at a live oracle price via the governance-owned PriceRouter — available when every position kind is priced live and `laneAEnabled[kind] == true`. Lane A depositors receive a per-share lockup until the proposal settles (G1 MEV protection).
-- **Lane B (async queue):** `requestDeposit` / `requestRedeem` escrow assets/shares in `VaultWithdrawalQueue`, then settle at the frozen per-proposal price after the proposal ends. The universal fallback — always available.
-
-`rescueERC20` is blocked during active proposals regardless of lane.
-
-See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full flow diagram, lane preconditions, claim mechanics, and per-strategy Lane A status.
-
-<Note>
-**WOOD/SHARES early-exit pool — aspirational, not live.** An earlier design proposed one-sided liquidity pools pairing WOOD with each vault's share token, letting depositors swap out of locked vaults at a market-discovered discount. That design is not implemented; the Lane B async queue is the primary exit path during a proposal. Early-exit liquidity is tracked for a future release.
-</Note>
-
-## WOOD Tokenomics (ve(3,3) stack)
-
-The protocol ships a full ve(3,3)-style token economy (`VotingEscrow`, `Voter`, `SyndicateGauge`, `Minter`, `VoteIncentive`, `RewardsDistributor`, `VaultRewardsDistributor`) in addition to the governance + fee logic on this page. The surface is live in `contracts/src/` but the public documentation is deliberately deferred — the surface is still stabilising around PR #229 (guardian rewards) and the early-exit design above.
-
-<Note>
-**Expanded ve(3,3) docs are forthcoming.** See the in-repo reference `docs/tokenomics-wood.md` for the current internal description of lock mechanics, gauge weights, bribe flows, rebase math, and Minter emissions. A dedicated tokenomics section will be added to these public docs as the surface stabilises.
-</Note>
-
-Known gaps flagged in that reference that LPs and integrators should be aware of until the public expansion lands:
-- `SyndicateGauge.claimLPRewards` always reverts (`_calculateLPReward` is stubbed). Gauge LP reward accrual is tracked but not claimable. Slices that already accrued under the legacy bootstrap schedule (epochs ≤ 12) can be recovered by the gauge owner via `rescueStuckLPRewards(epoch, recipient)` — emissions for new epochs no longer accrue to this slice (`getLPRewardPercentage` returns 0).
-- Price and lock-ratio circuit breakers in `Minter` are manual (multisig) today, not triggered automatically.
-- No WOOD/SHARES Uniswap V3 early-exit pool is deployed; the design in older drafts is not live.
-- Guardian Block-side WOOD epoch rewards are distributed **off-chain via Merkl**. The registry emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker on a resolved-blocked review; Merkl's bot reads these (plus delegation / commission events) to build Merkle roots, and guardians claim at merkl.xyz. There is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` (see [Guardian Review](/protocol/governance/guardian-review)).
-
-## Fee Structure
-
-Four fees are distributed from strategy profits at settlement:
-
-| Fee | Recipient | Set by | Purpose |
-|-----|-----------|--------|---------|
-| Protocol fee | `protocolFeeRecipient` | `ProtocolConfig` owner (protocol multisig) | Protocol revenue |
-| Performance fee | Agent (proposer) | Vault owner — one `agentFeeBps` per vault (default 5%) | Incentivize good strategy proposals |
-| Management fee | Vault owner | Factory (per-vault, configurable) | Incentivize vault operation and curation |
-
-All fees only apply when P&L > 0. On loss, no fees are charged.
-
-### Self-managed-fee strategies (custody model)
-
-The three fees above are the **governor's** settle-fee path — computed at `settleProposal` from the vault's realized float delta. A **custody strategy** — one where LPs deposit and redeem directly at the strategy, and the strategy mints/burns vault shares itself (via `strategyMint` / `strategyBurn`) — breaks that model: the governor's `balanceOf(vault) − snapshot` PnL would misread net deposits as profit and double-charge. Such a strategy signals `IStrategy.selfManagesFees() == true`, and the governor's `_finishSettlement` **skips `_distributeFees` entirely** for that proposal:
-
-- **All** settle-fees are skipped — protocol, guardian, agent, and management.
-- The strategy **manages its fees internally**, crystallizing them as share dilution (e.g. a streaming management fee plus a per-share high-water-mark performance fee minted as fee-shares).
-- Protocol and guardian fees for custody strategies are handled **off-chain as a follow-up** — they are not routed through the governor.
-
-`selfManagesFees()` defaults to `false` (`BaseStrategy`), so every non-custody strategy uses the governor settle-fee path described in the rest of this section. The [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl) strategy is the first `selfManagesFees() == true` template.
-
-### Protocol Fee
-
-A protocol-level fee taken from gross profit **before** agent and management fees. This funds protocol development and operations.
-
-- `protocolFeeBps` — percentage of gross profit taken as protocol fee (max 10% / 1000 bps, `MAX_PROTOCOL_FEE_BPS`)
-- `protocolFeeRecipient` — address that receives the protocol fee
-- Both live on the global **`ProtocolConfig`** contract (protocol-multisig-owned), **not** the per-vault governor. Each vault's governor reads them at propose time and **snapshots them into the proposal** (`snapshotProtocolFeeBps` / `snapshotProtocolFeeRecipient`), so settlement charges the rate voters saw even if the config changes mid-flight.
-- **`setProtocolFeeBps` / `setProtocolFeeRecipient` are `onlyOwner` on `ProtocolConfig`** (`Ownable2Step`, the protocol multisig) and emit `ParameterChangeFinalized(paramKey, old, new)` / `ProtocolFeeRecipientSet`. Recipient coupling is enforced in both directions: setting a nonzero `protocolFeeBps` requires `protocolFeeRecipient` first, and the recipient cannot be cleared while `protocolFeeBps > 0`.
-
-### Performance (agent) fee
-
-The performance fee is the cut a proposing agent earns on net profit (after the protocol fee). It is a **vault-level property, not a per-proposal value** — the vault owner sets one fee for the whole vault and every proposal inherits it.
-
-- `agentFeeBps` lives on the **vault**, not the proposal. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood fund set-agent-fee --bps <bps>`.
-- Defaults to **5% (500 bps)** at vault creation. Capped at **15% (1500 bps)** by the vault.
-- When a proposal is created the governor **snapshots** the vault's current `agentFeeBps` onto that proposal (immutable for that proposal — a later owner change cannot alter an already-created proposal). At settlement the governor uses that snapshot, additionally clamped to `maxPerformanceFeeBps`. A change therefore only takes effect for proposals created after it.
-- `propose()` takes no fee argument. To split the fee among collaborators, use co-proposers (see [Collaborative Proposals](/protocol/governance/collaborative-proposals)).
-
-### Fee distribution order
-
-Fees are calculated and distributed in a strict order — protocol and guardian fees first (from gross profit), then agent fee, then management fee:
-
-```
-profit = balanceAfter - capitalSnapshot
-if profit > 0:
-  // protocol + guardian fees use the ProtocolConfig snapshot taken at propose
-  protocolFee   = profit * proposal.snapshotProtocolFeeBps / 10000
-  guardianFee   = profit * proposal.snapshotGuardianFeeBps / 10000
-  netProfit     = profit - protocolFee - guardianFee
-  agentFeeBps   = min(proposal.performanceFeeBps, maxPerformanceFeeBps)   // snapshot taken at propose, clamped to the governor cap
-  agentFee      = netProfit * agentFeeBps / 10000
-  managementFee = (netProfit - agentFee) * managementFeeBps / 10000
-  transfer protocolFee to snapshotProtocolFeeRecipient   (try/catch → escrow on fail)
-  transfer guardianFee to snapshotGuardiansFeeRecipient  (try/catch → escrow on fail;
-                                                          GuardianFeeAccrued emitted only if delivered)
-  transfer agentFee to agent                             (try/catch → escrow on fail)
-  transfer managementFee to vault owner                  (try/catch → escrow on fail)
-  remaining profit stays in vault (accrues to all shareholders)
+```mermaid
+flowchart TD
+    A[Gross realized profit] --> B[Protocol fee]
+    A --> C[Guardian fee]
+    B --> D[Net profit]
+    C --> D
+    D --> E[Agent performance fee]
+    E --> F[Remaining net profit]
+    F --> G[Management fee]
+    G --> H[Profit retained in vault]
 ```
 
-The protocol and guardian fees are calculated on gross profit. Agent and management fees are calculated on the net profit (after protocol and guardian fees). Management fee is calculated on the remaining profit after the agent's cut. This ensures combined fees never exceed profit and maintains a clear priority order.
+The implemented calculation is:
 
-### Management Fee
+```text
+protocol fee = gross profit * snapshotted protocol rate
+guardian fee = gross profit * snapshotted guardian rate
+net profit = gross profit - protocol fee - guardian fee
+agent fee = net profit * snapshotted agent rate
+management fee = (net profit - agent fee) * vault management rate
+```
 
-The management fee incentivizes vault operation — the owner curates agents, manages parameters, handles emergencies.
+If realized profit is zero or negative, these profit-based transfers are zero.
 
-- `managementFeeBps` — configurable per-factory (max 10% / 1000 bps)
-- Applied to new vaults at creation time
-- Owner only earns on profit — aligned with depositor outcomes
+## Who receives each fee
 
-### Try/catch fee transfers + unclaimed-fee escrow
+| Fee | Recipient | Source of rate |
+| --- | --- | --- |
+| Protocol | Protocol fee recipient | `ProtocolConfig`, snapshotted at proposal creation |
+| Guardian | Guardian fee recipient | `ProtocolConfig`, snapshotted at proposal creation |
+| Agent | Lead proposer and approved co-proposers | Vault agent rate and collaboration splits |
+| Management | Fund owner | Vault management rate |
 
-Every fee transfer — protocol fee, agent / co-proposer performance fee, and vault owner management fee — is wrapped in **try/catch** around `vault.transferPerformanceFee(asset, recipient, amount)`. If the transfer reverts (USDC blacklist, paused token, contract recipient with a failing receive, etc.) the governor:
+The agent performance rate is also constrained by the governor's maximum at settlement. If the stored proposal rate is above the current cap, the governor clamps it and emits an event.
 
-1. Credits the owed amount to an on-chain escrow keyed by `keccak256(vault, recipient, token)`
-2. Emits `FeeTransferFailed(recipient, token, amount)` so indexers can surface the stuck fee
-3. Continues settlement without reverting
+## Why snapshots matter
 
-Affected recipients pull their escrow later with `claimUnclaimedFees(vault, token)` once the failure condition is cleared (they un-blacklist, rotate the recipient, unpause, etc.). Keying by origin vault means a recipient can only claim against the specific vault whose transfer failed. Read via `unclaimedFees(vault, recipient, token)`.
+Protocol fee recipients and rates can change globally, but an active proposal should settle under the terms voters inspected. The governor stores the protocol fee, guardian fee, and their recipients when the proposal is created.
 
-This ensures:
+The vault's agent performance rate is also captured for the proposal. Read the proposal itself when presenting expected economics.
 
-- Depositor capital is never held hostage by a blacklisted fee recipient — settlement always completes
-- Fees are not lost — they are escrowed on the governor and pullable by the rightful recipient
-- Every recipient gets the same protection (protocol, agent, co-proposers, vault owner)
+## Guardian distribution boundary
 
-Tracked as item **W-1** in the pre-mainnet punch list; regression coverage in `test/governor/FeeBlacklistResilience.t.sol`.
+The guardian fee is paid in the vault asset to the configured recipient. An offchain process can convert that value to WOOD and publish a Merkl distribution for guardians and delegators.
 
-**Safety:** the vault's `agentFeeBps` is capped at 1500 bps (15%) by the vault and additionally clamped to `maxPerformanceFeeBps` (governor parameter) at settlement. `protocolFeeBps` is capped at 1000 bps (10%). `managementFeeBps` is capped at 1000 bps (10%) and set at the factory level.
+Do not equate the vault-asset transfer with an immediately claimable WOOD amount. The conversion and distribution happen outside the governor.
 
-**Why a management fee?** Without it, there is no incentive to operate a vault — the owner curates agents, manages targets, sets parameters, handles emergencies, but earns nothing. The management fee aligns vault owner incentives with depositor outcomes (owner only earns on profit).
+## Example
 
-## Single Strategy Per Vault
+Assume a proposal realizes `10` units of profit with these illustrative rates:
 
-Only **one strategy can be live (Executed state) per vault at a time.** This simplifies capital accounting, eliminates cross-strategy risk, and makes the redemption lock/cooldown model clean.
+- protocol: 1%
+- guardian: 0.5%
+- agent: 10%
+- management: 2%
 
-- Each vault's governor tracks a scalar `_activeProposal` — the currently executing proposal ID (0 if none), read via the no-arg `getActiveProposal()`
-- `executeProposal` reverts if `getActiveProposal() != 0`
-- `executeProposal` also reverts if the vault is in its cooldown window
-- Multiple proposals can be in Pending/Approved state simultaneously — they queue up
-- Only one can be executed at a time
+```text
+protocol = 10 * 1% = 0.10
+guardian = 10 * 0.5% = 0.05
+net = 10 - 0.10 - 0.05 = 9.85
+agent = 9.85 * 10% = 0.985
+management = (9.85 - 0.985) * 2% = 0.1773
+retained profit = 8.6877
+```
 
-## Open Design Questions
-
-### Strategy Carry Model
-
-Two possible models:
-
-**A. Vault-level performance fee (current design)**
-- Vault owner sets one `agentFeeBps` for the vault (default 5%); each proposal snapshots it at propose time
-- Snapshot clamped to `maxPerformanceFeeBps` at settlement
-- Fee paid on settlement from profits only
-- Simple, clear, owner-controlled
-
-**B. Protocol-level revenue share (v2)**
-- Strategy creators earn ongoing % of all TVL running their strategy
-- More DeFi-native (like Uniswap LP fees)
-- Needs TVL tracking, streaming payments, strategy template integration
-
-**Recommendation:** Model A for now. Model B is the long-term vision.
-
-### What Happens if a Strategy Loses Money?
-
-- Agent earns nothing (performance fee only applies to profits)
-- Loss is socialized across all shareholders (standard fund behavior)
-- Loss is recorded on-chain via the `ProposalSettled(uint256 indexed proposalId, address indexed vault, int256 pnl, uint256 performanceFee, uint256 duration)` event emitted by `_finishSettlement` — indexers can aggregate into per-agent track records. A dedicated `STRATEGY_PNL` EAS attestation for richer agent reputation is planned and is NOT shipped in V1.
-- No slashing mechanism in V1 for agents — see [Guardian Review](/protocol/governance/guardian-review) for the separate guardian / vault-owner slashing layer.
-
-**Future consideration:** Agent bonds / slashing for repeated losses.
-
-### Can Agents Update a Live Proposal?
-
-No. Once submitted, proposal params are immutable. If an agent wants different terms, they cancel and create a new proposal. This keeps voting clean — shareholders know exactly what they are voting on.
+These numbers explain order of operations only. Query the proposal and vault for actual rates.

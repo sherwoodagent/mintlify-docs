@@ -2,11 +2,11 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Sherwood",
-  "description": "Autonomous Agent Funds — documentation for humans and AI agents",
+  "description": "Documentation for agent-managed onchain funds",
   "colors": {
-    "primary": "#2EE6A6",
+    "primary": "#006447",
     "light": "#2EE6A6",
-    "dark": "#25C08A"
+    "dark": "#0F8A62"
   },
   "appearance": {
     "default": "dark",
@@ -30,8 +30,12 @@
   "navbar": {
     "links": [
       {
+        "label": "Open app",
+        "href": "https://www.sherwood.sh"
+      },
+      {
         "label": "GitHub",
-        "href": "https://github.com/sherwoodagent/sherwood"
+        "href": "https://github.com/sherwoodagent"
       }
     ],
     "primary": {
@@ -45,7 +49,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/sherwoodagent/sherwood",
+      "github": "https://github.com/sherwoodagent",
       "x": "https://x.com/sherwoodagent"
     }
   },
@@ -55,12 +59,8 @@
         "tab": "Learn",
         "groups": [
           {
-            "group": "Getting Started",
-            "pages": [
-              "index",
-              "learn/quickstart",
-              "learn/concepts"
-            ]
+            "group": "Start here",
+            "pages": ["index", "learn/quickstart", "learn/concepts"]
           }
         ]
       },
@@ -68,25 +68,12 @@
         "tab": "Protocol",
         "groups": [
           {
-            "group": "Smart Contracts",
-            "pages": [
-              "protocol/architecture",
-              "protocol/vault-liquidity"
-            ]
+            "group": "How it works",
+            "pages": ["protocol/architecture", "protocol/vault-liquidity"]
           },
           {
             "group": "Strategies",
-            "pages": [
-              "protocol/strategies/walkthrough",
-              "protocol/strategies/moonwell-supply",
-              "protocol/strategies/aerodrome-lp",
-              "protocol/strategies/leveraged-aerodrome-cl",
-              "protocol/strategies/wsteth-moonwell",
-              "protocol/strategies/venice-inference",
-              "protocol/strategies/uniswap",
-              "protocol/strategies/hyperliquid-perp",
-              "protocol/strategies/hyperliquid-grid"
-            ]
+            "pages": ["protocol/strategies/portfolio", "protocol/strategies/walkthrough"]
           },
           {
             "group": "Governance",
@@ -104,26 +91,16 @@
         "tab": "CLI",
         "groups": [
           {
-            "group": "Getting Started",
-            "pages": [
-              "cli/installation",
-              "cli/configuration"
-            ]
+            "group": "Setup",
+            "pages": ["cli/installation", "cli/configuration"]
           },
           {
-            "group": "Commands",
-            "pages": [
-              "cli/commands",
-              "cli/governance-commands",
-              "cli/strategy-commands",
-              "cli/agent-commands"
-            ]
+            "group": "Use the protocol",
+            "pages": ["cli/commands", "cli/governance-commands", "cli/strategy-commands"]
           },
           {
-            "group": "Operations",
-            "pages": [
-              "cli/cron-jobs"
-            ]
+            "group": "Automation",
+            "pages": ["cli/cron-jobs"]
           }
         ]
       },
@@ -131,16 +108,8 @@
         "tab": "API",
         "groups": [
           {
-            "group": "HTTP API",
-            "pages": [
-              "api/overview"
-            ]
-          },
-          {
-            "group": "TypeScript SDK",
-            "pages": [
-              "api/sdk"
-            ]
+            "group": "Integrate",
+            "pages": ["api/overview", "api/sdk"]
           }
         ]
       },
@@ -148,25 +117,32 @@
         "tab": "Reference",
         "groups": [
           {
-            "group": "Integrations",
-            "pages": [
-              "reference/integrations/ens",
-              "reference/integrations/xmtp",
-              "reference/integrations/venice",
-              "reference/integrations/erc-8004",
-              "reference/integrations/eas",
-              "reference/integrations/defi-protocols"
-            ]
-          },
-          {
-            "group": "Infrastructure",
+            "group": "Current deployment",
             "pages": [
               "reference/deployments",
-              "reference/subgraph"
+              "reference/integrations/current-stack",
+              "reference/integrations/xmtp"
             ]
           }
         ]
       }
     ]
-  }
+  },
+  "redirects": [
+    { "source": "/protocol/strategies/uniswap", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/moonwell-supply", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/aerodrome-lp", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/leveraged-aerodrome-cl", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/wsteth-moonwell", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/venice-inference", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/hyperliquid-perp", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/protocol/strategies/hyperliquid-grid", "destination": "/protocol/strategies/portfolio" },
+    { "source": "/reference/integrations/defi-protocols", "destination": "/reference/integrations/current-stack" },
+    { "source": "/reference/integrations/eas", "destination": "/reference/deployments" },
+    { "source": "/reference/integrations/ens", "destination": "/reference/deployments" },
+    { "source": "/reference/integrations/erc-8004", "destination": "/reference/deployments" },
+    { "source": "/reference/integrations/venice", "destination": "/reference/integrations/current-stack" },
+    { "source": "/reference/subgraph", "destination": "/api/overview" },
+    { "source": "/cli/agent-commands", "destination": "/cli/commands" }
+  ]
 }

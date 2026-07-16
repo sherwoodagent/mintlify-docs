@@ -1,42 +1,71 @@
 ---
-title: "Configuration"
-description: "Wallet setup and config file reference"
-icon: "gear"
+title: "Configure the CLI"
+description: "Set the signer, default vault, RPC endpoint, and local Sherwood state."
 ---
 
-## Network
+Sherwood stores local settings in `~/.sherwood/config.json`. The file is created with restricted permissions where the operating system supports them.
 
-Sherwood currently deploys on **Robinhood testnet (chain 46630)**. The CLI targets
-it by default — there is no chain flag to set.
+## Signing key
 
-## Setting Config
+For a temporary session, set `PRIVATE_KEY` in the environment:
 
-### `sherwood config set`
+<Tabs>
+  <Tab title="macOS or Linux">
+    ```bash
+    export PRIVATE_KEY=0x...
+    ```
+  </Tab>
+  <Tab title="PowerShell">
+    ```powershell
+    $env:PRIVATE_KEY = "0x..."
+    ```
+  </Tab>
+</Tabs>
 
-Save settings to `~/.sherwood/config.json`.
+To persist a dedicated testnet key:
 
-| Option | Description |
-|--------|-------------|
-| `--private-key <key>` | Wallet private key (0x-prefixed) |
-| `--vault <address>` | Default SyndicateVault address |
-| `--rpc <url>` | Custom RPC URL for the current chain (saved per-network) |
-| `--notify-to <id>` | Destination for cron summaries (Telegram chat ID, phone, etc.) |
+```bash
+sherwood config set --private-key 0x...
+```
 
-### `sherwood config show`
+<Warning>
+  A key saved with `config set` takes precedence over `PRIVATE_KEY`. Use a dedicated testnet wallet, never paste a production key into shell history, and remove stale saved keys when changing operators.
+</Warning>
 
-Display current config for the active network.
+## Default vault
 
-## Config File Reference
+```bash
+sherwood config set --vault 0x...
+sherwood vault info
+```
 
-State is stored in `~/.sherwood/config.json`.
+The vault is stored under chain ID `46630`. You can override it per command with `--vault`.
 
-| Key | Description |
-|-----|-------------|
-| `privateKey` | Wallet private key |
-| `agentId` | ERC-8004 identity token ID |
-| `contracts.{chainId}.vault` | Default vault address per chain |
-| `veniceApiKey` | Venice API key |
-| `dbEncryptionKey` | XMTP database encryption key (auto-generated) |
-| `groupCache` | Local cache of subdomain to XMTP group ID |
-| `rpc` | Per-network custom RPC URLs |
-| `notifyTo` | Destination for cron summaries |
+## Custom RPC
+
+```bash
+sherwood config set --rpc https://your-rpc.example
+```
+
+You can also set `ROBINHOOD_TESTNET_RPC_URL`. A saved RPC takes precedence.
+
+## Inspect current settings
+
+```bash
+sherwood config show
+```
+
+The command should display addresses and endpoints without printing the private key.
+
+## Unsigned calldata mode
+
+Use the global `--calldata-only` flag when an external wallet or agent will sign the transaction:
+
+```bash
+sherwood --calldata-only vault deposit \
+  --vault 0x... \
+  --amount 0.01 \
+  --receiver 0x...
+```
+
+The CLI prints EIP-5792-style unsigned calls as JSON. Validate the chain, targets, value, and calldata before passing them to a signer.

@@ -1,182 +1,88 @@
 ---
 title: "Deployments"
-description: "Deployed chain, addresses, and feature matrix"
-icon: "server"
+description: "Canonical chain, contract, token, and infrastructure addresses for the current Sherwood deployment."
 ---
 
-Sherwood currently deploys on **Robinhood testnet (chain 46630)** — an Arbitrum
-Orbit L2. This is the initial deployment target; the protocol is chain-native and
-will expand to other chains over time, but for now every vault, proposal, and
-strategy lives on Robinhood testnet. The CLI targets it by default — there is no
-chain to select.
+<Warning>
+  The fund protocol is deployed on **Robinhood L2 Testnet**. These addresses are testnet infrastructure. Verify them against the repository deployment registry and block explorer before signing.
+</Warning>
 
-## Chain
+Registry snapshot: July 16, 2026.
 
-| Chain | ID | Type | Status |
-|-------|----|------|--------|
-| Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active |
+## Network
 
-The full V2 stack is deployed: vaults, governance, the guardian layer
-(GuardianRegistry + StakedWood with a WOOD fixture token), the StrategyFactory
-keyless clone+init path, and the V2 live-NAV surface (PriceRouter + a
-Uniswap-compatible swap adapter backed by Synthra via a QuoterV2 shim).
+| Field | Value |
+| --- | --- |
+| Network | Robinhood L2 Testnet |
+| Chain ID | `46630` |
+| Native gas token | ETH |
+| RPC listed by the client | `https://rpc.testnet.chain.robinhood.com` |
+| Explorer | [explorer.testnet.chain.robinhood.com](https://explorer.testnet.chain.robinhood.com/) |
+| Network documentation | [Robinhood Chain connection guide](https://docs.robinhood.com/chain/connecting/) |
 
-## Feature Matrix
-
-| Feature | Robinhood testnet (46630) |
-|---------|---------------------------|
-| Vaults + Factory | Yes |
-| Governor (proposals, voting) | Yes |
-| Guardian layer (registry + sWOOD) | Yes |
-| Strategy Factory (keyless deploy) | Yes |
-| Live NAV (PriceRouter + adapter) | Yes |
-| Portfolio strategy | Yes |
-| Synthra DEX (swaps) | Yes |
-| Chainlink Data Streams | Yes |
-| Stock Tokens (RWA) | Yes (TSLA / AMZN / PLTR / NFLX / AMD) |
-| XMTP Chat | Yes |
-| WETH (default vault asset) | Yes |
-| ERC-8004 Identity | Not yet |
-| EAS Attestations | Not yet |
-| ENS Subnames (Durin) | Not yet |
-| Moonwell / Aerodrome / Venice / Hyperliquid | Not yet |
-| USDC | No — not deployed |
-
-### Key details
-
-**Robinhood testnet (Arbitrum Orbit, chain 46630)** — Vaults, governance, the
-guardian layer, and the Portfolio (basket) strategy. Swaps route through **Synthra**
-(a Uniswap-V3-compatible concentrated-liquidity DEX); pricing uses **Chainlink Data
-Streams** via a verifier proxy. Tokenized stock tokens (TSLA, AMZN, PLTR, NFLX, AMD)
-are available for portfolio strategies. **WETH** is the default vault asset (no USDC
-is deployed). Identity verification (ERC-8004), EAS attestations, and ENS
-registration are not active on this chain yet — the factory and vault accept
-`address(0)` for optional registries and skip those checks.
-
-<Note>
-**What's planned.** Agentic trading strategies for tokenized real-world assets
-(RWAs) — stocks, ETFs, and other equities — live on Robinhood testnet today
-(Synthra DEX + Chainlink Data Streams, with a tokenized stock universe of TSLA,
-AMZN, PLTR, NFLX, AMD). Sherwood is built to be multi-chain; additional chains will
-come online over time.
-</Note>
-
-## Deployed Addresses
-
-Source of truth: `contracts/chains/46630.json`.
-
-<Note>
-On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
-</Note>
-
-### Sherwood Contracts
-
-| Contract | Address (46630) |
-|----------|-----------------|
-| SyndicateFactory | `0xB9E71Fb33075328d6e94eCFFf8a8629D6d057cce` |
-| GovernorBeacon | `0x11B726c49E0bAc95bEafF8d648cf3030Dc11B73a` |
-| ProtocolConfig | `0xEe6DfE03353CEf1d80F38FbDdD30ce5Fb0531929` |
-| SyndicateVaultImpl | `0x189160156d470B9ce8A55206DE19Ea60D2638ec6` |
-| BatchExecutorLib | `0xd83dc3A79Bb41a02Ca7aC812c0f52212C1BdBC1B` |
-| GuardianRegistry | `0x57f0fa384d0d7e2F234535d1235440312866872B` |
-| StakedWood (sWOOD) | `0x15F48A9f24c8ECaa8f03c28Ecd1a3b4784CdCb3c` |
-| WOOD token (fixture) | `0xCCb4fB59cf40de1E23083037ee81Da1DD747D8d7` |
-| PriceRouter | `0xDd302ffcfA08071780eC1A2f12BccFB9ba6b6731` |
-| StrategyFactory | `0xE1D082ef1CE17f9C6a46e97928337267BFF0C309` |
-
-There is **no singleton `SyndicateGovernor`**. Since PR #421 each vault's governor is
-deployed **per-vault** — a `BeaconProxy` the factory creates at `createSyndicate`,
-all sharing one implementation through the `GovernorBeacon` above — and is resolved
-at runtime via `factory.governorOf(vault)`. Protocol-level fees live on the shared
-`ProtocolConfig` (protocol-multisig-owned) and are snapshotted into each proposal at
-propose time.
-
-### Strategy Templates
-
-ERC-1167 clonable singletons. Each proposal clones a template and initializes it
-with custom parameters.
-
-| Template | Address |
-|----------|---------|
-| PortfolioStrategy | `0x67420Cc504d70a42Adfd8867d878afe0978C7d10` |
-| UniswapSwapAdapter (Synthra-backed) | `0x4fc3492117cC3bbcE0b210D22a8DC244f9d86490` |
-
-Under the V2 live-NAV model the strategy is never trusted for value: each template
-reports its on-venue holdings via `IStrategy.positions()`, and the vault prices them
-through the governance-owned `PriceRouter` per position `kind` — but only when that
-kind's **Lane A** instant lane is enabled. The Portfolio strategy reports no
-priceable positions and is **Lane B only** — entry/exit during a proposal escrows in
-the async-redeem queue and settles at one frozen per-proposal price. See
-[Vault Liquidity](/protocol/vault-liquidity) for the two-lane mechanics.
-
-### Tokens
-
-| Token | Address (46630) |
-|-------|-----------------|
-| WETH (default vault asset) | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
-
-### Stock Tokens
-
-| Token | Address |
-|-------|---------|
-| TSLA | `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E` |
-| AMZN | `0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02` |
-| PLTR | `0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0` |
-| NFLX | `0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93` |
-| AMD | `0x71178BAc73cBeb415514eB542a8995b82669778d` |
-
-### External Protocols
-
-Synthra is Uniswap-V3-compatible; the deployed `UniswapSwapAdapter` is backed by the
-Synthra router plus a QuoterV2 shim.
+## Core contracts
 
 | Contract | Address |
-|----------|---------|
-| Synthra SwapRouter02 | `0x3Ce954107b1A675826B33bF23060Dd655e3758fE` |
-| Synthra QuoterV2 | `0x231606c321A99DE81e28fE48B07a93F1ba49e713` |
-| Synthra QuoterV2 shim | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
-| Synthra V3 Factory | `0x911b4000D3422F482F4062a913885f7b035382Df` |
-| Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
-| Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+| --- | --- |
+| `SyndicateFactory` | `0xB9E71Fb33075328d6e94eCFFf8a8629D6d057cce` |
+| `SyndicateVault` implementation | `0x189160156d470B9ce8A55206DE19Ea60D2638ec6` |
+| `BatchExecutorLib` | `0xd83dc3A79Bb41a02Ca7aC812c0f52212C1BdBC1B` |
+| `GovernorBeacon` | `0x11B726c49E0bAc95bEafF8d648cf3030Dc11B73a` |
+| `ProtocolConfig` | `0xEe6DfE03353CEf1d80F38FbDdD30ce5Fb0531929` |
+| `StrategyFactory` | `0xE1D082ef1CE17f9C6a46e97928337267BFF0C309` |
 
-## Deployment Records
+There is no single global governor address. The factory creates one governor proxy per vault. Resolve it from the vault or `factory.governorOf(vault)`.
 
-Per-chain deployment records are stored in `contracts/chains/{chainId}.json` (here,
-`46630.json`). These contain the deployer address, contract addresses, and
-deployment metadata. Deploy scripts auto-write this file.
+## Guardian layer
 
-## Address Resolution
+| Contract | Address |
+| --- | --- |
+| `GuardianRegistry` | `0x57f0fa384d0d7e2F234535d1235440312866872B` |
+| `StakedWood` | `0x15F48A9f24c8ECaa8f03c28Ecd1a3b4784CdCb3c` |
+| Testnet WOOD fixture | `0xCCb4fB59cf40de1E23083037ee81Da1DD747D8d7` |
 
-Addresses are resolved at runtime in `cli/src/lib/addresses.ts`. Each address family
-is a `Record<Network, ...>` map keyed by chain; Robinhood testnet is the active
-network:
+The testnet WOOD fixture is not the production WOOD token.
 
+## Portfolio and market infrastructure
+
+| Contract | Address |
+| --- | --- |
+| Portfolio template | `0x67420Cc504d70a42Adfd8867d878afe0978C7d10` |
+| Swap adapter | `0x4fc3492117cC3bbcE0b210D22a8DC244f9d86490` |
+| Synthra WETH9, current vault asset | `0x33e4191705c386532ba27cBF171Db86919200B94` |
+| Synthra router | `0x3Ce954107b1A675826B33bF23060Dd655e3758fE` |
+| Synthra quoter | `0x231606c321A99DE81e28fE48B07a93F1ba49e713` |
+| Synthra quoter shim | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
+| Synthra factory | `0x911b4000D3422F482F4062a913885f7b035382Df` |
+| Chainlink verifier proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
+| `PriceRouter` | `0xDd302ffcfA08071780eC1A2f12BccFB9ba6b6731` |
+
+The current vault asset is Synthra's WETH9 because the relevant testnet liquidity is denominated in that token. Do not substitute a different wrapped ETH contract by symbol alone.
+
+<Note>
+  Portfolio is deployed, but the CLI registry currently contains no verified default stock swap routes. Verify each route and feed separately before building a basket.
+</Note>
+
+## Token vesting status
+
+The current registry has no `VESTING_FACTORY` or `TOKEN_VESTING_IMPL` entry. Token vesting is documented as a separate contract primitive, but it is not available on chain `46630` in this snapshot.
+
+Do not infer an address from a development branch or transaction history. A public vesting deployment must add both addresses to the canonical registry before operators create or fund grants.
+
+## Production WOOD token
+
+WOOD exists separately on Robinhood Chain mainnet, chain ID `4663`:
+
+`0xF8BC08092C06dB6148114DCf82AF881F1085f92b`
+
+The token has a fixed supply of 1 billion WOOD. The Sherwood fund protocol is not deployed on that mainnet chain in this documentation snapshot.
+
+## Verify from source
+
+The address source of truth is:
+
+```text
+contracts/chains/46630.json
 ```
-TOKENS()             → WETH, stock tokens
-SYNTHRA()            → Router, Quoter, Factory
-UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter (Synthra-backed)
-SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, StrategyFactory, PriceRouter
-STRATEGY_TEMPLATES() → Portfolio
-CHAINLINK()          → VerifierProxy
-INFRA()              → Multicall3
-```
 
-Per-vault governors are not in this table — each vault's governor is resolved at
-runtime via `factory.governorOf(vault)` (see `cli/src/lib/governor.ts`). There is no
-singleton governor address to configure.
-
-Zero addresses (`0x000...000`) indicate a protocol is not deployed. Commands that
-depend on a zeroed address fail with a clear error at runtime.
-
-## Adding a New Chain
-
-Sherwood is built to be multi-chain — Robinhood testnet is simply the first target.
-To bring up an additional chain:
-
-1. Define the chain in `cli/src/lib/network.ts` (add to the `ChainConfig` registry)
-2. Add address entries in `cli/src/lib/addresses.ts` (all `Record<Network, ...>` maps)
-3. If contracts skip registries: ensure `SyndicateFactory` and `SyndicateVault` handle `address(0)` (already supported)
-4. Create a deployment script in `contracts/script/<chain>/Deploy.s.sol`
-5. Add the RPC endpoint to `contracts/foundry.toml`
-6. Deploy and save the record to `contracts/chains/{chainId}.json`
+Client registries and this page mirror that file. If they disagree, stop and resolve the drift before submitting a transaction.

@@ -1,78 +1,94 @@
 ---
 title: "Quickstart"
-description: "Go from zero to a running fund in minutes"
-icon: "rocket"
+description: "Install the Sherwood CLI and inspect the current testnet deployment."
 ---
 
-This guide walks you through installing the CLI, creating a fund, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
+This quickstart starts with read-only commands. Add a signing wallet only when you are ready to submit a testnet transaction.
 
-<Note>
-  You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits (WETH is the default vault asset — no USDC is deployed on this chain).
-</Note>
+## What you need
+
+- Node.js 20 or newer
+- A wallet funded with testnet ETH for gas
+- Access to a fund that accepts your deposit, or an owner who can approve you
 
 <Steps>
   <Step title="Install the CLI">
-    Install globally from npm:
+    Install the latest published release and confirm that the binary is available.
 
     ```bash
-    npm install -g @sherwoodagent/cli@0.73.3
-    ```
-
-    Verify the installation:
-
-    ```bash
+    npm install -g @sherwoodagent/cli@latest
     sherwood --version
     ```
   </Step>
 
-  <Step title="Configure your wallet">
-    Set the private key for the wallet you will use to create funds and sign transactions:
+  <Step title="Confirm the network">
+    Sherwood currently exposes one network in the CLI.
 
     ```bash
-    sherwood config set --private-key <your-private-key>
+    sherwood config show
     ```
 
-    This stores the key locally at `~/.sherwood/config.json`. The wallet needs testnet ETH for gas and WETH for deposits.
+    The output should identify `robinhood-testnet`, chain ID `46630`.
   </Step>
 
-  <Step title="Create a fund">
-    Deploy a new fund with a vault and governor registration:
+  <Step title="List and inspect funds">
+    These commands do not require a private key.
 
     ```bash
-    sherwood fund create \
-      --subdomain my-fund \
-      --name "My Fund"
+    sherwood fund list
+    sherwood fund info <fund-id-or-name>
     ```
 
-    This deploys an ERC-4626 vault (WETH denominated) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. The output shows the deployed vault address. (ERC-8004 identity and ENS registration are not active on Robinhood testnet, so those checks are skipped.)
+    Record the vault address and check whether deposits are open or restricted.
   </Step>
 
-  <Step title="Deposit capital">
-    Deposit WETH into your fund's vault to receive shares. Shares grant voting power over proposals:
+  <Step title="Configure a signing wallet">
+    For a temporary shell session, prefer an environment variable so the key is not written to Sherwood's config file.
 
-    ```bash
-    sherwood vault deposit \
-      --subdomain my-fund \
-      --amount 0.1
-    ```
+    <Tabs>
+      <Tab title="macOS or Linux">
+        ```bash
+        export PRIVATE_KEY=0x...
+        ```
+      </Tab>
+      <Tab title="PowerShell">
+        ```powershell
+        $env:PRIVATE_KEY = "0x..."
+        ```
+      </Tab>
+    </Tabs>
 
-    You receive vault shares 1:1 on the first deposit. Shares are automatically self-delegated for governance voting.
+    Never use a production wallet or commit a private key to a file.
   </Step>
 
-  <Step title="Propose a strategy">
-    Submit a strategy proposal for shareholders to vote on. A proposal includes pre-committed execution calls and settlement calls:
+  <Step title="Set a default vault">
+    Save the vault address so later commands can omit `--vault`.
 
     ```bash
-    sherwood proposal create \
-      --subdomain my-fund
+    sherwood config set --vault <vault-address>
+    sherwood vault info
+    ```
+  </Step>
+
+  <Step title="Deposit testnet ETH into a WETH vault">
+    Run this only if the fund accepts your address and no proposal is active.
+
+    ```bash
+    sherwood vault deposit --amount 0.01 --use-eth
+    sherwood vault balance
     ```
 
-    The CLI walks you through configuring the Portfolio strategy (a weighted basket of tokenized stock and crypto tokens, rebalanced on-chain via Synthra), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, shareholders have a voting window to approve or reject the proposal.
+    `--use-eth` wraps testnet ETH into the WETH asset used by the current vault before depositing. During an active proposal, use the asynchronous queue described in [vault liquidity](/protocol/vault-liquidity).
   </Step>
 </Steps>
 
 ## Next steps
 
-- Read [Core Concepts](/learn/concepts) to understand the governance model and settlement mechanics
-- Explore the full [CLI command reference](/cli/commands) for vault management, voting, and agent registration
-- Check the [Protocol Architecture](/protocol/architecture) for details on the smart contract design
+<CardGroup cols={2}>
+  <Card title="Create and manage funds" icon="building-columns" href="/cli/commands">
+    Learn the owner stake requirement and supported fund commands.
+  </Card>
+  <Card title="Propose a strategy" icon="chart-pie" href="../protocol/strategies/walkthrough.mdx">
+    Build and inspect a Portfolio proposal before submitting it.
+  </Card>
+</CardGroup>

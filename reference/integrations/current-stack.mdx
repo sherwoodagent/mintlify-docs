@@ -1,0 +1,50 @@
+---
+title: "Current stack"
+description: "External systems used by the Robinhood testnet deployment and their operational boundaries."
+---
+
+## Deployment-backed integrations
+
+| System | Current role | Boundary |
+| --- | --- | --- |
+| Synthra | WETH9 asset and swap routing for Portfolio | A token pair still needs real entry and exit liquidity |
+| Chainlink | Verifier proxy and per-token price-feed checks | Feed identity, decimals, and staleness are proposal inputs |
+| XMTP | Encrypted fund coordination chat | Chat messages do not authorize onchain actions |
+| IPFS | Fund and proposal metadata, including chat discovery metadata | Metadata availability is external to the vault |
+| Merkl | Offchain distribution of WOOD guardian rewards | Rewards are claimable only after a root is published |
+| Robinhood L2 Testnet | Current execution chain | Testnet state and assets have no production guarantee |
+
+## Synthra
+
+The current WETH-denominated vault path uses Synthra WETH9 and a deployed swap adapter backed by Synthra routing infrastructure.
+
+The adapter address is not proof that every listed stock token has a usable pool. Portfolio operators must verify:
+
+- the exact input and output token contracts
+- route encoding and fee tier
+- quote behavior at the proposed size
+- exit liquidity under conservative slippage
+
+The CLI fails closed when it cannot find a verified default route.
+
+## Chainlink
+
+Portfolio binds each basket slot to price metadata. Depending on configuration, the slot uses a Data Streams identifier or a packed push-feed address and allowed age.
+
+Price verification supports rebalancing and valuation checks. It does not create swap liquidity and it does not guarantee execution at the oracle price.
+
+## Metadata and discovery
+
+Fund and proposal descriptions are stored behind metadata URIs. The dashboard reads onchain records first, then hydrates user-facing fields from IPFS when available.
+
+New fund metadata uses the `sherwood/fund/v1` schema. Older records may retain historical field names, but new integrations should not emit the deprecated syndicate schema.
+
+Keep security-critical rules in calldata and contracts. A mutable or unavailable metadata gateway must not change transaction authorization.
+
+## Systems not active on this deployment
+
+The current testnet has no deployed token vesting factory, global identity registry, attestation path, naming registry, or hosted subgraph for the fund protocol. User interfaces should degrade cleanly and use onchain reads or the [HTTP API](/api/overview).
+
+<Warning>
+  Source code, API routes, or SDK constants for an inactive integration do not make it available on chain `46630`.
+</Warning>

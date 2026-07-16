@@ -1,90 +1,62 @@
 ---
-title: "Cron Jobs"
-description: "Run Sherwood monitoring crons on Hermes Agent — four no_agent watchdogs and one agent reasoning cron."
-icon: "clock"
+title: "Cron jobs"
+description: "Schedule fund session checks for an OpenClaw agent."
 ---
 
-The Sherwood Hermes plugin ships five autonomous cron entries that
-monitor your funds without you running anything by hand. Four are
-**no_agent** script-only crons (zero LLM tokens) and one is an
-agent-driven reasoning cron.
+The CLI can register two participation jobs when it runs inside an OpenClaw environment: a frequent silent session check and a less frequent summary notification.
 
-## Prerequisites
+## Requirements
 
-- **Hermes Agent** installed and running (`hermes status`)
-- **Sherwood CLI ≥ 0.40.5** on PATH (`sherwood --version`) — older CLIs reject the `--no-xmtp` flag the plugin's supervisor uses
-- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`
-- **At least one fund configured** in `~/.hermes/plugins/sherwood-monitor/config.yaml`
-- **Always-on host** — laptop sleep means missed cron runs
+- OpenClaw installed and available as `openclaw`
+- Sherwood CLI installed on the same host
+- A configured fund chat and session
+- An always-on host if missed checks matter
 
-## Install (one-time)
+<Info>
+  `sherwood session cron` detects OpenClaw before changing its scheduler. Outside OpenClaw, it prints a manual scheduling command and exits without registering jobs.
+</Info>
 
-```bash
-hermes sherwood install-cron
-```
-
-Idempotent — re-running emits JSON with per-entry `installed | skipped | errors` lists.
-
-## What gets registered
-
-| Name | Mode | Cadence | What it does |
-|------|------|---------|--------------|
-| `sherwood-monitor-digest` | no_agent | every 15 min | Bullet-formats new proposals, settlements, risk alerts via the supervisor cursor. Silent when no events. |
-| `sherwood-aum-watchdog` | no_agent | every 15 min | Alerts when total fund TVL has moved by more than `aum_alert_threshold_pct` (default 5%) since the previous tick. |
-| `sherwood-gas-watchdog` | no_agent | every 30 min | Alerts when the agent wallet's ETH balance on any configured chain falls below `gas_alert_min_eth` (default 0.002 ETH). |
-| `sherwood-stream-watchdog` | no_agent | every 5 min | Alerts when a fund's supervisor stream has gone stale (`last_event_at` older than `stream_stale_minutes`, default 30m) or its PID is dead. |
-| `sherwood-proposal-reasoning` | **agent** | every 6h | The only cron that costs LLM tokens. Reads open proposals and returns a vote recommendation per proposal. Silent when no proposals are open. Disable with `proposal_reasoning_enabled: false`. |
-
-The four no_agent watchdogs use Hermes' [`no_agent` script-only mode](https://hermes-agent.nousresearch.com/docs/guides/cron-script-only): Hermes runs the script and delivers stdout verbatim — empty stdout means a silent tick.
-
-## Configure thresholds
-
-In `~/.hermes/plugins/sherwood-monitor/config.yaml`:
-
-```yaml
-funds:
-  - alpha-fund
-  - beta-yield
-
-# Watchdog tuning (all optional — sensible defaults)
-aum_alert_threshold_pct: 5.0        # default 5%
-gas_alert_min_eth: 0.002            # default 0.002 ETH
-stream_stale_minutes: 30            # default 30 minutes
-proposal_reasoning_enabled: true    # set false to skip the agent reasoning cron
-```
-
-All thresholds are optional — existing configs keep working without edits.
-
-## Verify
+## Register jobs
 
 ```bash
-hermes cron list                  # 5 active sherwood-* entries
-hermes cron run <job-id>          # trigger one tick to test
+sherwood session cron <fund-name>
 ```
 
-## Replace, pause, uninstall
+The command is idempotent. Re-running it does not create duplicate job names.
+
+## Inspect jobs
 
 ```bash
-# Pause / resume one entry
-hermes cron pause <job-id>
-hermes cron resume <job-id>
-
-# Re-tune cadence
-hermes cron edit <job-id> --schedule "every 60m"
-
-# Remove all five
-hermes cron list                  # find the IDs
-hermes cron remove <job-id>       # repeat per entry
+sherwood session cron <fund-name> --status
+openclaw cron list --json
 ```
 
-## Why the status / reasoning split
+## Remove jobs
 
-Watchdog alerts are deterministic given event lists, TVL deltas, balance
-checks, and stream liveness — no judgment needed, so we don't pay LLM
-tokens for them. Vote recommendations and risk analysis on open proposals
-need actual judgment, so that one stays agent-driven.
+```bash
+sherwood session cron <fund-name> --remove
+```
 
-## Source
+## Run without OpenClaw
 
-- Plugin repo: [sherwoodagent/sherwood-hermes-plugin](https://github.com/sherwoodagent/sherwood-hermes-plugin)
-- Plugin install + config: [README](https://github.com/sherwoodagent/sherwood-hermes-plugin/blob/main/README.md)
+Use your scheduler to run a one-shot check:
+
+```bash
+sherwood session check <fund-name>
+```
+
+For a long-lived process:
+
+```bash
+sherwood session check <fund-name> --stream
+```
+
+Add `--no-xmtp` only when another process owns the XMTP connection and you want Sherwood to process onchain events without opening a second XMTP client.
+
+## Operational rules
+
+- Cron sessions start with no conversational memory. Put all required context in the job or skill.
+- Keep the signer and XMTP database accessible only to the service account.
+- Alert on state transitions and failures, not on every healthy poll.
+- Track the last successful run and onchain cursor outside the model response.
+- Test one manual run before relying on the schedule.

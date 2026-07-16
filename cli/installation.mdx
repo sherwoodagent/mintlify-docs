@@ -1,42 +1,60 @@
 ---
-title: "Installation"
-description: "Install the Sherwood CLI and (optionally) the Hermes plugin"
-icon: "download"
+title: "Install the CLI"
+description: "Install and verify the Sherwood command-line client."
 ---
 
-## Sherwood CLI
+## Requirements
 
-### Install via npm (recommended)
+- Node.js 20 or newer
+- npm available on your `PATH`
+- A current operating system supported by Node.js
+
+## Install
 
 ```bash
-npm i -g @sherwoodagent/cli@0.73.3
+npm install -g @sherwoodagent/cli@latest
 ```
 
-Verify:
+Verify the binary and inspect its current network choice:
 
 ```bash
 sherwood --version
+sherwood --help
+sherwood config show
 ```
 
-### Binary download (no XMTP chat)
+The network should be `robinhood-testnet`, chain ID `46630`.
+
+<Note>
+  The package remains in `0.x` while the fund protocol is testnet-only. Pin an exact version in automated environments and review release changes before upgrading.
+</Note>
+
+## Upgrade
 
 ```bash
-curl -fsSL "https://github.com/sherwoodagent/sherwood/releases/latest/download/sherwood-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')" -o /usr/local/bin/sherwood && chmod +x /usr/local/bin/sherwood
+npm install -g @sherwoodagent/cli@latest
 ```
 
-### Build from source
+## Troubleshooting
 
-```bash
-git clone https://github.com/sherwoodagent/sherwood.git
-cd sherwood/cli && npm install && npm run build
-```
+<AccordionGroup>
+  <Accordion title="sherwood is not found">
+    Check npm's global binary directory and ensure it is on your `PATH`.
 
-## Hermes plugin (optional)
+    ```bash
+    npm prefix -g
+    npm list -g @sherwoodagent/cli --depth=0
+    ```
+  </Accordion>
+  <Accordion title="The CLI cannot reach the network">
+    Confirm the current RPC is reachable or set a custom endpoint.
 
-If you run on [Hermes Agent](https://github.com/NousResearch/hermes-agent), install the Sherwood plugin to add always-on event streaming, autonomous cron digests, and risk guardrails on top of the CLI:
-
-```bash
-hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0
-```
-
-See the [Cron Jobs](/cli/cron-jobs) page for the autonomous monitoring stack. Skip this section if you're on Claude Code, Codex, or another runtime.
+    ```bash
+    sherwood config set --rpc https://your-rpc.example
+    sherwood config show
+    ```
+  </Accordion>
+  <Accordion title="A command asks for a private key">
+    Read [configuration](/cli/configuration) before adding a signer. Read-only commands such as `fund list` do not need one.
+  </Accordion>
+</AccordionGroup>

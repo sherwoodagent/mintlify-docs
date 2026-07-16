@@ -1,161 +1,81 @@
 ---
-title: "Strategy Commands"
-description: "Clone strategy templates, build batch calls, and submit governance proposals"
-icon: "cubes"
+title: "Strategy commands"
+description: "Build and operate the deployed Portfolio strategy."
 ---
 
-Strategy templates are ERC-1167 clonable contracts deployed once per chain. Each proposal clones a template, initializes it with custom parameters, then uses the clone in governor batch calls.
-
-<Note>
-On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** (a weighted basket of tokenized stocks/crypto, rebalanced through Synthra). The other templates below (Moonwell, Aerodrome, Venice, Mamo, Hyperliquid) come online as Sherwood expands to more chains — the flag reference is kept for completeness.
-</Note>
-
-## `strategy list`
-
-Show available strategy templates and their deployed addresses.
+## Availability
 
 ```bash
 sherwood strategy list
 ```
 
-## `strategy clone <template>`
+On the current deployment, the supported result is `portfolio`. Other template names that may still appear in generic CLI help are not deployed for public use on chain `46630`.
 
-Clone a template and initialize it. Returns the clone address for use in proposal batch calls.
-
-```bash
-sherwood strategy clone portfolio \
-  --vault 0x... \
-  --amount 0.5 \
-  --tokens TSLA,AMZN,AMD \
-  --weights 4000,3000,3000
-```
-
-The clone is deployed and initialized on-chain. The proposer (your wallet) pays gas for both transactions.
-
-## `strategy propose <template>`
-
-All-in-one command: clone + initialize + build batch calls + submit proposal (or write JSON files).
-
-<Note>
-This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`, set by the vault owner via [`sherwood fund set-agent-fee`](/cli/governance-commands#sherwood-fund-set-agent-fee) (default 5%, capped 15%). Each proposal snapshots it at propose time; the governor clamps that snapshot to `maxPerformanceFeeBps` at settlement.
-</Note>
-
-### Write calls to files (for manual proposal creation)
-
-```bash
-sherwood strategy propose venice-inference \
-  --vault 0x... \
-  --amount 500 --asset USDC --min-vvv 900 \
-  --write-calls ./venice-calls
-
-# Then submit manually:
-sherwood proposal create \
-  --vault 0x... \
-  --name "Venice Inference" \
-  --duration 7d \
-  --execute-calls ./venice-calls/execute.json \
-  --settle-calls ./venice-calls/settle.json
-```
-
-### Submit directly
+## Build a proposal
 
 ```bash
 sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 0.5 --tokens TSLA,AMZN,AMD --weights 4000,3000,3000 \
-  --name "Tech Stock Basket" \
-  --description "Weighted basket of tokenized stocks for 7 days" \
-  --duration 7d
+  --name "Explicit-route basket" \
+  --description "Testnet basket with reviewed entry and exit routes" \
+  --duration 24h \
+  --amount 0.01 \
+  --tokens "0x...,0x..." \
+  --weights "6000,4000" \
+  --swap-routes "v3:3000,v3:3000" \
+  --feed-ids "0x...,0x..." \
+  --price-decimals "8,8" \
+  --max-slippage 300
 ```
 
-## Template-Specific Options
+The lists are positional. Token, route, feed, price-decimal, and weight entry `i` must all describe the same basket slot.
 
-### moonwell-supply
+<Warning>
+  There are no verified default stock routes in the current CLI registry. Do not copy the route values above without checking that those exact pools and exit paths exist. The values demonstrate command shape, not recommended market configuration.
+</Warning>
 
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Amount of asset to supply | required |
-| `--min-redeem <n>` | Min asset on settlement | same as amount |
-| `--token <symbol>` | Asset token (USDC, WETH) | USDC |
+## Inspect before submission
 
-### venice-inference
+Add `--write-calls` to write the execute and settlement arrays instead of submitting the proposal:
 
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Amount of asset to deploy | required |
-| `--asset <symbol>` | Asset token (USDC, VVV, or address) | USDC |
-| `--agent <address>` | Agent wallet receiving sVVV | your wallet |
-| `--min-vvv <n>` | Min VVV from swap (required if asset != VVV) | — |
-| `--single-hop` | Direct asset-to-VVV swap | false |
+```bash
+sherwood strategy propose portfolio \
+  --vault 0x... \
+  --tokens "0x...,0x..." \
+  --weights "6000,4000" \
+  --swap-routes "v3:3000,v3:3000" \
+  --feed-ids "0x...,0x..." \
+  --price-decimals "8,8" \
+  --amount 0.01 \
+  --duration 24h \
+  --write-calls ./portfolio-calls
+```
 
-### aerodrome-lp
+In signer mode, clone deployment or initialization can still create transactions. Read the prompt and output before confirming.
 
-| Flag | Description | Default |
-|------|------------|---------|
-| `--token-a <address>` | Token A address | required |
-| `--token-b <address>` | Token B address | required |
-| `--amount-a <n>` | Token A amount | required |
-| `--amount-b <n>` | Token B amount | required |
-| `--stable` | Stable pool (correlated assets) | false |
-| `--gauge <address>` | Gauge for AERO rewards | none |
-| `--lp-token <address>` | LP token address | required |
-| `--min-a-out <n>` | Min token A on settle | 0 |
-| `--min-b-out <n>` | Min token B on settle | 0 |
+## Read strategy state
 
-### wsteth-moonwell
+```bash
+sherwood strategy status <clone-address>
+sherwood strategy status <clone-address> --json
+```
 
-Supply wstETH as Moonwell collateral. If the asset is not wstETH, the CLI swaps asset → wstETH via the Uniswap router before supply. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
+The JSON form is intended for monitoring agents. It does not replace independent onchain reads for transaction authorization.
 
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Asset amount to deploy | required |
-| `--token <symbol>` | Asset token symbol | USDC |
-| `--slippage <bps>` | Swap slippage tolerance in bps | 500 |
+## Rebalance
 
-### mamo-yield
+```bash
+sherwood strategy rebalance <clone-address>
+```
 
-Deposit asset into a Mamo yield strategy via the Mamo StrategyFactory. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
+Only the configured proposer can rebalance while the proposal is executed. The simple command sells all positions and buys them again at the stored weights, so it incurs route, liquidity, slippage, and gas costs on both sides.
 
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Asset amount to deploy | required |
-| `--mamo-factory <address>` | Mamo StrategyFactory address | required |
+## Settle
 
-### portfolio
+Portfolio settlement is a governance action:
 
-Weighted basket of tokens (tokenized stocks, crypto) with on-chain rebalancing. Built on `UniswapSwapAdapter` with automatic multi-hop routing: the adapter tries direct pools first, then falls back to routing through WETH for tokens without direct pools. **This is the live strategy on Robinhood testnet** (chain 46630), routing through Synthra.
+```bash
+sherwood proposal settle --vault 0x... --id <proposal-id>
+```
 
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Total asset amount to allocate | required |
-| `--tokens <list>` | Comma-separated token addresses or symbols | required |
-| `--weights <list>` | Comma-separated weights in bps (must sum to 10000) | required |
-| `--max-slippage <bps>` | Max per-swap slippage in bps | 500 |
-| `--fee-tier <n>` | Uniswap V3 pool fee tier | 3000 |
-| `--swap-adapter <address>` | Override swap adapter | auto-detected |
-
-See the [Portfolio strategy reference](/protocol/strategies/portfolio) for mechanics and risk notes.
-
-### hyperliquid-perp
-
-Open a leveraged perpetual futures position on Hyperliquid via the Hyperliquid strategy template. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | USDC collateral to deploy | required |
-| `--leverage <n>` | Leverage multiplier | 10 |
-| `--asset-index <n>` | HyperCore perp asset index (0 = BTC, 3 = ETH) | 0 |
-| `--min-return <n>` | Min USDC return amount on settlement | — |
-| `--max-position <amount>` | Max position size in USD | 100000 |
-| `--max-trades-per-day <n>` | Max trades per day | 50 |
-
-See the [Hyperliquid Perp strategy reference](/protocol/strategies/hyperliquid-perp) for mechanics, liquidation risk, and settlement flow.
-
-## How It Works
-
-1. **Clone**: The CLI deploys an ERC-1167 minimal proxy pointing to the template singleton. Cost: ~50k gas.
-2. **Initialize**: Calls `strategy.initialize(vault, proposer, data)` with your parameters. Cost: ~100-200k gas.
-3. **Build calls**: Generates `execute.json` and `settle.json` with the correct approve + execute/settle batch calls.
-4. **Submit**: Either writes files for `proposal create` or calls `governor.propose()` directly.
-
-The vault trusts the governor — no separate allowlisting step is needed for strategy clones.
+It sells remaining basket balances back to the vault asset. A monitoring system should not mark the strategy complete until the proposal state is `Settled`.

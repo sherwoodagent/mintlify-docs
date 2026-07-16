@@ -1,120 +1,143 @@
 ---
 title: "TypeScript SDK"
-description: "@sherwoodagent/sdk — typed calldata encoders and on-chain reads, no CLI runtime."
+description: "Typed calldata encoders and onchain reads for Sherwood integrations."
 ---
 
-The Sherwood SDK gives TypeScript agents the same calldata encoders and read helpers the [CLI](/cli/installation) uses, with none of the CLI's runtime — no XMTP, no `~/.sherwood/` state, no signing. Bring your own viem `PublicClient` and your own wallet.
+`@sherwoodagent/sdk` contains pure encoders, minimal ABIs, and read helpers. It does not manage keys, create a wallet client, broadcast transactions, or store local CLI state.
 
-If you can't install Node packages at all, use the [HTTP API](/api/overview) instead.
-
-**Install:**
+## Install
 
 ```bash
-npm i @sherwoodagent/sdk viem
+npm install @sherwoodagent/sdk viem
 ```
 
-`viem` is a peer dependency (>=2.21).
+`viem` is a peer dependency.
 
-## Quick start: read a vault, prepare a deposit, broadcast
+## Define the current chain
+
+```ts
+import { CHAIN_IDS } from "@sherwoodagent/sdk";
+import { defineChain } from "viem";
+
+export const robinhoodTestnet = defineChain({
+  id: CHAIN_IDS.ROBINHOOD_L2,
+  name: "Robinhood L2 Testnet",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.testnet.chain.robinhood.com"] },
+  },
+  blockExplorers: {
+    default: {
+      name: "Blockscout",
+      url: "https://explorer.testnet.chain.robinhood.com",
+    },
+  },
+  testnet: true,
+});
+```
+
+<Warning>
+  The SDK registry can retain legacy chain constants and address records for compatibility. For the current public fund deployment, use `CHAIN_IDS.ROBINHOOD_L2` only. Do not infer availability from `SUPPORTED_CHAIN_IDS` or `listDeployments()`.
+</Warning>
+
+## Read a vault and prepare a deposit
 
 ```ts
 import {
+  CHAIN_IDS,
   encodeDeposit,
   readVaultInfo,
-  CHAIN_IDS,
 } from "@sherwoodagent/sdk";
-import { createPublicClient, createWalletClient, defineChain, http } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, http } from "viem";
+import { robinhoodTestnet } from "./chain.js";
 
-// Robinhood testnet (chain 46630) is Sherwood's current deployment target.
-const robinhoodTestnet = defineChain({
-  id: CHAIN_IDS.ROBINHOOD_L2, // 46630
-  name: "Robinhood Testnet",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [process.env.ROBINHOOD_RPC_URL!] } },
-});
-
-const publicClient = createPublicClient({
+const client = createPublicClient({
   chain: robinhoodTestnet,
-  transport: http(process.env.ROBINHOOD_RPC_URL),
+  transport: http(),
 });
 
-// 1. Read the vault
-const info = await readVaultInfo(publicClient, "0xVaultAddress");
+const vault = "0xVAULT" as `0x${string}`;
+const receiver = "0xSIGNER" as `0x${string}`;
+const info = await readVaultInfo(client, vault);
 
-// 2. Encode an approve + deposit pair
-const action = encodeDeposit({
-  vault: "0xVaultAddress",
-  receiver: "0xYourAddress",
-  asset: info.asset,
-  assetSymbol: info.assetSymbol,
-  assetDecimals: info.assetDecimals,
-  assets: 1_000_000_000_000_000_000n, // 1 WETH (18 decimals)
-}, CHAIN_IDS.ROBINHOOD_L2);
+const action = encodeDeposit(
+  {
+    vault,
+    receiver,
+    asset: info.asset,
+    assetSymbol: info.assetSymbol,
+    assetDecimals: info.assetDecimals,
+    assets: 10_000_000_000_000_000n,
+  },
+  CHAIN_IDS.ROBINHOOD_L2,
+);
+```
 
-// 3. Sign + broadcast each tx in order
-const wallet = createWalletClient({
-  account: privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`),
-  chain: robinhoodTestnet,
-  transport: http(process.env.ROBINHOOD_RPC_URL),
-});
+Without `currentAllowance`, `encodeDeposit` returns a conservative approval followed by the deposit. Read the live allowance and pass it when you want the encoder to omit an unnecessary approval.
 
+## Sign the prepared action
+
+```ts
 for (const tx of action.txs) {
-  const hash = await wallet.sendTransaction({
+  if (tx.chainId !== CHAIN_IDS.ROBINHOOD_L2) {
+    throw new Error(`Unexpected chain ${tx.chainId}`);
+  }
+
+  const hash = await walletClient.sendTransaction({
     to: tx.to,
     data: tx.data,
     value: BigInt(tx.value),
   });
-  await publicClient.waitForTransactionReceipt({ hash });
+
+  await client.waitForTransactionReceipt({ hash });
 }
 ```
 
-## What's exported
+Create `walletClient` in your application with a dedicated signer. The SDK never checks your policy for target allowlists, value limits, or human approval.
 
-### Encoders (pure, no I/O)
+## Current encoder surface
 
-Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditions, description, note? }`. Sign each `tx` with your wallet.
+| Area | Exports |
+| --- | --- |
+| Vault | `encodeDeposit`, `encodeRedeem`, `encodeRequestRedeem`, `encodeApproveDepositor`, `encodeSetAgentFeeBps` |
+| Governance | `encodePropose`, `encodeVote`, `encodeExecute`, `encodeSettle`, `encodeCancel`, `encodeVeto` |
+| Recovery | `encodeUnstick`, `encodeEmergencySettle` |
+| Strategy | `encodeStrategyDeploy`, `predictStrategyCloneAddress`, `deriveStrategySalt` |
+| Guardian | `encodeGuardianStake`, `encodeGuardianUnstake`, `encodeGuardianDelegate`, `encodeDelegationUnstake`, `encodeSetCommission` |
+| Fund | `encodeCreateFund`, `encodeRegisterAgent` |
+| Parameters | `encodeGovernorParam`, `encodeProtocolFeeBps` |
 
-| Encoder | Description |
-|---|---|
-| `encodeDeposit` | ERC-4626 deposit. Returns 1–2 txs (approve + deposit). |
-| `encodeRedeem` | ERC-4626 redeem (synchronous LP exit). |
-| `encodeRequestRedeem` | Queue redeem (used while a proposal is active). |
-| `encodeApproveDepositor` | Owner allow-list add. |
-| `encodeRegisterAgent` | Register an ERC-8004 agent on a vault. |
-| `encodePropose` | Submit a strategy proposal. |
-| `encodeVote` | Cast `For` / `Against` / `Abstain`. |
-| `encodeExecute` / `encodeSettle` / `encodeCancel` / `encodeVeto` | Lifecycle actions. |
-| `encodeCreateFund` | Deploy a new vault via the factory. |
-| `encodeGuardianStake` / `encodeGuardianUnstake` / `encodeGuardianDelegate` / `encodeDelegationUnstake` | Guardian + delegation flows. |
-| `encodeSetCommission` | DPoS commission rate (0–5000 bps). |
-| `encodeClaimProposalReward` / `encodeClaimDelegatorProposalReward` | Approver + delegator fee claims. |
+Some exported encoders target systems that are not deployed on chain `46630`. Check the relevant deployment address for zero before exposing an encoder to users.
 
-### Reads (take a viem `PublicClient`)
+## Current read surface
 
-| Read | Returns |
-|---|---|
-| `readVaultInfo(client, vault)` | Vault state including totalAssets, share supply, owner, governor, asset metadata. |
-| `readGovernorParams(client, chainId)` | Governor parameters + protocol/guardian fees + recipient. |
-| `readProposal(client, chainId, id)` | Proposal full detail. Throws `SdkError("NOT_FOUND")` for unknown ids. |
+| Helper | Result |
+| --- | --- |
+| `readVaultInfo(client, vault)` | Asset, total assets, share supply, owner, governor, pause and liquidity state |
+| `readGovernorParams(client, chainId, vault)` | Per-fund parameters and fee configuration |
+| `readProposal(client, chainId, vault, id)` | One vault-scoped proposal |
+| `readActiveFunds(client, chainId)` | Active funds from the factory |
+| `readFundResolution(client, chainId, query)` | Resolve a vault or fund label |
 
-### Other surface
+## Error handling
 
-- `getDeployment(chainId)` / `listDeployments()` — per-chain Sherwood addresses + token table.
-- `SYNDICATE_VAULT_ABI`, `SYNDICATE_GOVERNOR_ABI`, `SYNDICATE_FACTORY_ABI`, `GUARDIAN_REGISTRY_ABI`, `ERC20_ABI` — minimal viem-shaped ABI fragments.
-- `SdkError` with codes `USAGE` / `UNSUPPORTED` / `UNAVAILABLE` / `INTERNAL` / `NOT_FOUND` — match the [HTTP API error model](/api/overview#error-codes).
-- `CHAIN_IDS` constant — use `ROBINHOOD_L2` (46630), Sherwood's current deployment target. Additional chain ids will be added as Sherwood expands.
-- `PROPOSAL_STATES` and `VOTE_TYPES` enum constants.
+Catch `SdkError` and branch on its code:
 
-## What's NOT in the SDK
+```ts
+import { SdkError } from "@sherwoodagent/sdk";
 
-- **Wallet client / signing** — bring your own (viem `WalletClient`, ethers, etc.).
-- **RPC client** — pass your own `PublicClient` to `read*` helpers.
-- **XMTP / chat** — those live in `@sherwoodagent/cli` only.
-- **Hermes plugin runtime** — install [@sherwoodagent/cli](/cli/installation) + the Hermes plugin if you want event streaming and cron digests.
+try {
+  // read or encode
+} catch (error) {
+  if (error instanceof SdkError) {
+    console.error(error.code, error.message);
+  }
+  throw error;
+}
+```
+
+The codes are `USAGE`, `UNSUPPORTED`, `UNAVAILABLE`, `NOT_FOUND`, and `INTERNAL`.
 
 ## Versioning
 
-The SDK is on `0.x` until the protocol mainnet GA. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.1.x`) if you want reproducible installs.
-
-The SDK and the [HTTP API](/api/overview) ship from the same monorepo and use the same encoders — they cannot drift.
+The SDK is in `0.x`. Pin an exact version for production-like automation, ignore unknown response fields, and review minor releases for breaking type changes.
