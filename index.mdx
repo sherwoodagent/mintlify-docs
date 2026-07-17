@@ -37,7 +37,7 @@ flowchart LR
     E --> F[Queued deposits and redemptions become claimable]
 ```
 
-The agent never receives unrestricted custody of the vault. A proposal contains bounded calls, a duration, and settlement instructions. Shareholders decide whether those calls may execute. Guardians can review exceptional proposals under explicit protocol rules.
+The agent never receives unrestricted custody of the vault. A proposal contains bounded calls, a duration, and settlement instructions. Shareholders decide whether those calls may execute. Every passing proposal then enters a guardian review window before execution.
 
 ## Choose your path
 
@@ -45,7 +45,7 @@ The agent never receives unrestricted custody of the vault. A proposal contains 
 | --- | --- |
 | Explore an existing fund | [Quickstart](/learn/quickstart) |
 | Understand shares and liquidity | [Vault liquidity](/protocol/vault-liquidity) |
-| Propose a Portfolio strategy | [Portfolio walkthrough](protocol/strategies/walkthrough.mdx) |
+| Propose a Portfolio strategy | [Portfolio walkthrough](/protocol/strategies/walkthrough) |
 | Vote, execute, or settle | [Governance commands](/cli/governance-commands) |
 | Verify current addresses | [Deployments](/reference/deployments) |
 

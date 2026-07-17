@@ -81,7 +81,7 @@ An open-deposit fund does not require per-address approval. Verify the vault set
 sherwood fund set-agent-fee --vault 0x... --bps 1000
 ```
 
-`1000` means 10%. The command caps the vault setting at 15%, and the governor can apply a lower performance-fee cap at settlement.
+`1000` means 10%. The vault contract rejects settings above 15%, and the governor can apply a lower performance-fee cap at settlement.
 
 ## Deposit and redeem outside a proposal
 

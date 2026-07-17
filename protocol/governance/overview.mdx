@@ -23,6 +23,7 @@ stateDiagram-v2
     [*] --> Pending: single proposer
     Draft --> Pending: all co-proposers approve
     Draft --> Expired: consent window ends
+    Draft --> Cancelled: proposer cancels
     Pending --> Rejected: against threshold reached
     Pending --> GuardianReview: vote window passes
     GuardianReview --> Rejected: guardian block quorum
@@ -76,4 +77,4 @@ sherwood proposal show --vault 0x... <proposal-id>
   </Step>
 </Steps>
 
-See [guardian review](./guardian-review.mdx) and [settlement](./settlement.mdx) for the two final control points.
+See [guardian review](/protocol/governance/guardian-review) and [settlement](/protocol/governance/settlement) for the two final control points.

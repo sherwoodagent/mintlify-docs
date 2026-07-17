@@ -59,6 +59,10 @@ sherwood proposal vote \
 
 Valid choices are `for`, `against`, and `abstain`. Because governance is optimistic, only `against` voting power contributes to the veto threshold.
 
+<Note>
+  The HTTP API uses capitalized, case-sensitive vote strings: `For`, `Against`, `Abstain`. The lowercase values above apply to the CLI only.
+</Note>
+
 ## Execute
 
 Simulate first:
@@ -81,7 +85,7 @@ The proposal must have cleared voting and guardian review.
 sherwood proposal settle --vault 0x... --id <proposal-id>
 ```
 
-The proposer can settle after the anti-skim floor. Any caller can settle after the full strategy duration. Read [settlement](../protocol/governance/settlement.mdx) before supplying exceptional settlement calls.
+The proposer can settle after the anti-skim floor. Any caller can settle after the full strategy duration. Read [settlement](/protocol/governance/settlement) before supplying exceptional settlement calls.
 
 ## Resolve completed guardian reviews
 

@@ -66,17 +66,17 @@ The queue escrows deposits or shares submitted during an active proposal. After 
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: proposal created
-    Pending --> Defeated: vote fails
-    Pending --> Review: vote passes and review is required
-    Pending --> Succeeded: vote passes without review
-    Review --> Succeeded: review clears
-    Review --> Cancelled: review blocks
-    Succeeded --> Executed: approved calls run
+    Pending --> Rejected: veto threshold reached
+    Pending --> GuardianReview: vote passes
+    GuardianReview --> Approved: review window ends without a block
+    GuardianReview --> Rejected: guardians block
+    Approved --> Executed: approved calls run
+    Approved --> Expired: execution window passes
     Executed --> Settled: strategy exits or value finalizes
     Settled --> [*]
 ```
 
-Exact transitions depend on proposal configuration and guardian thresholds. Use [governance overview](./governance/overview.mdx) for the operator view.
+Every passing proposal enters the guardian review window. The window length comes from the guardian registry and can be zero, in which case the proposal moves to `Approved` immediately. Use the [governance overview](/protocol/governance/overview) for the operator view, including the collaborative `Draft` stage and cancellation paths.
 
 ## Trust boundaries
 

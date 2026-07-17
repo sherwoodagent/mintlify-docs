@@ -34,7 +34,7 @@ Successful and failed responses use a common shape:
   "success": true,
   "data": {},
   "meta": {
-    "command": "health",
+    "command": "health.shallow",
     "chainId": 46630,
     "timestamp": "2026-07-16T12:00:00.000Z"
   }
@@ -67,6 +67,7 @@ Most prepare routes accept either query parameters with `GET` or a JSON body wit
 
 | Endpoint | Result |
 | --- | --- |
+| `/prepare/create-fund` | Fund creation through the deployed factory |
 | `/prepare/deposit` | Approval and ERC-4626 deposit calls |
 | `/prepare/redeem` | Instant ERC-4626 redemption call |
 | `/prepare/request-redeem` | Lane B redemption request |
@@ -147,6 +148,10 @@ Valid vote strings are case-sensitive: `For`, `Against`, and `Abstain`.
 | `503` | RPC or required upstream service unavailable |
 
 Retry `503` and `429` with bounded exponential backoff. Do not retry a validation error without changing the request.
+
+<Note>
+  The current deployment reports a tripped rate limit as `500` with the error message `Rate limit exceeded — try again in a minute`. Treat that specific response as a `429` and retry with backoff.
+</Note>
 
 ## Signing boundary
 
