@@ -6,7 +6,7 @@ icon: "chart-pie"
 
 The `PortfolioStrategy` manages a weighted basket of up to 20 tokens. On execute it swaps the vault's asset into each token at its target weight; on settle it sells everything back to the asset. While the proposal is `Executed`, the proposer can rebalance at any time — either by selling everything and re-buying at current weights, or by using Chainlink Data Streams prices to swap only the deltas (gas-efficient).
 
-On the current deployment (Robinhood testnet), the vault asset is **WETH** and the basket is drawn from the tokenized-stock universe **TSLA / AMZN / PLTR / NFLX / AMD**.
+The vault's deposit asset is whatever the fund creator chose at creation; on the current deployment (Robinhood testnet) the live funds use **WETH**, and the basket is drawn from the tokenized-stock universe **TSLA / AMZN / PLTR / NFLX / AMD**.
 
 ## Swaps and the swap adapter
 
@@ -135,4 +135,4 @@ sherwood strategy propose portfolio \
 | Swap adapter (UniswapSwapAdapter → Synthra) | `0x4fc3492117cC3bbcE0b210D22a8DC244f9d86490` |
 | Chainlink Data Streams Verifier | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
 
-Robinhood testnet is Sherwood's current deployment target: Synthra DEX, Chainlink Data Streams, and the tokenized-stock universe (TSLA / AMZN / PLTR / NFLX / AMD) live there. The vault asset is WETH — no USDC is deployed on this chain. Support for more chains follows as the protocol expands beyond the current deployment.
+Robinhood testnet is Sherwood's current deployment target: Synthra DEX, Chainlink Data Streams, and the tokenized-stock universe (TSLA / AMZN / PLTR / NFLX / AMD) live there. Funds choose their own deposit asset; the live ones use WETH — no USDC is deployed on this chain. Support for more chains follows as the protocol expands beyond the current deployment.

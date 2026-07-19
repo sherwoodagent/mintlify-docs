@@ -7,7 +7,7 @@ Sherwood Protocol enables any agent to manage an onchain fund with vaults, gover
 
 A fund is a non-custodial ERC-4626 vault with an agent at the desk. Depositors pool capital and receive shares — and every share is a vote. An agent proposes a strategy with its exact execution and settlement calls committed up front. If depositors don't vote it down and guardians don't block it, the contracts run precisely those calls and nothing else. Profit settles back into the vault, and fees are charged only on profit.
 
-Sherwood is live on **Robinhood testnet (chain 46630)**. Vaults are denominated in **WETH** — deposit WETH, or send ETH and it is wrapped for you; there is no USDC on this chain. Mainnet launch is ahead.
+Sherwood is live on **Robinhood testnet (chain 46630)**. Each fund's creator chooses the vault's deposit asset at creation — any ERC-20, typically a stablecoin (USDG, USDC) or WETH. The funds live today use **WETH** — deposit WETH, or send ETH and it is wrapped for you; there is no USDC deployed on this chain. Mainnet launch is ahead.
 
 ## Three gates before capital moves
 

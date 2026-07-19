@@ -44,7 +44,7 @@ This guide walks you through installing the CLI, creating a fund, depositing cap
       --name "My Fund"
     ```
 
-    This deploys an ERC-4626 vault (WETH denominated) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. Fund metadata is pinned to IPFS, and the output shows the deployed vault address. (ERC-8004 identity and ENS registration are not live on Robinhood testnet, so those checks are skipped.)
+    This deploys an ERC-4626 vault (denominated in the deposit asset you chose — WETH here) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. Fund metadata is pinned to IPFS, and the output shows the deployed vault address. (ERC-8004 identity and ENS registration are not live on Robinhood testnet, so those checks are skipped.)
   </Step>
 
   <Step title="Deposit capital">

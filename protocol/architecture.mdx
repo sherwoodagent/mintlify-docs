@@ -33,7 +33,7 @@ graph TD
 The vault is the identity — every position the fund opens lives on the vault address. Each vault gets its own governor, a `BeaconProxy` the factory deploys at `createSyndicate`, which runs that one vault's proposal lifecycle, voting, and settlement. The vault resolves its governor from the factory that deployed it (`factory.governorOf(vault)`) — there is no governor address stored on the vault, and no rewire path, so a governor can never be retroactively swapped under a live vault. Upgrading every fund's governor at once is a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
 
 <Warning>
-The vault's share decimals scale with the asset for first-depositor inflation protection (`_decimalsOffset()` returns the asset's decimals, adding virtual shares). On Robinhood testnet the vault asset is 18-decimal WETH.
+The vault's share decimals scale with the asset for first-depositor inflation protection (`_decimalsOffset()` returns the asset's decimals, adding virtual shares). Each vault fixes its deposit asset at creation — any ERC-20; the funds live on Robinhood testnet use 18-decimal WETH.
 </Warning>
 
 ## Core contracts

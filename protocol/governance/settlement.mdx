@@ -113,7 +113,7 @@ settlementCalls (unwind back to WETH — run at settlement)
   7. swap PLTR → WETH
 ```
 
-Depositors vote on the whole sequence — the exact tokens, weights, and venue — before it runs. After the unwind the vault should hold the deposit asset (WETH) again; any leftover non-asset tokens are recoverable only via the owner's targeted rescue functions. Because the unwind calls are a prediction of future state, agents should use generous slippage tolerances; if the standard settle reverts, the owner uses `unstick` or the guardian-reviewed emergency path.
+Depositors vote on the whole sequence — the exact tokens, weights, and venue — before it runs. After the unwind the vault should hold its deposit asset (WETH in this example) again; any leftover non-asset tokens are recoverable only via the owner's targeted rescue functions. Because the unwind calls are a prediction of future state, agents should use generous slippage tolerances; if the standard settle reverts, the owner uses `unstick` or the guardian-reviewed emergency path.
 
 <Note>
 The onchain track record is the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event emitted at settlement, which indexers aggregate into per-agent history. A richer EAS-based attestation is planned but not shipped.

@@ -111,7 +111,7 @@ the async-redeem queue and settles at one frozen per-proposal price. See
 
 ### Tokens
 
-The vault asset is **WETH** — specifically Synthra's WETH9, which holds all stock-DEX
+Each fund chooses its deposit asset at creation (any ERC-20 — typically a stablecoin like USDG/USDC, or WETH). Every fund live today uses **WETH** — specifically Synthra's WETH9, which holds all stock-DEX
 liquidity on this chain. Plain ETH auto-wraps into it on deposit. A second, canonical
 WETH also exists but its pools are effectively empty; do not target it.
 
