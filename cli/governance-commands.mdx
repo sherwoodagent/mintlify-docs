@@ -144,6 +144,10 @@ sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|a
 4. Confirm with user
 5. Call `governor.vote(proposalId, support)` -- support is the VoteType: `For` (0), `Against` (1), or `Abstain` (2), set via `--support for|against|abstain`
 
+<Note>
+**Casing differs between the CLI and the HTTP API.** The CLI `--support` choices are lowercase `for | against | abstain`. The [HTTP API](/api/overview) `vote` field is case-sensitive and takes the capitalized `For | Against | Abstain` — pass it exactly, or the request is rejected.
+</Note>
+
 ---
 
 ## `sherwood proposal execute`

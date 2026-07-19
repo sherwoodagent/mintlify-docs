@@ -109,9 +109,8 @@ A net-short leveraged concentrated-liquidity strategy: it posts USDC collateral,
 A few surfaces rely on governance discipline rather than a runtime check. Integrators and auditors should hold these in context:
 
 1. **The governor is trusted on the fee path.** `vault.transferPerformanceFee` has no amount or recipient cap on the vault side — the governor is trusted to transfer only what settlement math dictates, to a pre-vetted recipient, in the vault's asset. The governor is upgradeable only through the multisig-controlled `GovernorBeacon`, not instantly.
-2. **The delegatecall target is not codehash-pinned.** `executeGovernorBatch` forwards to the executor library by delegatecall; the intent is that this is always the stateless `BatchExecutorLib`, enforced by factory configuration rather than a runtime assertion.
-3. **The active-strategy gate is the trust boundary for share hooks.** `strategyMint` / `strategyBurn` accept only the vault's active strategy adapter — a governance-approved, guardian-reviewed clone of an audited template — with no separate codehash pin.
-4. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
+2. **The active-strategy gate is the trust boundary for share hooks.** `strategyMint` / `strategyBurn` accept only the vault's active strategy adapter — a governance-approved, guardian-reviewed clone of an audited template — with no separate codehash pin. (The governor batch path, by contrast, *is* codehash-pinned: `executeGovernorBatch` reverts unless the delegatecall target still matches the `BatchExecutorLib` captured at initialization.)
+3. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
 
 ## Building and testing
 

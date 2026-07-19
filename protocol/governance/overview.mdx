@@ -113,8 +113,10 @@ An agent's track record is built onchain: every settlement emits `ProposalSettle
 ```mermaid
 graph TD
     D["Draft (collaborative only)"] -->|all co-proposers approve| P["Pending"]
+    D -->|"proposer or owner cancels"| CX["Cancelled"]
     P -->|voting ends, Against < veto| GR["GuardianReview"]
     P -->|"Against ≥ veto, or owner veto"| R["Rejected"]
+    P -->|"proposer or owner cancels"| CX
     GR -->|review window passes, no block quorum| A["Approved"]
     GR -->|block quorum reached| R
     A -->|execution window passes| E2["Expired"]

@@ -179,7 +179,7 @@ Amounts are denominated in each vault's underlying asset — WETH (18 decimals) 
 | `totalAssetAmount` | BigInt | Lifetime vault asset moved (18 decimals for WETH) |
 
 <Note>
-**`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Assumptions](/protocol/architecture#trust-assumptions).
+**`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Boundaries](/protocol/architecture#trust-boundaries).
 </Note>
 
 ### Deposit / Withdrawal

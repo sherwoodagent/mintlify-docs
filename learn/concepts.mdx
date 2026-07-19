@@ -75,7 +75,18 @@ Every strategy an agent proposes starts from a vetted template. Sherwood documen
 
 ## $WOOD
 
-$WOOD is the protocol's staking and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata. It is an external token launched on Robinhood Chain and tradeable on Uniswap — the in-repo test token is not the production asset. Supply is fixed at one billion, with no minting after the token generation event. Team allocations follow a policy of a 1-year cliff and a 2-year linear vest from TGE.
+$WOOD is the protocol's staking and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata. It is an external token launched on Robinhood Chain and tradeable on Uniswap — the in-repo test token is not the production asset. Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next.
+
+## Vesting
+
+Team allocations and bootstrap incentives vest through two dedicated contracts, separate from the fund and vault system and living on Robinhood Chain alongside $WOOD.
+
+- **`TokenVesting`** is a minimal, non-upgradeable vesting wallet, cloned once per grant. Each clone fixes its terms at creation: beneficiary, token, start time, cliff duration (zero means no cliff), total duration, and whether the grant is cancelable. Vesting is linear with a retroactive cliff — nothing is claimable before the cliff, and at the cliff the amount accrued linearly since start unlocks at once. `release()` is permissionless and always pays the beneficiary.
+- **`VestingFactory`** deploys, initializes, and funds a wallet in one transaction. It is permissionless and unowned: whoever creates a grant funds it and names its owner.
+
+A cancelable grant's owner can cancel once. What has vested stays claimable by the beneficiary forever; the unvested remainder returns to the owner immediately. There is deliberately no sweep or rescue — tokens sent to a wallet after cancellation, or any unrelated token sent to it, are unrecoverable. Grants must use plain ERC-20s without transfer restrictions; a token that can blacklist the beneficiary would strand vested funds, since the beneficiary address is immutable.
+
+The team's 1-year cliff and 2-year linear vest from TGE is one such per-grant policy — the terms each grant sets, not a protocol constant.
 
 ## Cooldown
 
