@@ -1,10 +1,10 @@
 ---
 title: "Contract Architecture"
-description: "Smart contract design — vaults, governor, factory, strategy templates, and executor"
+description: "Smart contract design — vault, per-vault governor, factory, pricing, and the guardian layer"
 icon: "cubes"
 ---
 
-Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin (UUPS upgradeable). Contracts currently deploy on Robinhood testnet (chain 46630); the protocol is chain-native and will expand to more chains over time. See [Deployments](/reference/deployments) for the deployed addresses.
+Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin. The core contracts are UUPS-upgradeable proxies; strategies are minimal clones. The protocol is deployed on Robinhood testnet (chain 46630); mainnet launch is ahead. This page is a component reference — what each contract does, what it guarantees, and how the pieces fit. For addresses, see [Deployments](/reference/deployments).
 
 <Note>
 On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
@@ -12,285 +12,111 @@ On-chain contracts keep the `Syndicate*` naming for audit continuity; the produc
 
 ## Architecture
 
+Each fund is a vault. Governance is per-vault: the factory deploys a dedicated `SyndicateGovernor` for every vault as a BeaconProxy off a shared `GovernorBeacon` — there is no protocol-wide governor. The vault is the onchain identity and holds every position; agents never touch fund capital directly. Strategy execution flows governor → `vault.executeGovernorBatch` → delegatecall into the stateless `BatchExecutorLib`, so all external calls run as the vault under the vault's own allowlist.
+
 ```mermaid
 graph TD
-    F["SyndicateFactory (UUPS)"] -->|deploys + registers| V["SyndicateVault (ERC1967 Proxy)"]
+    F["SyndicateFactory (UUPS)"] -->|one tx deploys + wires| V["SyndicateVault (ERC-1967)"]
     F -->|deploys one per vault| G["SyndicateGovernor (BeaconProxy)"]
-    F -->|binds owner bond on create| SW["StakedWood / sWOOD (UUPS)"]
-    G -.->|reads impl from| GB["GovernorBeacon (UpgradeableBeacon)"]
-    G -.->|snapshots fees at propose| PC["ProtocolConfig (Ownable2Step)"]
-    G -->|guardian review + slashing hooks| R["GuardianRegistry (UUPS)"]
-    R <-->|reads vote weight / calls to slash| SW
+    F -->|deploys per vault| Q["VaultWithdrawalQueue"]
+    F -->|binds owner bond on create| SW["StakedWood / sWOOD"]
+    G -.->|reads impl from| GB["GovernorBeacon"]
+    G -.->|snapshots fees at propose| PC["ProtocolConfig"]
+    G -->|review + slash hooks| R["GuardianRegistry"]
+    R -->|stake / slash / burn| SW
     V <-->|execute / settle| G
     V -->|delegatecall| B["BatchExecutorLib (stateless)"]
-    G -->|inherits| P["GovernorParameters (abstract)"]
-    G -->|inherits| E["GovernorEmergency (abstract)"]
-    V -.->|reads governor via governorOf| F
+    V -->|vault-side live NAV| PR["PriceRouter (fail-closed)"]
+    V <-->|Lane B escrow| Q
 ```
 
-The vault is the identity — all DeFi positions (Moonwell supply/borrow, Uniswap swaps, Aerodrome LP) live on the vault address. Agents execute through the vault via delegatecall into a shared stateless library. **Each vault gets its own governor** — a `BeaconProxy` the factory deploys at `createSyndicate` — which manages that one vault's proposal lifecycle, voting, and settlement. The vault resolves its governor address from the factory that deployed it (`factory.governorOf(address(this))`) — there is no governor storage on the vault itself. A protocol-wide governor upgrade is a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner, not a per-proxy upgrade.
+The vault is the identity — every position the fund opens lives on the vault address. Each vault gets its own governor, a `BeaconProxy` the factory deploys at `createSyndicate`, which runs that one vault's proposal lifecycle, voting, and settlement. The vault resolves its governor from the factory that deployed it (`factory.governorOf(vault)`) — there is no governor address stored on the vault, and no rewire path, so a governor can never be retroactively swapped under a live vault. Upgrading every fund's governor at once is a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
 
 <Warning>
-The vault's `_decimalsOffset()` equals the asset's decimals for first-depositor inflation protection, so share decimals scale with the asset. On Robinhood testnet the default vault asset is 18-decimal WETH; a 6-decimal asset (e.g. USDC) would yield 12-decimal shares.
+The vault's share decimals scale with the asset for first-depositor inflation protection (`_decimalsOffset()` returns the asset's decimals, adding virtual shares). Each vault fixes its deposit asset at creation — any ERC-20; the funds live on Robinhood testnet use 18-decimal WETH.
 </Warning>
 
-## Contracts
+## Core contracts
 
 ### SyndicateVault
 
-ERC-4626 vault with ERC20Votes for governance weight. Extends `ERC4626Upgradeable`, `ERC20VotesUpgradeable`, `OwnableUpgradeable`, `PausableUpgradeable`, `UUPSUpgradeable`, `ERC721Holder`.
+The ERC-4626 vault that **is** the fund. It holds every position and is the only address that moves fund capital. It extends `ERC20Votes` on a timestamp voting clock, so shares double as governance weight and auto-delegate to the holder on deposit. Deposits are gated by pause state and an optional depositor whitelist.
 
-**Permissions:**
-- **Layer 1 (onchain):** Fund-level checks enforced by the vault are narrow today — `registerAgent` gates which addresses can be named as proposers, the governor holds the single-active-proposal invariant per vault, and `redemptionsLocked()` blocks deposits / withdrawals / rescues while a strategy is live. The broader cap surface historically described here (`maxPerTx`, `maxDailyTotal`, `maxBorrowRatio`, per-agent caps, target allowlist) is **aspirational — none of those fields exist on `AgentConfig` or the vault in the current code.** Treat them as planned, not implemented. See [CLAUDE.md §Aspirational](https://github.com/imthatcarlos/sherwood/blob/main/CLAUDE.md#aspirational--not-yet-implemented-read-docs-with-caution) in the repo for the running list.
-- **Layer 2 (offchain):** Agent-side off-chain policies — the caps above are enforced in the Hermes agent runtime as pre-flight checks, not on-chain.
-- **Layer 3 (economic, new in PR #229):** Guardian review + slashable owner bond on the `GuardianRegistry`. Vault owners must post a WOOD bond before the factory will deploy their vault, and arbitrary-calldata emergency settlement requires surviving a 24h guardian review. See [Guardian Review](/protocol/governance/guardian-review).
+Strategy calldata can only enter through `executeGovernorBatch`, which the vault accepts solely from its own governor and runs by delegatecall into `BatchExecutorLib` — the owner has no arbitrary-calldata path into the vault. Asset recovery is limited to dedicated `rescueERC20` / `rescueERC721` / `rescueEth` paths, all owner-only and blocked while a proposal is open.
 
-**Key functions:**
-- `executeGovernorBatch(calls)` — **governor-only** batch execution for proposal strategies. This is the single on-chain entry point for strategy calldata. Reverts for any non-governor caller.
-- `registerAgent(agentId, agentAddress)` — registers agent with ERC-8004 identity verification. `AgentConfig` stores `{agentId, agentAddress, active}` — **no caps fields.**
-- `transferPerformanceFee(token, to, amount)` — governor-only fee distribution after settlement. Has no amount / recipient / token validation on the vault side — the governor is trusted to transfer only what settlement math dictates, to a pre-vetted recipient (proposer, co-proposer, vault owner, or `protocolFeeRecipient`), in the proposal's `asset()`. This is a deliberate trust assumption: the governor is upgradeable by the protocol multisig via the shared `GovernorBeacon`, so compromising it compromises the fee path by construction. See [Trust Assumptions](#trust-assumptions) below.
-- `setAgentFeeBps(bps)` — **owner-only**. Sets the vault's agent performance fee (the cut a proposing agent earns on profit). Defaults to 5% (500 bps) at creation; reverts above the vault cap of 15% (1500 bps). When a proposal is created the governor snapshots the vault's current `agentFeeBps` onto that proposal (immutable for the proposal); at settlement it uses that snapshot, additionally clamped to `maxPerformanceFeeBps`. A later owner change only affects proposals created after it. Replaces the old per-proposal fee argument.
-- `deposit(assets, receiver)` / `redeem(shares, receiver, owner)` — standard ERC-4626 LP entry/exit. Revert while `redemptionsLocked()` is true.
-- `strategyMint(to, shares)` / `strategyBurn(shares)` — **active-strategy-only** share hooks (gated `msg.sender == activeStrategyAdapter()`), added for the custody-deposit model where the strategy custodies user assets and prices entry/exit itself (see [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl)). Both are **pure share operations** — no asset transfer, no pricing. `strategyMint` re-checks the depositor whitelist (`_openDeposits` / `_approvedDepositors`) and `whenNotPaused`, so a strategy is **not** a back door around the vault's access control; it also auto-delegates the recipient's voting power. `strategyBurn(shares)` burns from `msg.sender` (the strategy holds the redeemer's transferred shares) and is **deliberately not** pause-gated, so the per-user direct exit keeps working during an incident pause. The **active-strategy gate is the trust boundary** — there is no codehash pin (intentional, to conserve the EIP-170-capped vault bytecode); the active strategy is a governance-approved, guardian-reviewed clone of an audited template.
-- `redemptionsLocked()` — pull-model lock: resolves the vault's governor via `factory.governorOf(address(this))` and reads its no-arg `getActiveProposal() != 0` live on every call. No `lockRedemptions()` / `unlockRedemptions()` state-flipping functions exist on the vault; the lock is derived, not stored.
-- `rescueEth(to, amount)` — owner-only, recovers ETH via `Address.sendValue`. Also reverts while `redemptionsLocked()` is true.
-- `rescueERC20(token, to, amount)` — owner-only, recovers ERC-20 tokens (reverts with `CannotRescueAsset` if token is the vault asset; also reverts while `redemptionsLocked()` is true).
-- `rescueERC721(token, tokenId, to)` — owner-only, recovers ERC-721 tokens (also reverts while `redemptionsLocked()` is true).
+`totalAssets()` is idle balance plus live strategy NAV, and that NAV is **always** priced vault-side by the `PriceRouter` — the vault never trusts a strategy's self-reported value. Redemptions run in [two lanes](/protocol/vault-liquidity): an instant lane that settles at live NAV, and a queued lane that escrows shares in the `VaultWithdrawalQueue` and pays out at one realized price stamped at settlement. An instant exit taken during a proposal locks the holder's shares until settlement, which closes the mid-flight MEV window. Self-fee strategies may mint or burn shares at their own oracle NAV through guarded `strategyMint` / `strategyBurn` hooks (the whitelist and pause are re-checked, so a strategy is not a back door around access control).
 
-<Note>
-**`executeBatch` on the vault is gone (PR #229).** The owner-direct `executeBatch` entrypoint was removed in commit `f616ec4` to close a privilege-escalation bug (V-C3) where a compromised owner could run arbitrary batches while a strategy was live, bypassing `redemptionsLocked()`. Strategy execution now flows through `executeGovernorBatch` only. Stranded assets leave the vault via the targeted `rescueERC20` / `rescueERC721` / `rescueEth` owner functions — each of which already checks `redemptionsLocked()` before firing.
-</Note>
-
-**Inflation protection:** Dynamic `_decimalsOffset()` returns `asset.decimals()` (6 for USDC), adding virtual shares to prevent first-depositor share price manipulation. Vault shares are 12-decimal tokens (6 USDC + 6 offset).
-
-**UUPS upgrades:** The vault has `UUPSUpgradeable` but `_authorizeUpgrade` requires `msg.sender == _factory`. Vault upgrades are controlled entirely by the factory (see SyndicateFactory section).
-
-**Storage:**
-| Slot | Type | Description |
-|------|------|-------------|
-| `_agents` | mapping | agent wallet address → `AgentConfig` (agentId, agentAddress, active — **no caps fields**, see Trust Assumptions) |
-| `_agentSet` | EnumerableSet | registered agent addresses |
-| `_executorImpl` | address | shared executor lib address (stateless, called via delegatecall) |
-| `_approvedDepositors` | EnumerableSet | whitelisted depositor addresses |
-| `_openDeposits` | bool | toggle for permissionless deposits |
-| `_agentRegistry` | address | ERC-8004 agent identity registry (ERC-721) |
-| `_managementFeeBps` | uint256 | vault owner's management fee on strategy profits (basis points, set at init) |
-| `_agentFeeBps` | uint256 | agent performance fee for this vault (basis points; default 500, max 1500; owner-set via `setAgentFeeBps`; snapshotted onto each proposal by the governor at propose time) |
-| `_factory` | address | factory that deployed this vault (controls upgrades, provides governor address) |
-| `__gap[40]` | uint256[] | reserved storage for future upgrades |
+The redemption lock is derived, not stored: `redemptionsLocked()` reads the governor's active-proposal signal live on every call, so the vault and governor can never disagree about whether a strategy is live.
 
 ### SyndicateGovernor
 
-**Per-vault (beacon model, PR #421).** One governor instance per vault, deployed by the factory as a `BeaconProxy` at `createSyndicate` and bound to its vault at `initialize(vault, guardianRegistry, protocolConfig, factory, params)`. It is **not UUPS and not Ownable** — impl upgrades go through the shared `GovernorBeacon`, and the "owner" for parameter setters is resolved live as `ISyndicateVault(vault).owner()`. Because each governor serves exactly one vault, its state is scalar (`_activeProposal`, `getActiveProposal()`, `openProposalCount()` are all no-arg) — the old per-vault mappings and vault-registration surface are gone. Handles proposal lifecycle, voting, execution, settlement, and collaborative proposals. Inherits `GovernorParameters` (abstract) for the per-vault parameter setters (`onlyVaultOwner` + frozen while a proposal is open), and `GovernorEmergency` (abstract) for the four-way emergency-settle split introduced in PR #229.
+One governor per vault, deployed as a BeaconProxy so every fund shares an implementation but keeps isolated state. It runs the proposal lifecycle — Draft (collaborative consent) → Pending (voting) → GuardianReview → Approved → Executed → Settled, with terminal Rejected / Expired / Cancelled states. Only registered agents propose, and one strategy is live per vault at a time — an open proposal blocks new ones.
 
-**Optimistic governance:** Proposals pass by default unless AGAINST votes reach the veto threshold. This is not quorum-based — proposals are approved automatically at voting end unless sufficient opposition accumulates.
+Voting is [optimistic](/protocol/governance/overview): weight is the `ERC20Votes` checkpoint taken one second before propose, and a proposal passes after voting ends unless Against votes reach the veto threshold (default 20% of past supply, bounds 20–50%). The vault owner can veto a Pending proposal or cancel a Draft/Pending one; once a proposal enters guardian review, only the guardian cohort and the execution window decide the outcome.
 
-**Proposal lifecycle (post PR #229):** `Draft → Pending → GuardianReview → Approved → Executed → Settled`. `Rejected`, `Expired`, and `Cancelled` are terminal off-ramps (a proposal reaches `Rejected` via veto or guardian block quorum, `Expired` if the execution window lapses, `Cancelled` via proposer/owner cancel). The `GuardianReview` state is a gate between voting and approval — see [Guardian Review](/protocol/governance/guardian-review).
+At settlement the governor pays a profit-only [fee waterfall](/protocol/governance/economics) — protocol, then guardian, then agent (net, split across any co-proposers), then management — using rates snapshotted at propose time. [Self-fee strategies](/protocol/strategies/leveraged-aerodrome-cl) opt out of the waterfall entirely, and failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the four owner-only [emergency-settlement](/protocol/governance/settlement) paths for stuck strategies.
 
-**VoteType enum:** `For`, `Against`, `Abstain` — replaces the previous boolean vote.
+### GovernorBeacon
 
-**Key functions:**
-- `propose(vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers)` — create proposal with separate opening/closing call arrays. There is no per-proposal fee argument — at creation the governor snapshots the vault's current `agentFeeBps` onto the proposal (immutable for that proposal; clamped to `maxPerformanceFeeBps` at settlement). `strategy` is the address whose `positions()` the vault prices via the `PriceRouter` for Lane A live NAV during the strategy window; pass `address(0)` to opt out (queue-only / Lane B). The proposal's `snapshotTimestamp = block.timestamp - 1` (closes a flash-delegate window on 2s L2 blocks). `reviewEnd` and `executeBy` are stamped in the same tx based on the current `reviewPeriod` and `executionWindow`.
-- `vote(proposalId, voteType)` — cast vote (For/Against/Abstain) weighted by ERC20Votes timestamp-clock snapshot
-- `executeProposal(proposalId)` — **permissionless**: anyone can trigger the pre-approved `executeCalls` once state is `Approved` and the execution window is open. Uses the vault's `executeGovernorBatch`.
-- `settleProposal(proposalId)` — proposer can settle at any time; everyone else waits for `strategyDuration`. Uses the vault's `executeGovernorBatch`.
-- `unstick(proposalId)` — vault owner after duration. Runs the pre-committed `settlementCalls` only. No custom calldata, no fallback. Does not require active owner bond.
-- `emergencySettleWithCalls(proposalId, calls)` — vault owner, requires active owner bond. Stores the full owner-supplied `calls` array in the registry via `registry.openEmergency(proposalId, keccak256(calls), calls)` and opens a 24h guardian review window; does **not** execute yet.
-- `cancelEmergencySettle(proposalId)` — vault owner self-recall of an emergency-settle before `reviewEnd`. No slashing.
-- `finalizeEmergencySettle(proposalId)` — vault owner after `reviewEnd`. Takes `proposalId` only; the registry's `finalizeEmergency` returns the stored calls together with the blocked flag. Executes if guardian block quorum was not reached; reverts + slashes owner bond if it was.
-- `cancelProposal(proposalId)` — proposer cancel, allowed from `Pending`, `GuardianReview`, or `Approved`. `emergencyCancel(proposalId)` — owner cancel, narrowed to `Draft` and `Pending`.
-- `vetoProposal(proposalId)` — vault owner rejects a proposal, **narrowed to `Pending` only**. Once the proposal enters `GuardianReview`, the only rejection path is the guardian block quorum.
-- `approveCollaboration(proposalId)` / `rejectCollaboration(proposalId)` — co-proposer consent
-- `claimUnclaimedFees(vault, token)` — recipient pull-claim for fees that failed to transfer at settlement (blacklist, etc.). See [Economics — Try/catch fee transfers](/protocol/governance/economics#tryampcatch-fee-transfers--unclaimed-fee-escrow).
+The `UpgradeableBeacon` holding the shared `SyndicateGovernor` implementation for every per-vault governor proxy. `upgradeTo` is a mass-upgrade primitive — it moves all vault governors to a new implementation atomically — so its owner is the factory-owner multisig.
 
-**Separate `executeCalls` / `settlementCalls`:** Proposals store opening and closing calls in two distinct arrays. No `splitIndex` — impossible to misindex.
+### PriceRouter
 
-**Protocol fee:** `protocolFeeBps` + `protocolFeeRecipient` — taken from profit before agent and management fees. Both live on the global `ProtocolConfig` (protocol-multisig-owned), **not** the per-vault governor; each governor reads them at propose time and **snapshots them into the proposal**, so settlement charges the rate voters saw even if the config changes mid-flight. Max protocol fee is 10% (1000 bps, `MAX_PROTOCOL_FEE_BPS`); a nonzero `protocolFeeBps` requires `protocolFeeRecipient` to be set first (coupling enforced in both directions).
-
-**Fee distribution order (on profitable settlement):**
-1. Protocol fee from gross profit
-2. Agent performance fee from net profit (after protocol fee)
-3. Management fee from remainder (after agent fee)
-
-**Collaborative proposals:** Proposers can include co-proposers with fee splits. Co-proposers must approve within the collaboration window before the proposal advances to voting.
-
-**Storage (per-vault — each governor holds state for exactly one vault):**
-| Slot | Type | Description |
-|------|------|-------------|
-| `vault` | address | the one vault this governor serves (set at initialize; lives on `GovernorParameters`) |
-| `protocolConfig` | address | `ProtocolConfig` reference — read at propose time for fee snapshots (lives on `GovernorParameters`) |
-| `factory` | address | authorized factory (can call `forceSetParams` / `setProtocolConfig`; lives on `GovernorParameters`) |
-| `_params` | struct | this vault's `GovernorParams` (voting/execution windows, veto, fee caps, durations, collaboration) |
-| `_proposals` | mapping | proposal ID → `StrategyProposal` struct — includes the four `snapshot*Fee*` fields captured from `ProtocolConfig` at propose |
-| `_executeCalls` / `_settlementCalls` | mapping | separate call arrays per proposal |
-| `_capitalSnapshots` | mapping | vault balance at execution time |
-| `_activeProposal` | uint256 | the vault's current live proposal (scalar — this governor serves one vault; one active proposal at a time) |
-| `_lastSettledAt` | uint256 | timestamp of last settlement (scalar) |
-| `vault` | address | the single vault this governor serves (stamped at init; setters resolve the owner as `vault.owner()`) |
-| `protocolConfig` | address | `ProtocolConfig` read at propose to snapshot the four fee fields into the proposal |
-| `_coProposers` / `coProposerApprovals` / `collaborationDeadline` | mapping | collaborative proposal state |
-| `factory` | address | authorized factory (calls `forceSetParams` / `setProtocolConfig`) |
-| `_reentrancyStatus` | uint256 | simple reentrancy lock for execute/settle |
-| `_unclaimedFees` | mapping | `keccak256(vault, recipient, token)` → escrowed fee (set when `transferPerformanceFee` reverts in try/catch; claimed via `claimUnclaimedFees`) — W-1 |
-| `_guardianRegistry` | address | `GuardianRegistry` address, stamped at init |
-| `__gap` | uint256[] | reserved storage for future upgrades |
-
-### GovernorParameters
-
-Abstract contract inherited by SyndicateGovernor. Contains all governance constants, parameter setters, and validation helpers. Since the per-vault governor redesign it also holds the governor's wiring slots (`vault`, `protocolConfig`, `factory`) and the vault's own `GovernorParams` struct.
-
-**Per-vault setters (frozen during open proposals):** Each setter is `onlyVaultOwner` (the owner is resolved live from the vault, `vault.owner()`) and `whenNoActiveProposal` — it reverts with `ParamsFrozenDuringProposal` while `openProposalCount() > 0`, so a vault owner cannot shift the terms under an in-flight vote; the freeze lifts at settle/cancel. Each validates bounds at call time and emits a uniform `ParameterChangeFinalized(paramKey, oldValue, newValue)` event. There is no on-chain timelock — the freeze + bounds are the protection. Setters: `setVotingPeriod`, `setExecutionWindow`, `setVetoThresholdBps`, `setMaxPerformanceFeeBps`, `setMinStrategyDuration`, `setMaxStrategyDuration`, `setCooldownPeriod`, `setCollaborationWindow`, `setMaxCoProposers`. The **fee** params (`protocolFeeBps` / `guardianFeeBps` + recipients) moved OFF the governor to the protocol-wide `ProtocolConfig`. `forceSetParams(params)` (factory-only, bounds-checked, freeze-exempt) is the multisig rescue path, reachable via `factory.setParamsOverride(vault, params)`.
-
-**Rescue path:** `factory.setParamsOverride(vault, params)` (protocol-multisig-only) drives the governor's factory-only `forceSetParams` — it bypasses the proposal freeze but **not** the bounds validation.
-
-**Parameter bounds (hardcoded):**
-
-Per-vault parameters (validated on each `onlyVaultOwner` setter):
-
-| Parameter | Bounds |
-|-----------|--------|
-| Voting period | 24h - 30d |
-| Execution window | 1h - 7d |
-| Veto threshold (bps) | 20% - 50% |
-| Max performance fee (bps) | 0% - 15% |
-| Min strategy duration | 1h - maxStrategyDuration |
-| Max strategy duration | 1h - 3650d (~10y) |
-| Cooldown period | 1h - 30d |
-| Collaboration window | 1h - 7d |
-| Max co-proposers | 1 - 10 |
-
-Protocol-level fee bounds (enforced on `ProtocolConfig`, protocol-multisig-owned):
-
-| Parameter | Bounds |
-|-----------|--------|
-| Protocol fee (bps) | 0% - 10% |
-| Guardian fee (bps) | 0% - 5% |
-
-<Note>
-**`ABSOLUTE_MAX_STRATEGY_DURATION` raised 30 days → 3650 days (~10y).** This `public constant` is the ceiling that `setMaxStrategyDuration` validates against; raising it enables **indefinitely-lived strategies** (e.g. [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl), which keeps one long-duration proposal open and does routine management proposal-free). Because it is a compiled constant, fresh deployments pick it up immediately, while a **governor impl built from older code** keeps the 30-day ceiling (`setMaxStrategyDuration(> 30 days)` reverts) until the shared `GovernorBeacon` is upgraded (`beacon.upgradeTo(newImpl)` — one call migrates every vault governor at once, not a per-proxy upgrade). **The per-vault duration cap that earlier releases deferred is now the shipped model:** each vault owner sets their own `maxStrategyDuration` under the global ceiling, defaulting to 30 days, so the blast radius is scoped to a single vault rather than global to one governor. Note the owner emergency exits (`unstick` / `emergencySettleWithCalls`) are duration-gated, so a multi-year proposal keeps them dormant for that long.
-</Note>
-
-### GovernorEmergency (abstract)
-
-Abstract contract inherited by `SyndicateGovernor`. Houses the four post-execution owner paths introduced by PR #229: `unstick`, `emergencySettleWithCalls`, `cancelEmergencySettle`, `finalizeEmergencySettle`. Extracted to keep the governor under the EIP-170 bytecode limit. Each function is reentrancy-guarded (`emergencyNonReentrant`) and delegates call storage, slashing, and review bookkeeping to the `GuardianRegistry`. See [Execution & Settlement](/protocol/governance/settlement) for the state-machine diagrams.
+The governance-owned, vault-side pricing oracle for live NAV. It maps each position kind to a pricing adapter, applies a per-kind realizability haircut, and enforces a per-kind instant-size cap. It is **fail-closed**: any unknown kind, adapter revert, stale price, or over-cap result returns "not priceable," so the vault silently falls back to the queued settlement lane rather than trusting a questionable value. A position is eligible for the instant lane only after governance audits its adapter and explicitly enables that kind.
 
 ### GuardianRegistry
 
-UUPS upgradeable contract (owned by the Sherwood protocol multisig) coordinating the guardian review layer. **One shared registry serves all per-vault governors**: proposal-keyed state is keyed by `keccak256(abi.encode(governor, proposalId))`, governors are authorized via the factory-only `addGovernor` hook at `createSyndicate`, and the review/emergency views plus `voteOnProposal` take `address governor` as their first parameter. Each `EmergencyReview` stores the governor that opened it, so a blocked emergency slashes the correct vault's owner bond. **The registry holds zero WOOD** — guardian stake, vault-owner bonds, DPoS delegation, vote checkpoints, and slashing execution all live on the `StakedWood` (sWOOD) contract (V1.5 sWOOD-staking split, PRs #353/#355). The registry reads vote weight from sWOOD and *calls* sWOOD to slash; it owns the review accounting and the slash-appeal reserve. Post the **guardian-fee-buyback** refactor it also holds **zero vault assets** — guardian performance fees no longer pool/claim on-chain. Interacts with `SyndicateGovernor` + `SyndicateFactory` via privileged hooks.
-
-**Responsibilities:**
-- Review windows (`openReview(governor, pid)`, `voteOnProposal(governor, pid, …)`, `resolveReview(governor, pid)`) with the quorum denominator snapshot at `openReview()` time (read from sWOOD's `getPastTotalVotes` + `getPastTotalActiveDelegated` at `t-1`) to close denominator-manipulation attacks
-- Emergency-settle review windows (`openEmergency(proposalId, callsHash, calls)` — governor-only, stores the full calls array; `voteBlockEmergencySettle`, `resolveEmergencyReview`, `finalizeEmergency`)
-- Slashing **orchestration**: on a blocked review the registry computes who/how-much and calls into sWOOD, which performs the WOOD burn to `0x...dEaD` (CEI + pull-burn fallback). The registry never custodies the WOOD.
-- Approver vote accounting + the `getApproverWeights(governor, proposalId)` view (approvers, snapshot weights, denominator) consumed by the off-chain guardian-fee attribution bot. (The on-chain guardian-fee pools/claims/W-1-escrow — `fundProposalGuardianPool`, `claimProposalReward`, `claimDelegatorProposalReward` — were deleted in the guardian-fee-buyback refactor; fees now distribute as WOOD via Merkl, see below.)
-- Appeal path: `fundSlashAppealReserve` + `refundSlash` (owner-only, capped at 20% of reserve per epoch) — the appeal reserve is the registry's only token balance
-- Reward attribution — **both** guardian reward streams are distributed **off-chain via Merkl**, in WOOD, claimed at merkl.xyz:
-  - *Epoch block-rewards* (inflationary): on a review that resolves blocked, the registry emits `BlockerAttributed(proposalId, epochId, blocker, weight)` per blocker. There is no on-chain `fundEpoch` / `claimEpochReward` / `sweepUnclaimed` / `minter` (all removed in V1.5).
-  - *Guardian performance fees* (revenue): at settlement the governor routes the fee slice to the `guardiansFeeRecipient` multisig and emits `GuardianFeeAccrued`. The team swaps it to WOOD and airdrops approvers/delegators weekly. The bot reconstructs the DPoS split from `GuardianFeeAccrued` + the registry's `getApproverWeights(governor, pid)` + sWOOD `getPast*` checkpoints (commission at `settledAt`, delegation at `openedAt`).
-- Pause / unpause: `pause` (owner), `unpause` (owner, or permissionless after the 7-day `DEADMAN_UNPAUSE_DELAY`). Pause freezes voting and review resolution; never freezes sWOOD unstake/claim paths.
-
-**Key constants:** `EPOCH_DURATION = 7 days`, `MIN_COHORT_STAKE_AT_OPEN = 50_000 WOOD` (cold-start fallback), `MAX_APPROVERS_PER_PROPOSAL = 100`, `LATE_VOTE_LOCKOUT_BPS = 1000` (10%), `MAX_REFUND_PER_EPOCH_BPS = 2000` (20%), `DEADMAN_UNPAUSE_DELAY = 7 days`.
-
-**Owner-instant parameter setters** (no on-chain timelock; owner multisig enforces its own delay): `setReviewPeriod` (24h default) and `setBlockQuorumBps` (30% default) live on the registry. The stake-economic setters (`setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod`, slash bounds) live on sWOOD. Each emits `ParameterChangeFinalized(paramKey, old, new)`.
-
-**Multi-governor registry (PR #421).** The registry serves every vault's governor, not one singleton. `factory`, `swood` are stamped set-once at `initialize()`; each vault's governor is authorized at its `createSyndicate` via the factory-only `addGovernor(governor)` (the registry keeps an `EnumerableSet` of governors, and `onlyGovernor` checks membership). All proposal- and emergency-keyed state is keyed by `keccak256(abi.encode(governor, proposalId))`, and the review / emergency views + `voteOnProposal` take `address governor` as their first argument. (sWOOD's reverse handle to the registry is set once post-deploy via `setRegistry`, since the registry is deployed after sWOOD.)
-
-See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle and the design specs at `docs/superpowers/specs/2026-04-19-guardian-review-lifecycle-design.md` and `docs/superpowers/specs/2026-05-21-swood-staking-split-design.md` in the main repo.
+The review layer between proposal approval and execution. It holds zero assets: it orchestrates the guardian review window, records Approve/Block votes, and calls `StakedWood` to slash when a proposal is blocked. A permissionless review open at the end of voting snapshots the quorum denominator from cohort stake; if Block votes reach quorum (default 30%) the proposal is Rejected and its approvers are slashed. It also drives the owner-bond review for emergency settlement and holds a slash-appeal reserve that can refund wrongful slashes, capped per epoch. Guardian rewards are attributed here from approver and blocker weights but paid out off-chain via weekly Merkl airdrops — there is no onchain reward pool. See [Guardian Review](/protocol/governance/guardian-review).
 
 ### StakedWood (sWOOD)
 
-UUPS-upgradeable, non-transferable vote-escrow contract introduced by the V1.5 staking split (PRs #353/#355). **sWOOD is the sole WOOD custodian** for the guardian system — every WOOD position that used to live on the `GuardianRegistry` moved here. The `GuardianRegistry` reads vote weight / commission / delegation from sWOOD and calls sWOOD to slash; sWOOD never reads proposal state except the open-proposal signal used by its owner-bond rage-quit gate.
-
-**Responsibilities:**
-- Guardian staking / unstaking with cool-down (`stakeAsGuardian`, `requestUnstakeGuardian`, `cancelUnstakeGuardian`, `claimUnstakeGuardian`)
-- Vault-owner bond lifecycle (`prepareOwnerStake`, `cancelPreparedStake`, `bindOwnerStake` / `transferOwnerStakeSlot` — factory-only, `requestUnstakeOwner`, `claimUnstakeOwner`)
-- DPoS delegation (`StakedWoodDelegation`): delegate/undelegate stake to active guardians, per-delegate `setCommission`, and the active-delegation checkpoints (`getPastTotalVotes`, `getPastTotalActiveDelegated`) the registry's quorum math reads
-- Slashing + burn execution: the registry calls in, sWOOD zeroes the slashed stake and burns WOOD to `0x...dEaD` (CEI + pull-burn fallback)
-- Stake-economic owner-instant setters: `setMinGuardianStake`, `setMinOwnerStake`, `setCooldownPeriod` (must stay `>= reviewPeriod` — Sherlock #16), `setMinSlashBps` / `setMaxSlashBps`, `setDelegationEnabled`
-
-**Set-once wiring:** `registry` is stamped once post-deploy via `setRegistry` (guarded by `_registrySet`).
+The sole custodian of staked WOOD: guardian stake, vault-owner bonds, optional DPoS delegation, vote checkpoints, and slashing all live here. sWOOD is non-transferable vote-escrow. A guardian is active only while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least as long as the guardian review period. When the registry signals a blocked proposal, sWOOD slashes the approvers' own stake and their inbound delegation pool by a stake-weighted severity and burns the slashed WOOD; a blocked emergency settlement burns the owner's bond in full. Delegation ships default-off.
 
 <Note>
-**The in-repo `WoodToken.sol` is a non-production test fixture — not the live WOOD token.** Mainnet WOOD is an existing external ERC-20 launch; the contract in `contracts/src/WoodToken.sol` is kept only as a reference / test fixture and carries an explicit "⚠️ NON-PRODUCTION — OUT OF SCOPE FOR AUDIT" banner (PR #354). It will not be deployed to mainnet; integrators should bind to the external WOOD token address from [Deployments](/reference/deployments), not assume the in-repo artifact is canonical.
+The in-repo `WoodToken.sol` is a non-production test fixture, not the live token. Mainnet WOOD is an external ERC-20 launched on Robinhood Chain and tradeable on Uniswap. Bind to the external WOOD address from [Deployments](/reference/deployments), not the in-repo artifact.
 </Note>
+
+### VaultWithdrawalQueue
+
+The per-vault async substrate for the queued (Lane B) deposit and withdrawal path. When redemptions are locked mid-proposal, the vault escrows shares (redeem) or assets (deposit) here; at settlement the vault stamps one frozen, post-fee price for the whole proposal and every request in it claims at that single realized price. Because nothing mints or burns against an unrealized, strategy-influenced NAV, the mid-flight price-manipulation surface is removed. A request can be cancelled only before its proposal is stamped.
+
+### ProtocolConfig
+
+Holds the protocol-level fee parameters — protocol fee (cap 10%) and guardian fee (cap 5%) plus their recipients — shared by every per-vault governor. Values are read only at propose time and snapshotted into the proposal, never read live at settle, so changing a fee never affects an in-flight proposal. It is a plain `Ownable2Step` contract behind the protocol multisig.
 
 ### SyndicateFactory
 
-UUPS upgradeable factory. `createSyndicate` deploys the vault proxy (ERC1967), its withdrawal queue, and **a per-vault `SyndicateGovernor` `BeaconProxy`** — recorded in `_governorOf[vault]` (read via `governorOf(vault)`) and authorized on the registry via `addGovernor` — and optionally registers ENS subnames. The factory init takes `beacon` + `protocolConfig` instead of a governor address. Verifies ERC-8004 identity on creation (skipped when registries are `address(0)`, as on Robinhood testnet, which has no identity/ENS registry yet).
-
-**Creation fee:** Optional ERC-20 fee (`creationFeeToken` + `creationFee` + `creationFeeRecipient`) collected on `createSyndicate`. Set to 0 for free creation.
-
-**Management fee:** Configurable `managementFeeBps` (max 10%) applied to new vaults at creation time. Existing vaults are unaffected by changes.
-
-**Vault upgrades:** Factory controls vault upgradeability via `upgradesEnabled` toggle (default: false) and `upgradeVault(vault)`. Only the fund creator can call `upgradeVault`, which upgrades the vault proxy to the current `vaultImpl`. Cannot upgrade while a strategy is active on the vault.
-
-**Pagination:** `getActiveSyndicates(offset, limit)` returns a paginated list of active funds with total count. `getAllActiveSyndicates()` returns all (may exceed gas at scale).
-
-**Config setters (owner-only):** `setVaultImpl`, `setCreationFee`, `setManagementFeeBps`, `setUpgradesEnabled`, `setEnsRegistrar`, `setGuardianRegistry`, `setBeacon`, `setProtocolConfig` (the last two repoint **future** deploys only), and `setParamsOverride(vault, params)` — the multisig rescue into a vault governor's `forceSetParams`. There is **no `setGovernor` and no governor slot at all**: each vault's governor is a `BeaconProxy` recorded once in `_governorOf[vault]` at creation, with no rewire path, so V-H2's retroactive-switch surface is structurally gone. Protocol-wide governor upgrades are a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
-
-**Storage:**
-| Slot | Type | Description |
-|------|------|-------------|
-| `executorImpl` | address | shared executor lib address |
-| `vaultImpl` | address | shared vault implementation address |
-| `ensRegistrar` | address | Durin L2 Registrar for ENS subnames |
-| `agentRegistry` | address | ERC-8004 agent identity registry |
-| `_governorOf` | mapping | `vault → per-vault governor BeaconProxy` (read via `governorOf(vault)`; set once at `createSyndicate`) |
-| `beacon` | address | `GovernorBeacon` every governor proxy reads its impl from (`setBeacon` repoints future deploys) |
-| `protocolConfig` | address | `ProtocolConfig` passed to each new governor at init (`setProtocolConfig` repoints future deploys) |
-| `managementFeeBps` | uint256 | management fee for new vaults |
-| `syndicates[]` | mapping | syndicate ID → struct (vault, creator, metadata, subdomain, active) |
-| `vaultToSyndicate` | mapping | reverse lookup from vault address |
-| `subdomainToSyndicate` | mapping | reverse lookup from ENS subdomain |
-| `creationFeeToken` / `creationFee` / `creationFeeRecipient` | mixed | creation fee config |
-| `upgradesEnabled` | bool | whether vault upgrades are allowed |
-
-### BatchExecutorLib
-
-Shared stateless library. Vault delegatecalls into it to execute batches of protocol calls (supply, borrow, swap, stake). Each call's target must be in the vault's allowlist.
+Deploys a fund in one transaction: an immutable ERC-1967 vault proxy, its dedicated governor (BeaconProxy off `GovernorBeacon`), and its `VaultWithdrawalQueue`, all wired together. It collects the creator's WOOD owner bond through sWOOD at creation and records the vault ↔ fund mapping other contracts use to gate calls. The factory is UUPS-upgradeable so its config (creation fee, beacon, registries) can change, but deployed vaults are immutable. Where an ENS registrar is configured it also registers a `<subdomain>.sherwoodagent.eth` subname; that registrar is not live on the current deployment.
 
 ### StrategyFactory
 
-Atomic clone + initialize wrapper for strategy templates. `cloneAndInit(template, vault, proposer, data)` deploys an ERC-1167 minimal proxy of the template and runs `initialize(vault, proposer, data)` in the same transaction. The deterministic variant `cloneAndInitDeterministic(template, vault, proposer, data, salt)` exposes a predictable clone address.
+Clones and initializes a strategy template in a single transaction. Strategies are ERC-1167 clones, and a separate clone-then-initialize sequence would expose a front-running window where an attacker races the init to bind the clone to their own vault — this factory bundles both steps so that cannot happen. Only a vault's owner or a registered agent may pre-deploy a strategy, and the vault must be registered on the factory so a rogue contract cannot spoof membership. Strategies are always pre-deployed before a proposal executes; the governor never deploys one during execution.
 
-Strategy templates use a custom `_initialized` flag (not OZ Initializable) and run `initialize` from an `external` function, so deploying a clone via `Clones.clone(template)` followed by a separate `initialize` tx exposes a front-running window where an attacker can race the init and bind the clone to their own vault. `StrategyFactory` collapses that window into a single tx.
+### BatchExecutorLib
 
-### Strategy Templates
+A stateless library the vault delegatecalls to run a batch of protocol calls atomically. Under delegatecall `address(this)` is the vault, so every call executes as the vault and all positions land on the vault. It has no state and no access control by design — the calling vault enforces its allowlist before delegatecalling, and if any call in the batch fails the whole batch reverts.
 
-Reusable strategy contracts designed for ERC-1167 Clones (deploy template once, clone per proposal — production deployments should use `StrategyFactory.cloneAndInit` to avoid the init front-run). The vault calls `execute()` and `settle()` via batch calls — the strategy pulls tokens, deploys them into DeFi, and returns them on settlement.
+## Strategies
 
-**IStrategy interface:** `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(data)`, `name()`, `vault()`, `proposer()`, `executed()`, `positions()`, `selfManagesFees()`.
+Strategies are the pluggable position logic a proposal points at. A strategy reports only **where and what** it holds — never a value; the vault prices those positions itself through the `PriceRouter`. Public docs cover two.
 
-**`selfManagesFees() returns (bool)`** — defaults to `false` in `BaseStrategy`. When a strategy returns `true`, the governor's `_finishSettlement` **skips `_distributeFees` entirely** at settle — protocol, guardian, agent, **and** management settle-fees are all skipped. A self-fee'd strategy is a *custody* strategy (LPs deposit/redeem directly into the strategy, shares minted/burned on the vault via `strategyMint`/`strategyBurn`), which breaks the governor's `balanceOf(vault) − snapshot` PnL assumption — the float delta would misread net deposits as profit and double-charge. Such a strategy **crystallizes its own fees** internally (as share dilution) instead. Protocol / guardian fees for custody strategies are a documented off-chain follow-up. See [Economics — Self-managed-fee strategies](/protocol/governance/economics#self-managed-fee-strategies-custody-model) and [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl).
+### PortfolioStrategy
 
-**`positions() returns (Position[] memory)`** — the V2 live-NAV surface (replaces the removed self-reported `positionValue()`). A strategy reports only **where and what** it holds — each `Position` is `{ address venue, bytes32 kind, bytes ref }` (e.g. `venue` = Moonwell mToken / Aerodrome pool, `kind` = `keccak256("MOONWELL_SUPPLY")` / `"AERODROME_LP"` / `"HL_PERP"`, `ref` = a venue-specific locator). **The strategy is never trusted for value** — the vault prices these positions itself via the governance-owned `PriceRouter` (Lane A instant pricing), reading the real on-venue quantity and applying a per-`kind` adapter + haircut + instant cap. This is the trust inversion at the heart of V2 live-NAV: the strategy reports positions, the vault prices them. `BaseStrategy.positions()` defaults to an **empty array** — meaning no instant-priceable positions, so entry/exit routes through the async queue (Lane B); strategies whose positions the PriceRouter can value override it. (Custody strategies like [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl) price their own entry/exit against an internal `nav()` and run Lane A off — see [Vault Liquidity](/protocol/vault-liquidity).)
+Holds a weighted basket of tokenized stocks and rebalances toward target weights. Pricing is Chainlink Data Streams-assisted, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
 
-**BaseStrategy (abstract):** Implements `IStrategy` with lifecycle state machine (Pending → Executed → Settled), access control (`onlyVault`, `onlyProposer`), and helper methods (`_pullFromVault`, `_pushToVault`, `_pushAllToVault`). Concrete strategies implement `_initialize`, `_execute`, `_settle`, and `_updateParams` hooks. `BaseStrategy.positions()` defaults to an **empty array** (queue-only / Lane B); strategies with PriceRouter-priceable positions override it. `BaseStrategy.selfManagesFees()` defaults to `false` (governor distributes settle-fees); a custody strategy overrides it to `true` to opt out (see the interface note above).
+### LeveragedAerodromeCLStrategy
 
-**MoonwellSupplyStrategy:** Supply USDC to Moonwell's mUSDC market. Execute pulls USDC from vault, mints mUSDC. Settle redeems all mUSDC, pushes USDC back. Tunable params: `supplyAmount`, `minRedeemAmount` (slippage protection).
+A net-short leveraged concentrated-liquidity strategy: it posts USDC collateral, borrows cbBTC and WETH against it on Moonwell, and runs an Aerodrome Slipstream position staked in the AERO gauge. NAV is oracle-priced and fail-closed, LTV and health are capped, and the strategy manages its own async redeem queue plus its own streaming management and high-water-mark performance fees — so it opts out of the governor's settlement fees. It is a one-per-proposal ERC-1167 clone guarded against reentrancy on every state-changing op. See [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl).
 
-**AerodromeLPStrategy:** Provide liquidity on Aerodrome (Base) and optionally stake LP in a Gauge for AERO rewards. Execute pulls tokenA + tokenB, adds liquidity, stakes LP in gauge. Settle unstakes, claims AERO rewards, removes liquidity, pushes all tokens back. Supports both stable and volatile pools. Tunable params: `minAmountAOut`, `minAmountBOut` (settlement slippage).
+## Trust boundaries
 
-**MamoYieldStrategy:** Deposit into a Mamo strategy (auto-routed across Moonwell core + Morpho vaults) for optimized yield. Execute pulls the vault's full underlying balance, calls `mamoFactory.createStrategyForUser(this)`, optionally pins the resulting strategy's bytecode hash, and deposits. Settle calls `withdrawAll`, validates `minRedeemAmount`, and pushes underlying back. **Init ABI:** `(address underlying, address mamoFactory, uint256 minRedeemAmount, bytes32 allowedStrategyCodehash)` — pass `bytes32(0)` to skip the codehash check (NOT recommended for mainnet; pinning blocks a compromised Mamo factory from swapping in attacker bytecode).
+A few surfaces rely on governance discipline rather than a runtime check. Integrators and auditors should hold these in context:
 
-Batch calls from governor (typical pattern):
-- Execute: `[tokenA.approve(strategy, amount), tokenB.approve(strategy, amount), strategy.execute()]`
-- Settle: `[strategy.settle()]`
+1. **The governor is trusted on the fee path.** `vault.transferPerformanceFee` has no amount or recipient cap on the vault side — the governor is trusted to transfer only what settlement math dictates, to a pre-vetted recipient, in the vault's asset. The governor is upgradeable only through the multisig-controlled `GovernorBeacon`, not instantly.
+2. **The active-strategy gate is the trust boundary for share hooks.** `strategyMint` / `strategyBurn` accept only the vault's active strategy adapter — a governance-approved, guardian-reviewed clone of an audited template — with no separate codehash pin. (The governor batch path, by contrast, *is* codehash-pinned: `executeGovernorBatch` reverts unless the delegatecall target still matches the `BatchExecutorLib` captured at initialization.)
+3. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
 
-## Trust Assumptions
-
-The following surfaces are intentionally under-constrained in code and rely on the protocol multisig's governance discipline, or on invariants that are asserted by construction rather than enforced by a runtime check. Integrators and auditors should load these into context explicitly:
-
-1. **`vault.transferPerformanceFee(token, to, amount)` has no amount / recipient / token cap.** The governor (upgradeable by protocol multisig via the shared `GovernorBeacon`) is trusted not to pass arbitrary values here. A compromised governor could transfer any ERC-20 the vault holds to any address. Mitigation is governance-level: the beacon upgrade path is multisig-controlled, not instant. Tracked as item **A38** in the pre-mainnet punch list.
-2. **`delegatecall` target is not codehash-checked.** `SyndicateVault.executeGovernorBatch` forwards its batch to `_executorImpl` via `delegatecall`. The intent is that `_executorImpl` is always the stateless `BatchExecutorLib` — but `_executorImpl` is set at init with no codehash assertion, and no runtime check rejects other code at that address. If the factory ever rotates `executorImpl` to a non-library contract, that contract runs in the vault's storage context. Tracked as item **V-C2**.
-3. **`AgentConfig` has no per-agent caps.** The off-chain Hermes runtime enforces `maxPerTx` / `maxDailyTotal` / `maxBorrowRatio` as pre-flight policy. None of these are stored on-chain; a compromised agent process running alongside a compromised vault owner can submit anything the vault's single-active-proposal invariant allows. Tracked as item **A10 / A35**.
-4. **WOOD is assumed to be a fixed-behavior ERC-20.** The `GuardianRegistry` slashing path uses end-of-function bulk burns; if WOOD is ever migrated to a token with transfer hooks (ERC-777 / 1363) the slashing path becomes reentrancy-exposed. Cross-referenced with the "delegatecall-only-to-BatchExecutorLib" assumption above.
-
-These are the ones that affect external integrators. For the fuller list (including invariants still lacking tests), see `docs/pre-mainnet-punchlist.md` in the main repo.
-
-## Testing
-
-Foundry test suites cover the governor, vault, factory, guardian registry, collaborative proposals, and strategy templates, plus invariant and fork-integration suites.
+## Building and testing
 
 ```bash
 cd contracts
@@ -300,27 +126,10 @@ forge test -vvv    # verbose with traces
 forge fmt          # format before committing
 ```
 
-**SyndicateGovernor:** Proposal lifecycle, optimistic voting with veto threshold, execution, two settlement paths (proposer anytime, permissionless after duration), emergency settle (unstick / emergencySettleWithCalls / finalize), veto by vault owner, owner-instant parameter setters, protocol fee distribution, cooldown, fuzz testing.
+Foundry suites cover the governor, vault, factory, guardian registry, collaborative proposals, and the two strategy templates, plus invariant and fork-integration suites. Deployment records are written per chain to `contracts/chains/{chainId}.json` (the active chain is `46630.json`), the source of truth for the addresses in [Deployments](/reference/deployments).
 
-**SyndicateVault:** ERC-4626 deposits/withdrawals/redemptions, agent registration with ERC-8004 verification, batch execution, depositor whitelist, inflation attack mitigation, governor batch execution, pause/unpause, rescue functions (ETH/ERC20/ERC721), factory-gated UUPS upgrades, fuzz testing.
-
-**SyndicateFactory:** Fund creation with ENS subname registration, ERC-8004 verification on create, creation fee collection, management fee configuration, UUPS upgrade, vault upgrade (creator-only, upgrade toggle, no active strategy check), paginated `getActiveSyndicates`, config setters, metadata updates, deactivation, proxy storage isolation, subdomain availability.
-
-**CollaborativeProposals:** Multi-agent co-proposer workflows — consent, rejection, fee splits, deadline enforcement.
-
-**AerodromeLPStrategy:** LP provision, gauge staking, reward claiming, settlement slippage protection, stable/volatile pools, param updates.
-
-**MoonwellSupplyStrategy:** Supply/redeem lifecycle, slippage protection, param updates, edge cases.
-
-**SyndicateGovernorIntegration:** End-to-end flows with real vault interactions — propose → vote → execute → settle, Moonwell/Uniswap fork tests.
-
-## Storage Layout (UUPS Safety)
+## Upgrade safety
 
 <Warning>
-The vault and factory are UUPS upgradeable; the per-vault governor is a `BeaconProxy` whose implementation is upgraded via the shared `GovernorBeacon`. All of them include `__gap` arrays for upgrade safety (the governor impl too — its storage layout must stay stable across beacon upgrades). Violating storage layout rules will corrupt contract state and may be irreversible. Follow these rules strictly when modifying any upgradeable contract.
+The vault and factory are UUPS proxies; the per-vault governor is a `BeaconProxy` upgraded via the shared `GovernorBeacon`. All of them include `__gap` arrays for upgrade safety. When modifying an upgradeable contract, append new storage variables at the end — never reorder or remove existing slots, and reduce `__gap` by the number of slots added. Verify with `forge inspect <Contract> storage-layout`. Deployed vaults themselves are immutable; upgrades apply to the shared implementations behind the factory and the governor beacon.
 </Warning>
-
-- Always append new storage variables at the end (before `__gap`)
-- Never reorder or remove existing slots
-- Reduce `__gap` by the number of slots added
-- Verify with `forge inspect <ContractName> storage-layout`

@@ -55,11 +55,9 @@ Show your agent identity status -- agent ID, owner address, verification.
 
 ## Fund
 
-The `fund` command group manages funds. `syndicate` remains as an alias for `fund`, so `sherwood syndicate <subcommand>` still works.
-
 ### `sherwood fund create`
 
-Create a new fund. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat.
+Create a new fund. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat. Fund metadata is pinned to IPFS via Pinata.
 
 **Prerequisite (V2):** the factory requires a prepared owner bond — run `sherwood guardian prepare-owner-stake <amount>` (min = `swood.minOwnerStake`, default 10,000 WOOD) first, or `createSyndicate` reverts with `PreparedStakeNotFound`.
 
@@ -71,7 +69,7 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 | `--subdomain <name>` | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
 | `--description <text>` | Short description of strategy or purpose |
 | `--agent-id <id>` | Creator's ERC-8004 identity token ID |
-| `--asset <symbol-or-address>` | Vault asset: `USDC`, `WETH`, or a `0x` address. Default: USDC (WETH on chains without USDC) |
+| `--asset <symbol-or-address>` | Vault asset. Default: **WETH** on Robinhood testnet (no USDC is deployed); plain ETH auto-wraps on deposit |
 | `--metadata-uri <uri>` | Override metadata URI (skips IPFS upload) |
 | `--open-deposits` | Allow anyone to deposit. Default: whitelist-only (omit the flag) |
 | `--public-chat` | Enable public chat -- adds dashboard spectator to XMTP group |
@@ -93,7 +91,7 @@ Accepts either a numeric fund ID or a subdomain name:
 
 ```bash
 sherwood fund info 1
-sherwood fund info hyperliquid-algo
+sherwood fund info alpha-fund
 ```
 
 ### `sherwood fund add`
@@ -180,7 +178,7 @@ Reject a join request by revoking its EAS attestation.
 
 ### `sherwood vault deposit`
 
-Deposit USDC into a vault. Receive shares in return.
+Deposit the vault's underlying asset (WETH) and receive shares. Plain ETH is auto-wrapped.
 
 While a strategy proposal is executing, instant deposits are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the amount is within `maxDeposit`; otherwise queue an async deposit with `sherwood queue request-deposit`. Note: a Lane A entry locks your shares until the proposal settles (G1 per-share lockup).
 
@@ -191,7 +189,7 @@ While a strategy proposal is executing, instant deposits are allowed only when L
 
 ### `sherwood vault balance`
 
-Show LP share balance and current asset value.
+Show your share balance and current asset value.
 
 | Option | Description |
 |--------|-------------|
@@ -200,7 +198,7 @@ Show LP share balance and current asset value.
 
 ### `sherwood vault redeem`
 
-Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy proposal is executing, instant redeems are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the shares are within `maxRedeem` — otherwise queue an async redeem with `sherwood queue request-redeem`. A pre-flight check fails early with a lane-aware error. Share units use `assetDecimals * 2` (12 decimals for USDC).
+Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy proposal is executing, instant redeems are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the shares are within `maxRedeem` — otherwise queue an async redeem with `sherwood queue request-redeem`. A pre-flight check fails early with a lane-aware error. Share units use `assetDecimals * 2` (36 decimals for an 18-decimal WETH vault).
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -225,16 +223,16 @@ While a strategy proposal is executing the vault locks instant flows (unless Lan
 
 ### `sherwood queue request-deposit`
 
-Escrow USDC for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
+Escrow the vault's deposit asset (WETH on today's funds) for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--amount <usdc>` | Yes | USDC amount (6 decimals) |
+| `--amount <amount>` | Yes | Asset amount (WETH, 18 decimals) |
 | `--vault <address>` | Yes | Vault address |
 
 ### `sherwood queue request-redeem`
 
-Escrow shares for an async redeem tagged to the active proposal. Pays out at the frozen settle price on claim. Note: shares are **raw units** here (12 decimals for USDC vaults), unlike `vault redeem`'s whole-share units.
+Escrow shares for an async redeem tagged to the active proposal. Pays out at the frozen settle price on claim. Note: shares are **raw units** here (36 decimals for an 18-decimal WETH vault), unlike `vault redeem`'s whole-share units.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -243,7 +241,7 @@ Escrow shares for an async redeem tagged to the active proposal. Pays out at the
 
 ### `sherwood queue claim`
 
-Claim a settled request (deposit → shares, redeem → USDC) once its proposal's price is stamped and the vault is unlocked.
+Claim a settled request (deposit → shares, redeem → asset) once its proposal's price is stamped and the vault is unlocked.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -283,7 +281,7 @@ Bond WOOD as a prospective vault owner — required before `fund create` (V2 fac
 
 ## Strategy
 
-Strategy templates (Moonwell supply, levered swap, Aerodrome LP, Hyperliquid perp, etc.) are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. A levered swap is a strategy template surfaced via `strategy propose`, not a standalone run command.
+Strategy templates are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. The live template on Robinhood testnet is **Portfolio** (a weighted basket of tokenized stocks); the **Leveraged Aerodrome CL** template lands with the next CLI release.
 
 ---
 
@@ -291,45 +289,19 @@ Strategy templates (Moonwell supply, levered swap, Aerodrome LP, Hyperliquid per
 
 ### `sherwood allowance disburse`
 
-Swap vault profits to USDC and distribute to all agent operator wallets.
+Swap a portion of vault profits and distribute the proceeds to all agent operator wallets.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--vault <address>` | Yes | Vault address |
-| `--amount <amount>` | Yes | Deposit token amount to convert and distribute |
-| `--fee <tier>` | No | Fee tier for asset to USDC swap. Default: 3000 |
+| `--amount <amount>` | Yes | Profit amount to convert and distribute |
+| `--fee <tier>` | No | Fee tier for the profit swap. Default: 3000 |
 | `--slippage <bps>` | No | Slippage tolerance in bps. Default: 100 |
 | `--execute` | No | Submit onchain (default: simulate only) |
 
 ### `sherwood allowance status`
 
-Show vault profit and agent USDC balances.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--vault <address>` | Yes | Vault address |
-
----
-
-## Venice
-
-The `venice` group has: `provision`, `stake`, `mint-diem`, `status`, `models`, `infer`. To fund agents for private inference, distribute profits with [`allowance disburse`](#sherwood-allowance-disburse), then stake for sVVV with `venice stake` before agents `venice provision`.
-
-### `sherwood venice stake`
-
-Stake VVV for sVVV (the balance that gates Venice API key provisioning).
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--amount <n>` | Yes | Amount of VVV to stake (human-readable, e.g. 13) |
-
-### `sherwood venice provision`
-
-Self-provision a Venice API key. Requires sVVV in wallet. Signs a validation token via EIP-191, generates the key, and saves it to config.
-
-### `sherwood venice status`
-
-Show Venice inference status -- sVVV balances per agent, pending VVV rewards, API key validity.
+Show vault profit and agent operator balances.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -339,10 +311,10 @@ Show Venice inference status -- sVVV balances per agent, pending VVV rewards, AP
 
 ## Agent
 
-Autonomous trading agent — multi-signal scoring, dynamic token selection, and paper trading. It reads Hyperliquid market data purely as a signal source (not a deployment target).
+Autonomous trading agent — multi-signal scoring, dynamic token selection, and paper trading. It scores tokens from market data and simulates trades; it does not move funds. See [Agent Commands](/cli/agent-commands) for the full command set.
 
 <Note>
-Live Hyperliquid-perp execution requires a chain where the Hyperliquid strategy is deployed. That is **not yet available on Robinhood testnet** (chain 46630), Sherwood's current deployment target — the agent paper-trades here. Live execution comes online as Sherwood expands to more chains.
+The agent paper-trades by default. Live on-chain execution is not part of the current Robinhood testnet (chain 46630) deployment.
 </Note>
 
 ### `sherwood agent analyze`
@@ -356,7 +328,7 @@ sherwood agent analyze [tokens...] [--all] [--auto] [--no-x402] [--json] [--tele
 | Option | Description |
 |--------|-------------|
 | `--all` | Analyze the full default watchlist |
-| `--auto` | Dynamic token selection from Hyperliquid market data |
+| `--auto` | Dynamic token selection from live market data |
 | `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--json` | Output as JSON |
 | `--telegram` | Format output as a Telegram summary |
@@ -364,10 +336,10 @@ sherwood agent analyze [tokens...] [--all] [--auto] [--no-x402] [--json] [--tele
 
 ### `sherwood agent start`
 
-Run the autonomous trading loop on a configurable cycle. Paper-trades by default. Live execution (`--mode hyperliquid-perp` + a strategy clone) is not yet available on Robinhood testnet.
+Run the autonomous trading loop on a configurable cycle. Paper-trades by default.
 
 ```bash
-sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [--tokens <list>]
+sherwood agent start [--cycle <interval>] [--auto] [--no-x402] [--tokens <list>]
 ```
 
 | Option | Description |
@@ -376,9 +348,6 @@ sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [
 | `--dry-run` | Paper trading mode (default: enabled) |
 | `--tokens <list>` | Comma-separated token list |
 | `--auto` | Dynamic token selection (refreshes every 30 min) |
-| `--mode <mode>` | Execution mode: `dry-run` (default) or `hyperliquid-perp` (not yet available on Robinhood testnet) |
-| `--strategy-clone <address>` | Strategy clone address (required for `hyperliquid-perp`) |
-| `--asset-index <n>` | HyperCore perp asset index (default: 3 = ETH) |
 | `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--log <path>` | Path to write cycle logs |
 
@@ -477,12 +446,4 @@ Manage participation crons for OpenClaw agents. On non-OpenClaw environments, pr
 
 ### `sherwood providers`
 
-List available providers (research + swap routing):
-
-| Provider | Type | Capabilities | Chains |
-|----------|------|--------------|--------|
-| `synthra-swap` | trading | `swap.quote`, `swap.route-detect`, `swap.calldata` | Robinhood testnet (46630) |
-| `messari` | research | Fundamentals via x402 | Chain-agnostic |
-| `nansen` | research | Smart-money flows via x402 | Chain-agnostic |
-
-Sherwood currently deploys on Robinhood testnet (chain 46630); swap routing runs through Synthra there. Research providers are chain-agnostic.
+List available providers: `synthra-swap` (swap quoting/routing on Robinhood testnet) plus the chain-agnostic `messari` and `nansen` research providers (x402 APIs).

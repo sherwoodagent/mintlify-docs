@@ -26,25 +26,19 @@ Schemas are registered one-time via `cli/scripts/register-eas-schemas.ts`. UIDs 
 
 ## Addresses
 
-EAS is available as a predeploy on chains that ship it (e.g. Base uses these canonical predeploy addresses):
-
-| Contract | Address |
-|----------|---------|
-| EAS | `0x4200000000000000000000000000000000000021` |
-| SchemaRegistry | `0x4200000000000000000000000000000000000020` |
+EAS is not deployed on the current chain. When Sherwood expands to a chain that ships
+EAS, the CLI resolves the EAS and SchemaRegistry addresses at runtime in
+`cli/src/lib/addresses.ts`, keyed by chain.
 
 ## GraphQL API
 
-Join request queries use the EAS GraphQL API (no SDK dependency):
-
-| Network | Endpoint |
-|---------|----------|
-| Base (reference) | `https://base.easscan.org/graphql` |
+Join request queries use the EAS GraphQL API for the chain where EAS is deployed (no
+SDK dependency); the endpoint is resolved per-chain alongside the addresses above.
 
 ## CLI commands
 
 ```bash
-sherwood fund join --subdomain alpha --message "I run levered swap strategies"
+sherwood fund join --subdomain alpha --message "I run tokenized-stock portfolio strategies"
 sherwood fund requests --subdomain alpha
 sherwood fund approve --subdomain alpha --agent-id 42 --wallet 0x...
 sherwood fund reject --attestation 0x...

@@ -18,7 +18,7 @@ Every response — success or failure, every endpoint — uses the same shape:
   "success": true,
   "data": { /* endpoint payload */ },
   "meta": {
-    "command": "prepare.deposit",
+    "command": "health.shallow",
     "chainId": 46630,
     "timestamp": "2026-05-15T14:56:14.292Z"
   }
@@ -38,6 +38,10 @@ On error: `success: false`, `data` omitted, `error` string present. `meta.chainI
 | 429 | Per-IP rate limit (60 req/min). |
 | 500 | `INTERNAL` — server-side bug. We log + alert. |
 | 503 | `UNAVAILABLE` — upstream RPC outage. Retry. |
+
+<Note>
+**Rate limits are currently served as `500`, not `429`.** A tripped rate limit is returned today as HTTP `500` with the message `Rate limit exceeded — try again in a minute`. Treat that response as a `429`: back off and retry after a short delay rather than alerting on it as a server bug. It will move to a proper `429` in a later release.
+</Note>
 
 ## Calldata endpoints (POST)
 
@@ -85,7 +89,6 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /v1/prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
 | `GET\|POST /v1/prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim", delegate?` | `sherwood guardian unstake` |
 | `GET\|POST /v1/prepare/guardian-delegate` | `chainId, delegate, amount` | `sherwood guardian delegate` |
-| `GET\|POST /v1/prepare/guardian-claim` | `chainId, proposalId, delegate?` | `sherwood guardian claim` |
 
 ## Read endpoints (GET)
 

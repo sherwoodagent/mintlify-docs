@@ -7,7 +7,7 @@ icon: "cubes"
 Strategy templates are ERC-1167 clonable contracts deployed once per chain. Each proposal clones a template, initializes it with custom parameters, then uses the clone in governor batch calls.
 
 <Note>
-On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** (a weighted basket of tokenized stocks/crypto, rebalanced through Synthra). The other templates below (Moonwell, Aerodrome, Venice, Mamo, Hyperliquid) come online as Sherwood expands to more chains — the flag reference is kept for completeness.
+On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** — a weighted basket of tokenized stocks, rebalanced through the vault's swap adapter (Uniswap-compatible, backed by Synthra). The **Leveraged Aerodrome CL** strategy is supported by the protocol and lands in the CLI with the next release; its template key is not yet wired into `strategy propose`.
 </Note>
 
 ## `strategy list`
@@ -43,18 +43,18 @@ This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`
 ### Write calls to files (for manual proposal creation)
 
 ```bash
-sherwood strategy propose venice-inference \
+sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 500 --asset USDC --min-vvv 900 \
-  --write-calls ./venice-calls
+  --amount 0.5 --tokens TSLA,AMZN,AMD --weights 4000,3000,3000 \
+  --write-calls ./portfolio-calls
 
 # Then submit manually:
 sherwood proposal create \
   --vault 0x... \
-  --name "Venice Inference" \
+  --name "Tech Stock Basket" \
   --duration 7d \
-  --execute-calls ./venice-calls/execute.json \
-  --settle-calls ./venice-calls/settle.json
+  --execute-calls ./portfolio-calls/execute.json \
+  --settle-calls ./portfolio-calls/settle.json
 ```
 
 ### Submit directly
@@ -68,88 +68,26 @@ sherwood strategy propose portfolio \
   --duration 7d
 ```
 
-## Template-Specific Options
-
-### moonwell-supply
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Amount of asset to supply | required |
-| `--min-redeem <n>` | Min asset on settlement | same as amount |
-| `--token <symbol>` | Asset token (USDC, WETH) | USDC |
-
-### venice-inference
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Amount of asset to deploy | required |
-| `--asset <symbol>` | Asset token (USDC, VVV, or address) | USDC |
-| `--agent <address>` | Agent wallet receiving sVVV | your wallet |
-| `--min-vvv <n>` | Min VVV from swap (required if asset != VVV) | — |
-| `--single-hop` | Direct asset-to-VVV swap | false |
-
-### aerodrome-lp
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--token-a <address>` | Token A address | required |
-| `--token-b <address>` | Token B address | required |
-| `--amount-a <n>` | Token A amount | required |
-| `--amount-b <n>` | Token B amount | required |
-| `--stable` | Stable pool (correlated assets) | false |
-| `--gauge <address>` | Gauge for AERO rewards | none |
-| `--lp-token <address>` | LP token address | required |
-| `--min-a-out <n>` | Min token A on settle | 0 |
-| `--min-b-out <n>` | Min token B on settle | 0 |
-
-### wsteth-moonwell
-
-Supply wstETH as Moonwell collateral. If the asset is not wstETH, the CLI swaps asset → wstETH via the Uniswap router before supply. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Asset amount to deploy | required |
-| `--token <symbol>` | Asset token symbol | USDC |
-| `--slippage <bps>` | Swap slippage tolerance in bps | 500 |
-
-### mamo-yield
-
-Deposit asset into a Mamo yield strategy via the Mamo StrategyFactory. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | Asset amount to deploy | required |
-| `--mamo-factory <address>` | Mamo StrategyFactory address | required |
+## Template Options
 
 ### portfolio
 
-Weighted basket of tokens (tokenized stocks, crypto) with on-chain rebalancing. Built on `UniswapSwapAdapter` with automatic multi-hop routing: the adapter tries direct pools first, then falls back to routing through WETH for tokens without direct pools. **This is the live strategy on Robinhood testnet** (chain 46630), routing through Synthra.
+Weighted basket of tokenized stocks with on-chain rebalancing. Built on the vault's `UniswapSwapAdapter` (backed by Synthra on Robinhood testnet) with automatic multi-hop routing: the adapter tries direct pools first, then falls back to routing through WETH for tokens without a direct pool. **This is the live strategy on Robinhood testnet** (chain 46630).
 
 | Flag | Description | Default |
 |------|------------|---------|
-| `--amount <n>` | Total asset amount to allocate | required |
+| `--amount <n>` | Total asset amount to allocate (WETH) | required |
 | `--tokens <list>` | Comma-separated token addresses or symbols | required |
 | `--weights <list>` | Comma-separated weights in bps (must sum to 10000) | required |
 | `--max-slippage <bps>` | Max per-swap slippage in bps | 500 |
-| `--fee-tier <n>` | Uniswap V3 pool fee tier | 3000 |
+| `--fee-tier <n>` | Pool fee tier | 3000 |
 | `--swap-adapter <address>` | Override swap adapter | auto-detected |
 
-See the [Portfolio strategy reference](/protocol/strategies/portfolio) for mechanics and risk notes.
+See the [Portfolio strategy reference](/protocol/strategies/uniswap) for mechanics and risk notes.
 
-### hyperliquid-perp
+### leveraged-aerodrome-cl
 
-Open a leveraged perpetual futures position on Hyperliquid via the Hyperliquid strategy template. Not yet available on Robinhood testnet — comes online as Sherwood expands to more chains.
-
-| Flag | Description | Default |
-|------|------------|---------|
-| `--amount <n>` | USDC collateral to deploy | required |
-| `--leverage <n>` | Leverage multiplier | 10 |
-| `--asset-index <n>` | HyperCore perp asset index (0 = BTC, 3 = ETH) | 0 |
-| `--min-return <n>` | Min USDC return amount on settlement | — |
-| `--max-position <amount>` | Max position size in USD | 100000 |
-| `--max-trades-per-day <n>` | Max trades per day | 50 |
-
-See the [Hyperliquid Perp strategy reference](/protocol/strategies/hyperliquid-perp) for mechanics, liquidation risk, and settlement flow.
+The **Leveraged Aerodrome CL** strategy — USDC collateral into a Moonwell borrow of cbBTC + WETH, deployed as an Aerodrome Slipstream concentrated-liquidity position with oracle-priced fail-closed NAV, LTV and health caps, and self-managed fees. It is supported by the protocol but depends on Moonwell and Aerodrome, neither of which is present on Robinhood testnet. The `strategy propose` template key lands with the next CLI release; see the [Leveraged Aerodrome CL reference](/protocol/strategies/leveraged-aerodrome-cl) for mechanics.
 
 ## How It Works
 

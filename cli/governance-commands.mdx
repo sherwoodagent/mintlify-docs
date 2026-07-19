@@ -74,8 +74,7 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 Set the vault's agent performance fee. **Vault owner only.** This is a vault property — the governor snapshots it onto each proposal at propose time (immutable for that proposal), then clamps the snapshot to `maxPerformanceFeeBps` at settlement.
 
 ```bash
-sherwood fund set-agent-fee --vault <addr> --bps <bps>
-```
+sherwood fund set-agent-fee --vault <addr> --bps <bps>```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -124,7 +123,7 @@ Displays:
 - Proposal metadata (from IPFS if available)
 - State, timestamps (created, vote end, execution deadline, executed, settled)
 - Vote breakdown (veto votes, veto threshold status)
-- Decoded calls (show target names if known protocols like Moonwell, Uniswap)
+- Decoded calls (show target names for known targets like the vault's swap adapter and ERC-20 approvals)
 - Capital snapshot (if executed)
 - P&L and fees (if settled)
 
@@ -144,6 +143,10 @@ sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|a
 3. Display proposal summary + vote weight
 4. Confirm with user
 5. Call `governor.vote(proposalId, support)` -- support is the VoteType: `For` (0), `Against` (1), or `Abstain` (2), set via `--support for|against|abstain`
+
+<Note>
+**Casing differs between the CLI and the HTTP API.** The CLI `--support` choices are lowercase `for | against | abstain`. The [HTTP API](/api/overview) `vote` field is case-sensitive and takes the capitalized `For | Against | Abstain` — pass it exactly, or the request is rejected.
+</Note>
 
 ---
 
@@ -201,7 +204,7 @@ sherwood proposal cancel --id <proposalId> --vault <addr> [--emergency]```
 
 ## Recovery: `sherwood proposal unstick`
 
-Vault-owner-only recovery command for the rare case where an `Executed` proposal cannot settle because its pre-committed settlement calls revert (e.g. a downstream protocol changed interface or returned unexpected state). The vault stays locked and LPs cannot redeem until the proposal settles.
+Vault-owner-only recovery command for the rare case where an `Executed` proposal cannot settle because its pre-committed settlement calls revert (e.g. a downstream protocol changed interface or returned unexpected state). The vault stays locked and depositors cannot redeem until the proposal settles.
 
 The command is hidden from `--help` because it should be a last resort — it's listed here so owners can find it when they need it.
 
@@ -216,7 +219,7 @@ sherwood proposal unstick --id <proposalId> --vault <addr> [--dry-run] [--yes]
 3. The proposal is currently the vault's active proposal
 4. Caller is the vault owner
 
-**What it does:** calls `governor.emergencySettle(id, fallbackCalls)` with a single no-op `asset.balanceOf(vault)` fallback. The governor's `_tryPrecommittedThenFallback` catches the revert from the stuck pre-committed calls and runs the no-op instead. No funds move. The proposal transitions to `Settled`, the vault unlocks, and LPs can then `vault redeem`.
+**What it does:** calls `governor.emergencySettle(id, fallbackCalls)` with a single no-op `asset.balanceOf(vault)` fallback. The governor's `_tryPrecommittedThenFallback` catches the revert from the stuck pre-committed calls and runs the no-op instead. No funds move. The proposal transitions to `Settled`, the vault unlocks, and depositors can then `vault redeem`.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -255,10 +258,10 @@ sherwood governor info --vault <addr>```
   Governor:             0xG0v…
   Voting Period:        1 day
   Execution Window:     1 day
-  Veto Threshold:       40%
-  Max Performance Fee:  30%
+  Veto Threshold:       20%   (bounds 20–50%)
+  Max Performance Fee:  15%
   Max Strategy Duration: 30 days
-  Cooldown Period:      1 day
+  Cooldown Period:      1 hour
 ```
 
 <Note>
@@ -293,7 +296,7 @@ sherwood governor set-protocol-fee --bps <n>   # e.g. 500 = 5%, max 1000 = 10%
 ## UX Considerations
 
 - **Duration format:** Accept human-readable durations (`7d`, `24h`, `1h`) in addition to raw seconds
-- **Call encoding:** For common protocols (Moonwell supply/borrow, Uniswap swap), the CLI provides built-in call builders so agents don't need to manually encode calldata
+- **Call encoding:** For common actions (swaps through the vault's swap adapter, ERC-20 approvals), the CLI provides built-in call builders so agents don't need to manually encode calldata
 - **Metadata via Pinata:** `proposal create` pins metadata to IPFS using `PINATA_API_KEY` (same env var used by `fund create`). Dashboard resolves metadata via `PINATA_GATEWAY` (`sherwood.mypinata.cloud`). If the agent provides `--metadata-uri` directly, pinning is skipped
 - **Vote weight display:** Shows the user's voting power before they vote, so they understand their influence
 - **Settlement routing:** Auto-detects the correct settlement path based on caller identity and timing

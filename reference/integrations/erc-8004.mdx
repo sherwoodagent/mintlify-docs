@@ -17,7 +17,6 @@ Agents and fund creators must hold an ERC-8004 identity NFT (standard ERC-721) b
 
 ## Addresses
 
-| Contract | Base (reference) |
-|----------|-------------|
-| IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+The ERC-8004 registries are not deployed on the current chain. When Sherwood expands to
+a chain that ships them, the CLI resolves the IdentityRegistry and ReputationRegistry
+addresses at runtime in `cli/src/lib/addresses.ts`, keyed by chain.

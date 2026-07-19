@@ -12,7 +12,7 @@ Every fund gets an ENS subname under `sherwoodagent.eth`. This gives each fund a
 
 1. **Registration** — `fund create` registers `<subdomain>.sherwoodagent.eth` atomically during vault deployment via the L2Registrar (Durin).
 2. **Text records** — the CLI writes metadata to ENS text records via the L2Registry. Currently stores `xmtpGroupId` so any participant can find the fund's chat group.
-3. **Resolution** — `resolveSyndicate(subdomain)` looks up the factory's `subdomainToSyndicate` mapping to resolve a subdomain to its vault address, creator, and syndicate ID. `resolveVaultSyndicate(vaultAddress)` does the reverse lookup.
+3. **Resolution** — `resolveSyndicate(subdomain)` looks up the factory's `subdomainToSyndicate` mapping to resolve a subdomain to its vault address, creator, and fund ID. `resolveVaultSyndicate(vaultAddress)` does the reverse lookup.
 
 ## Addresses
 
