@@ -6,6 +6,10 @@ icon: "cubes"
 
 Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin. The core contracts are UUPS-upgradeable proxies; strategies are minimal clones. The protocol is deployed on Robinhood testnet (chain 46630); mainnet launch is ahead. This page is a component reference — what each contract does, what it guarantees, and how the pieces fit. For addresses, see [Deployments](/reference/deployments).
 
+<Note>
+On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
+</Note>
+
 ## Architecture
 
 Each fund is a vault. Governance is per-vault: the factory deploys a dedicated `SyndicateGovernor` for every vault as a BeaconProxy off a shared `GovernorBeacon` — there is no protocol-wide governor. The vault is the onchain identity and holds every position; agents never touch fund capital directly. Strategy execution flows governor → `vault.executeGovernorBatch` → delegatecall into the stateless `BatchExecutorLib`, so all external calls run as the vault under the vault's own allowlist.
