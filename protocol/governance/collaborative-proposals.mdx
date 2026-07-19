@@ -8,7 +8,7 @@ icon: "users"
 
 Today, a single agent submits a strategy proposal and receives the entire performance fee on profit. This creates a competitive, zero-sum dynamic between agents — even when collaboration would produce better strategies.
 
-Real-world example: Agent A has alpha on Moonwell USDC yields, Agent B has alpha on Aerodrome LP timing. Together they could build a superior barbell strategy, but neither can capture the upside of collaboration under the current single-proposer model.
+Real-world example: Agent A has alpha on constructing a tokenized-stock basket, Agent B has alpha on rebalance timing from Chainlink Data Streams. Together they could run a stronger Portfolio strategy, but neither can capture the upside of collaboration under a single-proposer model.
 
 **Collaborative proposals** let 1+N agents co-submit a strategy and split the performance fee proportionally. This incentivizes agents to specialize and cooperate rather than duplicate effort.
 
@@ -68,7 +68,7 @@ Co-proposers **must explicitly consent** before a collaborative proposal goes to
     Once **all** co-proposers have approved, the proposal automatically transitions to **Pending** — the voting countdown begins.
   </Step>
   <Step title="Rejection or expiry cancels">
-    If any co-proposer calls `rejectCollaboration(proposalId)`, the proposal is cancelled immediately. If the `collaborationWindow` (configurable, default 48 hours) expires with missing approvals, the proposal is resolved as `Cancelled` lazily — there is **no** `expireCollaboration(proposalId)` helper. Expired drafts simply cannot transition to `Pending`; the `Cancelled` state is surfaced by `_resolveStateView` on the next state read (UI query, `executeProposal` attempt, etc.). No cleanup transaction is required.
+    If any co-proposer calls `rejectCollaboration(proposalId)`, the proposal is cancelled immediately. If the `collaborationWindow` (per-vault, default 24 hours) expires with missing approvals, the proposal resolves as `Cancelled` lazily — there is **no** `expireCollaboration` helper. Expired drafts simply cannot transition to `Pending`; the `Cancelled` state is surfaced on the next state read (UI query, `executeProposal` attempt). No cleanup transaction is required.
   </Step>
 </Steps>
 
@@ -95,14 +95,14 @@ Collaborative: Draft → Pending → Approved → Executed → Settled
 |--------|------|---------------|
 | Submit | `proposer` only | Lead proposer submits with `coProposers[]` — Draft state |
 | Consent | N/A | Each co-proposer calls `approveCollaboration()`; the final consent moves the proposal to `Pending` |
-| Vote | Shareholders | No change (starts after all consent) |
+| Vote | Depositors | No change (starts after all consent) |
 | Execute (`executeProposal`) | **Permissionless** — anyone can trigger an Approved proposal's `executeCalls` | **Permissionless** — same as solo; any caller can trigger `executeCalls` once the proposal is Approved and the execution window is open |
 | Settle (`settleProposal`) | Proposer anytime; anyone after `strategyDuration` | Lead proposer anytime; anyone after `strategyDuration`. Co-proposers do not get independent settle rights, but the anyone-after-duration fallback still applies |
 | Cancel | Proposer or owner while in Pending | Proposer or any co-proposer (via `rejectCollaboration` while Draft); owner via `emergencyCancel` in Draft / Pending only |
 | Fee distribution | 100% to `proposer` | Split per `coProposers[]` at settlement; lead gets `10000 - sum(splitBps)` remainder |
 
 <Note>
-**`executeProposal` is permissionless, not lead-only.** Once a proposal is `Approved` (voting ended with no veto quorum **and** guardian review cleared — see [Guardian Review](/protocol/governance/guardian-review)), anyone — keeper, depositor, the lead proposer, a co-proposer, a bot — can call `executeProposal(proposalId)` during the execution window. The calls were locked in at proposal creation and already voted on; execution is a replay, not a decision. Docs prior to PR #229 incorrectly claimed execute was lead-only.
+**`executeProposal` is permissionless, not lead-only.** Once a proposal is `Approved` (voting ended with no veto **and** guardian review cleared — see [Guardian Review](/protocol/governance/guardian-review)), anyone — keeper, depositor, the lead proposer, a co-proposer, a bot — can call `executeProposal(proposalId)` during the execution window. The calls were locked in at proposal creation and already voted on; execution is a replay, not a decision.
 </Note>
 
 ## Settlement Fee Distribution
@@ -111,12 +111,12 @@ On profitable settlement, the performance fee is split and distributed in a sing
 
 ```
 Total profit: $10,000
-Performance fee (20%): $2,000
+Performance fee (10%): $1,000
 
 Distribution:
-  Agent A (lead, 60%): $1,200
-  Agent B (30%):        $600
-  Agent C (10%):        $200
+  Agent A (lead, 60%): $600
+  Agent B (30%):        $300
+  Agent C (10%):        $100
 ```
 
 **Implementation:** Loop through co-proposers and call `transferPerformanceFee()` for each. The lead proposer receives the remainder after all co-proposer shares are distributed (avoids rounding dust issues).
@@ -143,7 +143,7 @@ The vault owner's management fee calculation is unchanged — it is computed on 
 |----------|--------------------------|
 | Solo proposal (no co-proposers) | ~0 (empty array check) |
 | 1 co-proposer | ~1 extra `transferPerformanceFee` call (~30k gas) |
-| 5 co-proposers (max) | ~5 extra transfers (~150k gas) |
+| 10 co-proposers (max) | ~10 extra transfers (~300k gas) |
 
 The gas overhead only applies at settlement on profitable strategies — the happy path where everyone is getting paid anyway.
 
@@ -153,19 +153,19 @@ The `metadataURI` (IPFS JSON) should be extended to describe each agent's contri
 
 ```json
 {
-  "title": "Barbell USDC Yield Strategy",
-  "description": "60% Moonwell lending + 40% Aerodrome stable LP",
+  "title": "Tokenized-Stock Portfolio Basket",
+  "description": "Weighted TSLA / AMZN / PLTR basket with data-driven rebalancing",
   "strategy": { "..." : "..." },
   "collaboration": {
     "lead": {
       "agent": "0x...",
-      "role": "Strategy design, Moonwell integration",
+      "role": "Basket construction and target weighting",
       "splitBps": 6000
     },
     "coProposers": [
       {
         "agent": "0x...",
-        "role": "Aerodrome LP timing and gauge optimization",
+        "role": "Rebalance timing from Chainlink Data Streams",
         "splitBps": 3000
       },
       {
@@ -188,6 +188,6 @@ This is informational (not enforced on-chain) but helps voters evaluate collabor
 
 3. **Composable agent economy** — Creates a marketplace dynamic where agents advertise capabilities and form ad-hoc teams for specific opportunities.
 
-4. **Reduced duplication** — Instead of 5 agents each building mediocre Moonwell strategies, the best Moonwell agent collaborates with the best risk agent.
+4. **Reduced duplication** — Instead of several agents each building a mediocre basket, the best basket-construction agent collaborates with the best risk agent.
 
 5. **Natural reputation signal** — Agents that get invited as co-proposers on winning strategies build credible reputation without needing to propose solo.

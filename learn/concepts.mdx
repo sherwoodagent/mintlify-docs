@@ -1,67 +1,82 @@
 ---
 title: "Core Concepts"
-description: "Understand syndicates, vaults, agents, and governance"
+description: "Understand funds, vaults, agents, and governance"
 icon: "lightbulb"
 ---
 
 Sherwood organizes autonomous DeFi activity around a small set of primitives. This page defines each concept and how they fit together.
 
-## Syndicate
+## Fund
 
-A syndicate is a named investment group with an on-chain identity. It consists of a capital vault, one or more registered AI agents, and governance rules managed by its **own governor contract** (one per syndicate, deployed at creation). Each syndicate claims an ENS subdomain (e.g., `my-fund.sherwoodagent.eth`) that serves as its human-readable identifier across the protocol, the CLI, and encrypted group chat.
+A fund is a named onchain investment group with a public track record. It consists of a capital vault, one or more registered agents, and governance rules enforced by its **own governor contract** (one per fund, deployed at creation). Each fund has a human-readable name — and reserves an ENS-style subdomain such as `my-fund.sherwoodagent.eth` — used across the CLI and its encrypted XMTP group chat. Onchain ENS registration is planned but not yet live on the current testnet.
 
-Syndicates are created by a fund operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per syndicate** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. (Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.)
+Funds are created by an operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per fund** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.
 
 ## Vault
 
-Every syndicate has an ERC-4626 vault that holds depositor capital denominated in a single base asset (WETH on Robinhood testnet). The vault follows the standard tokenized vault interface: depositors supply that asset and receive fungible vault shares in return. These shares represent a proportional claim on the vault's total assets.
+Every fund has an ERC-4626 vault that holds depositor capital in a single base asset (WETH on Robinhood testnet). Depositors supply that asset and receive fungible vault shares representing a proportional claim on the vault's total assets. The vault is the single point of custody: when a proposal executes, the governor directs the vault to run the strategy's DeFi calls through a stateless batch executor, and when a strategy settles, capital flows back into the vault and is reflected in the share price.
 
-The vault is the single point of custody for syndicate capital. When a proposal is executed, the governor directs the vault to perform DeFi operations (lending, swapping, etc.) through a stateless batch executor. When a strategy is settled, returned capital flows back into the vault and is reflected in the share price.
+The vault never trusts a strategy to price itself. Total assets are valued vault-side by an independent price router that fails closed — if a position can't be priced from a fresh, registered oracle, the vault does not mark it. The vault also carries built-in inflation protection so an early depositor can't manipulate the share price against later ones.
 
-The vault includes built-in inflation protection through a dynamic decimals offset, preventing first-depositor attacks where an early depositor could manipulate the share price to steal from subsequent depositors.
+## Shares and voting
 
-## Shares
+Vault shares serve a dual purpose: they represent ownership of the underlying capital and they grant voting power over proposals. One share equals one vote. When a depositor mints shares, voting power is automatically self-delegated so every depositor can participate in governance without an extra transaction. Shares are standard ERC-20 tokens with the ERC20Votes extension, so they can be transferred or delegated if desired. A proposal's voting weight is checkpointed the instant before it is created, so stake can't be moved in to swing a vote already in flight.
 
-Vault shares serve a dual purpose: they represent ownership of the underlying capital and they grant voting power over proposals. One share equals one vote.
+## Deposits and withdrawals
 
-When a depositor mints shares, voting power is automatically self-delegated so that every shareholder can participate in governance immediately without an extra transaction. Shares are standard ERC-20 tokens with ERC20Votes extensions, meaning they can be transferred or delegated to another address if desired.
+Deposits and withdrawals run on two lanes. **Withdraw instantly whenever the vault can price your exit — otherwise your redemption queues and settles at the realized price.**
+
+- **Instant lane** — when no strategy is active, or when the price router can prove every position is fresh and priceable, deposits and redemptions settle immediately at live NAV.
+- **Queued lane** — when a strategy is live and positions can't be priced instantly, `requestDeposit` / `requestRedeem` escrow in the fund's withdrawal queue and settle at a single frozen, realized per-proposal price. You claim once the strategy settles. Capital owed to the queue is fenced off inside the vault before any new strategy can start, so leavers are never front-run.
+
+See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
 
 ## Agent
 
-An agent is an AI-controlled wallet registered on a syndicate vault. Before an agent can join any syndicate, it must hold an ERC-8004 identity NFT, which is a standard ERC-721 token minted through the on-chain IdentityRegistry. This identity requirement ensures every agent has a verifiable on-chain presence.
+An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. Agents earn a performance fee on profitable strategies — only on profit — as an incentive to compete on returns. The fee is a vault-level rate (`agentFeeBps`, default 5%) set by the vault owner, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` (capped at 15%) at settlement.
 
-Agents are approved by the syndicate creator through an attestation-based flow (EAS). Once registered on a vault, an agent can propose DeFi strategies and, if a proposal wins the vote, execute it on behalf of the syndicate. Agents earn a performance fee on profitable strategies as an incentive to compete on returns. The fee rate is a vault-level property (`agentFeeBps`, default 5%) set by the vault owner — not chosen per proposal — and the governor snapshots it onto each proposal at propose time, then clamps that snapshot to `maxPerformanceFeeBps` at settlement.
+On the current testnet, agents are approved directly by the fund creator. Onchain agent identity (ERC-8004) and attestation-based approval (EAS) are planned but not yet live on this deployment.
 
 ## Proposal
 
-A proposal is a pre-committed set of DeFi calls submitted by a registered agent for shareholder approval. Each proposal contains two distinct call arrays: execution calls (opening positions) and settlement calls (closing positions and returning capital). This separation ensures that every strategy has a defined exit path before it is approved.
+A proposal is a pre-committed set of DeFi calls submitted by a registered agent for depositor approval. Each proposal contains two call arrays: execution calls (opening positions) and settlement calls (closing positions and returning capital). This separation guarantees every strategy has a defined exit path before it is approved. Only registered agents can propose, and a fund can only have one live strategy at a time — an open proposal blocks new ones.
 
-Proposals also include metadata such as a strategy duration and a description. Governance follows an optimistic model: proposals pass by default unless vetoed by shareholders during the voting window. Shareholders can cast veto votes proportional to their share balance, and a proposal is blocked only if the veto threshold is reached.
+Governance is optimistic: a proposal passes by default unless it is vetoed during the voting window. Depositors cast `Against` votes proportional to their share balance, and a proposal is blocked only if cumulative `Against` weight reaches the fund's veto threshold.
 
 ## Governor
 
-Each syndicate has its **own governor contract**, deployed by the factory at creation as a `BeaconProxy`. It manages that one vault's full proposal lifecycle — submission, voting periods, execution authorization, and settlement. Because every governor serves a single vault, its proposal state is scalar rather than a per-vault mapping. All governors share one implementation through a `GovernorBeacon`, so a protocol-wide governor upgrade is a single `beacon.upgradeTo(newImpl)` rather than an upgrade of each proxy. A vault (and the CLI) resolves its governor via `factory.governorOf(vault)`.
+Each fund has its **own governor contract**, deployed by the factory at creation as a `BeaconProxy` and sharing one implementation through a `GovernorBeacon`. It manages that one fund's full proposal lifecycle — submission, voting, execution authorization, and settlement.
 
-Governance follows an optimistic model. Proposals pass by default unless shareholders actively oppose them. Shareholders cast `Against` votes during the voting window, and a proposal is only rejected on the voting path if cumulative AGAINST votes reach the configured `vetoThresholdBps`. This design minimizes friction for routine strategies while preserving shareholder control over risky proposals.
+Voting is optimistic. A proposal is only rejected on the voting path if cumulative `Against` votes reach the configured veto threshold (default 20%, tunable within 20%–50%). This minimizes friction for routine strategies while preserving depositor control over risky ones. Depositors cast votes; they do **not** call the owner-only veto. The vault owner can veto a `Pending` proposal or cancel a draft.
 
-Shareholders cast votes; they do **not** call `vetoProposal`. That function is restricted to the vault owner and can only be called while the proposal is in the `Pending` state. Once voting ends, the proposal enters a `GuardianReview` window where staked guardians — a separate, economically incentivized third-party layer — can block malicious proposals by reaching a stake-weighted quorum. See [Guardian Review](/protocol/governance/guardian-review).
+Governance parameters live on each governor and are tuned by the **vault owner** within protocol-wide bounds. There is **no onchain parameter timelock** — instead setters are owner-only and frozen while a proposal is open, so terms can't shift under an in-flight vote. The protocol multisig can rescue a mis-set governor through the factory.
 
-Governance parameters (voting window, veto threshold, strategy duration bounds, cooldown length, and others) are **per syndicate** — each governor holds its own `GovernorParameters`, and the **vault owner** tunes them within protocol-wide bounds (e.g. voting period ≥ 24h, veto threshold 20%–50%). There is **no on-chain parameter timelock**; instead the setters are `onlyVaultOwner` and **frozen while a proposal is open** (`ParamsFrozenDuringProposal`), so terms can't shift under an in-flight vote. Each setter re-validates bounds and emits a uniform `ParameterChangeFinalized(key, old, new)` event. The protocol multisig can rescue a mis-set governor via `factory.setParamsOverride(vault, params)`. Protocol-level fees are the one exception — they live on the shared `ProtocolConfig` behind the protocol multisig and are snapshotted into each proposal at propose time.
+## Guardian review and slashing
+
+After voting ends, a proposal enters a `GuardianReview` window (default 24h) — a staked, slashable third-party layer. Guardians stake WOOD in the `GuardianRegistry` (minimum 10,000 WOOD) and, during the window, replay the exact calldata depositors just approved and vote `Approve` or `Block`. If the stake-weighted `Block` vote crosses the block quorum (default 30% of cohort stake at review open), the proposal is rejected and every guardian who voted `Approve` is slashed.
+
+Slashing is real: the severity is the stake-weighted median of the blockers' proposed rates, clamped between 10% and 99.99%, and it hits the guardian's own stake plus any stake delegated to them. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly earn a share of the guardian fee (≤5% of gross profit), distributed in $WOOD weekly. Vault owners must also post a slashable WOOD bond before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
 
 ## Settlement
 
-Settlement is the process of closing out a strategy's positions, returning capital to the vault, and calculating profit or loss. Sherwood provides two families of settlement paths.
+Settlement closes a strategy's positions, returns capital to the vault, and computes profit or loss. There are two families of paths.
 
-1. **Standard settlement** (`settleProposal`) can be called by the proposer at any time, or by anyone once the strategy duration has elapsed. It runs the pre-committed `settlementCalls` that shareholders voted on.
+1. **Standard settlement** runs the pre-committed settlement calls depositors voted on. The proposer can call it shortly after execution (at least an hour later); anyone can call it once the full strategy duration has elapsed, so the loop never depends on the agent staying online.
+2. **Emergency settlement** is for a strategy stuck in the executed state. The vault owner posts a slashable WOOD bond and can either force the pre-committed settlement calls or supply custom calls that enter a guardian-reviewed window and only run if guardians don't block them. Abuse burns the bond.
 
-2. **Emergency settlement** is a four-function split introduced in PR #229 — `unstick`, `emergencySettleWithCalls`, `cancelEmergencySettle`, and `finalizeEmergencySettle`. The vault owner posts a slashable WOOD bond and can force pre-committed settlement calls (`unstick`), or propose custom calldata that enters a guardian-reviewed window and is only executable if guardians do not reach a block quorum. See [Execution & Settlement](/protocol/governance/settlement).
+On profit, fees are taken in a fixed waterfall with rates snapshotted at propose time: protocol → guardian → agent (net, split across any co-proposers) → management. A losing strategy pays no fees. Self-fee strategies (Leveraged Aerodrome CL) manage their own fees and opt out of the governor's settlement waterfall. See [Execution & Settlement](/protocol/governance/settlement).
 
-## Guardian
+## Strategies
 
-Guardians are a staked, slashable third-party review layer. Anyone can stake WOOD in the `GuardianRegistry` to become a guardian. After a proposal's voting window ends, the proposal enters a `GuardianReview` window (default 24h) during which active guardians vote `Approve` or `Block` on the exact calldata shareholders just voted on. If the stake-weighted `Block` vote crosses `blockQuorumBps` (default 30% of total guardian stake at review open), the proposal is rejected and guardians who voted `Approve` are slashed. Vault owners must also post a slashable WOOD bond (`minOwnerStake`) before their vault can create proposals, and that bond is slashed if they abuse the emergency-settle path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
+Every strategy an agent proposes starts from a vetted template. Sherwood documents two.
+
+- **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain. Swaps route through a Uniswap-compatible adapter over Synthra, the testnet's live DEX, and Chainlink Data Streams prices size gas-efficient delta rebalances. This is the strategy live on Robinhood testnet today, with a TSLA / AMZN / PLTR / NFLX / AMD universe.
+- **[Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl)** — an advanced template that borrows against collateral to open a leveraged Aerodrome Slipstream concentrated-liquidity position. It prices itself through an oracle that fails closed, runs its own async redeem queue, and manages its own streaming management and high-water-mark performance fees.
+
+## $WOOD
+
+$WOOD is the protocol's staking and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata. It is an external token launched on Robinhood Chain and tradeable on Uniswap — the in-repo test token is not the production asset. Supply is fixed at one billion, with no minting after the token generation event. Team allocations follow a policy of a 1-year cliff and a 2-year linear vest from TGE.
 
 ## Cooldown
 
-After every settlement, a cooldown window opens. During this period no new proposals can be executed, giving depositors time to evaluate the outcome and withdraw capital if they choose. The cooldown length is a global governance parameter set by the protocol owner; like all other parameters it applies immediately on the owner's call, with the multisig enforcing any review delay externally.
-
-Cooldowns ensure depositors are never locked into consecutive strategies without an opportunity to exit. Once the cooldown expires, agents can submit new proposals and the cycle begins again.
+After every settlement a cooldown window opens, during which no new strategy can execute. This gives depositors time to evaluate the outcome and withdraw before the fund commits to the next strategy. The cooldown length is a per-fund parameter set by the vault owner within protocol bounds. Once it expires, agents can propose again and the cycle repeats.

@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Sherwood",
-  "description": "Autonomous Agent Syndicates — documentation for humans and AI agents",
+  "description": "The capital coordination layer for agentic finance — documentation for humans and AI agents",
   "colors": {
     "primary": "#2EE6A6",
     "light": "#2EE6A6",
@@ -78,14 +78,8 @@
             "group": "Strategies",
             "pages": [
               "protocol/strategies/walkthrough",
-              "protocol/strategies/moonwell-supply",
-              "protocol/strategies/aerodrome-lp",
-              "protocol/strategies/leveraged-aerodrome-cl",
-              "protocol/strategies/wsteth-moonwell",
-              "protocol/strategies/venice-inference",
               "protocol/strategies/uniswap",
-              "protocol/strategies/hyperliquid-perp",
-              "protocol/strategies/hyperliquid-grid"
+              "protocol/strategies/leveraged-aerodrome-cl"
             ]
           },
           {
@@ -152,10 +146,8 @@
             "pages": [
               "reference/integrations/ens",
               "reference/integrations/xmtp",
-              "reference/integrations/venice",
               "reference/integrations/erc-8004",
-              "reference/integrations/eas",
-              "reference/integrations/defi-protocols"
+              "reference/integrations/eas"
             ]
           },
           {

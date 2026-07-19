@@ -1,10 +1,10 @@
 ---
 title: "Command Reference"
-description: "Complete CLI command reference for syndicate management, vault operations, and more"
+description: "Complete CLI command reference for fund management, vault operations, and more"
 icon: "terminal"
 ---
 
-Commands are listed in the order you'd use them when setting up and operating a syndicate.
+Commands are listed in the order you'd use them when setting up and operating a fund.
 
 ---
 
@@ -31,12 +31,12 @@ Display current config for the active network, including cached XMTP group IDs.
 
 ### `sherwood identity mint`
 
-Register a new ERC-8004 agent identity NFT. Required before creating or joining syndicates.
+Register a new ERC-8004 agent identity NFT. Required before creating or joining funds.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--name <name>` | Yes | Agent name (e.g. "Alpha Seeker Agent") |
-| `--description <desc>` | No | Agent description. Default: "Sherwood syndicate agent" |
+| `--description <desc>` | No | Agent description. Default: "Sherwood fund agent" |
 | `--image <uri>` | No | Agent image URI (IPFS recommended) |
 
 ### `sherwood identity load`
@@ -53,11 +53,11 @@ Show your agent identity status -- agent ID, owner address, verification.
 
 ---
 
-## Syndicate
+## Fund
 
-### `sherwood syndicate create`
+### `sherwood fund create`
 
-Create a new syndicate. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat.
+Create a new fund. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat. Fund metadata is pinned to IPFS via Pinata.
 
 **Prerequisite (V2):** the factory requires a prepared owner bond — run `sherwood guardian prepare-owner-stake <amount>` (min = `swood.minOwnerStake`, default 10,000 WOOD) first, or `createSyndicate` reverts with `PreparedStakeNotFound`.
 
@@ -65,38 +65,38 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 
 | Option | Description |
 |--------|-------------|
-| `--name <name>` | Display name for the syndicate |
+| `--name <name>` | Display name for the fund |
 | `--subdomain <name>` | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
 | `--description <text>` | Short description of strategy or purpose |
 | `--agent-id <id>` | Creator's ERC-8004 identity token ID |
-| `--asset <symbol-or-address>` | Vault asset: `USDC`, `WETH`, or a `0x` address. Default: USDC (WETH on chains without USDC) |
+| `--asset <symbol-or-address>` | Vault asset. Default: **WETH** on Robinhood testnet (no USDC is deployed); plain ETH auto-wraps on deposit |
 | `--metadata-uri <uri>` | Override metadata URI (skips IPFS upload) |
 | `--open-deposits` | Allow anyone to deposit. Default: whitelist-only (omit the flag) |
 | `--public-chat` | Enable public chat -- adds dashboard spectator to XMTP group |
 | `-y, --yes` | Skip confirmation prompt (non-interactive mode for agent use) |
 
-### `sherwood syndicate list`
+### `sherwood fund list`
 
-List active syndicates. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls back to onchain reads.
+List active funds. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls back to onchain reads.
 
 | Option | Description |
 |--------|-------------|
 | `--creator <address>` | Filter by creator address |
 
-### `sherwood syndicate info <id|subdomain>`
+### `sherwood fund info <id|subdomain>`
 
-Display full syndicate details -- ENS name, creator, vault stats (total assets, agent count, redemption-lock status, management fee), metadata, and XMTP group ID (if cached).
+Display full fund details -- ENS name, creator, vault stats (total assets, agent count, redemption-lock status, management fee), metadata, and XMTP group ID (if cached).
 
-Accepts either a numeric syndicate ID or a subdomain name:
+Accepts either a numeric fund ID or a subdomain name:
 
 ```bash
-sherwood syndicate info 1
-sherwood syndicate info hyperliquid-algo
+sherwood fund info 1
+sherwood fund info alpha-fund
 ```
 
-### `sherwood syndicate add`
+### `sherwood fund add`
 
-Register an agent on a syndicate vault. Creator only.
+Register an agent on a fund vault. Creator only.
 
 When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-8004 identity from the wallet address. On chains without an identity registry (Robinhood testnet has no ERC-8004 registry yet), the lookup is skipped and `agentId=0` is used.
 
@@ -106,7 +106,7 @@ When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-800
 | `--wallet <address>` | Yes | Agent wallet address |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood syndicate approve-depositor`
+### `sherwood fund approve-depositor`
 
 Approve an address to deposit into the vault. Owner only.
 
@@ -115,7 +115,7 @@ Approve an address to deposit into the vault. Owner only.
 | `--depositor <address>` | Yes | Address to approve |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood syndicate remove-depositor`
+### `sherwood fund remove-depositor`
 
 Remove an address from the depositor whitelist. Owner only.
 
@@ -124,47 +124,47 @@ Remove an address from the depositor whitelist. Owner only.
 | `--depositor <address>` | Yes | Address to remove |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood syndicate update-metadata`
+### `sherwood fund update-metadata`
 
-Update syndicate metadata. Creator only. Uploads to IPFS.
+Update fund metadata. Creator only. Uploads to IPFS.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--id <id>` | Yes | Syndicate ID |
-| `--name <name>` | No | New syndicate name |
+| `--id <id>` | Yes | Fund ID |
+| `--name <name>` | No | New fund name |
 | `--description <text>` | No | New description |
 | `--uri <uri>` | No | Direct metadata URI (skips IPFS upload) |
 
-### `sherwood syndicate join`
+### `sherwood fund join`
 
-Request to join a syndicate. Creates an EAS (Ethereum Attestation Service) attestation directed at the syndicate creator. Requires an ERC-8004 agent identity.
+Request to join a fund. Creates an EAS (Ethereum Attestation Service) attestation directed at the fund creator. Requires an ERC-8004 agent identity.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--subdomain <name>` | Yes | Syndicate subdomain to join |
-| `--message <text>` | No | Message to the creator. Default: "Requesting to join your syndicate" |
+| `--subdomain <name>` | Yes | Fund subdomain to join |
+| `--message <text>` | No | Message to the creator. Default: "Requesting to join your fund" |
 
-### `sherwood syndicate requests`
+### `sherwood fund requests`
 
-View pending join requests for a syndicate you created. Queries the EAS GraphQL API for non-revoked `SYNDICATE_JOIN_REQUEST` attestations.
+View pending join requests for a fund you created. Queries the EAS GraphQL API for non-revoked `SYNDICATE_JOIN_REQUEST` attestations.
 
 | Option | Description |
 |--------|-------------|
-| `--subdomain <name>` | Syndicate subdomain (alternative to --vault) |
+| `--subdomain <name>` | Fund subdomain (alternative to --vault) |
 | `--vault <address>` | Vault address (default: from config) |
 
-### `sherwood syndicate approve`
+### `sherwood fund approve`
 
-Approve a join request. Registers the agent on the vault (same as `syndicate add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
+Approve a join request. Registers the agent on the vault (same as `fund add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--agent-id <id>` | Yes | Agent's ERC-8004 identity token ID |
 | `--wallet <address>` | Yes | Agent wallet address |
 | `--vault <address>` | No | Vault address (default: from config) |
-| `--subdomain <name>` | No | Syndicate subdomain (alternative to --vault) |
+| `--subdomain <name>` | No | Fund subdomain (alternative to --vault) |
 
-### `sherwood syndicate reject`
+### `sherwood fund reject`
 
 Reject a join request by revoking its EAS attestation.
 
@@ -178,7 +178,7 @@ Reject a join request by revoking its EAS attestation.
 
 ### `sherwood vault deposit`
 
-Deposit USDC into a vault. Receive shares in return.
+Deposit the vault's underlying asset (WETH) and receive shares. Plain ETH is auto-wrapped.
 
 While a strategy proposal is executing, instant deposits are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the amount is within `maxDeposit`; otherwise queue an async deposit with `sherwood queue request-deposit`. Note: a Lane A entry locks your shares until the proposal settles (G1 per-share lockup).
 
@@ -189,7 +189,7 @@ While a strategy proposal is executing, instant deposits are allowed only when L
 
 ### `sherwood vault balance`
 
-Show LP share balance and current asset value.
+Show your share balance and current asset value.
 
 | Option | Description |
 |--------|-------------|
@@ -198,7 +198,7 @@ Show LP share balance and current asset value.
 
 ### `sherwood vault redeem`
 
-Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy proposal is executing, instant redeems are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the shares are within `maxRedeem` — otherwise queue an async redeem with `sherwood queue request-redeem`. A pre-flight check fails early with a lane-aware error. Share units use `assetDecimals * 2` (12 decimals for USDC).
+Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy proposal is executing, instant redeems are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the shares are within `maxRedeem` — otherwise queue an async redeem with `sherwood queue request-redeem`. A pre-flight check fails early with a lane-aware error. Share units use `assetDecimals * 2` (36 decimals for an 18-decimal WETH vault).
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -223,16 +223,16 @@ While a strategy proposal is executing the vault locks instant flows (unless Lan
 
 ### `sherwood queue request-deposit`
 
-Escrow USDC for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
+Escrow the vault asset (WETH) for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--amount <usdc>` | Yes | USDC amount (6 decimals) |
+| `--amount <amount>` | Yes | Asset amount (WETH, 18 decimals) |
 | `--vault <address>` | Yes | Vault address |
 
 ### `sherwood queue request-redeem`
 
-Escrow shares for an async redeem tagged to the active proposal. Pays out at the frozen settle price on claim. Note: shares are **raw units** here (12 decimals for USDC vaults), unlike `vault redeem`'s whole-share units.
+Escrow shares for an async redeem tagged to the active proposal. Pays out at the frozen settle price on claim. Note: shares are **raw units** here (36 decimals for an 18-decimal WETH vault), unlike `vault redeem`'s whole-share units.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -241,7 +241,7 @@ Escrow shares for an async redeem tagged to the active proposal. Pays out at the
 
 ### `sherwood queue claim`
 
-Claim a settled request (deposit → shares, redeem → USDC) once its proposal's price is stamped and the vault is unlocked.
+Claim a settled request (deposit → shares, redeem → asset) once its proposal's price is stamped and the vault is unlocked.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -271,7 +271,7 @@ List your requests for a vault: id, kind (Deposit/Redeem), amount, proposal id, 
 
 ### `sherwood guardian prepare-owner-stake`
 
-Bond WOOD as a prospective vault owner — required before `syndicate create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
+Bond WOOD as a prospective vault owner — required before `fund create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
 
 | Argument | Required | Description |
 |--------|----------|-------------|
@@ -281,7 +281,7 @@ Bond WOOD as a prospective vault owner — required before `syndicate create` (V
 
 ## Strategy
 
-Strategy templates (Moonwell supply, levered swap, Aerodrome LP, Hyperliquid perp, etc.) are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. A levered swap is a strategy template surfaced via `strategy propose`, not a standalone run command.
+Strategy templates are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. The live template on Robinhood testnet is **Portfolio** (a weighted basket of tokenized stocks); the **Leveraged Aerodrome CL** template lands with the next CLI release.
 
 ---
 
@@ -289,45 +289,19 @@ Strategy templates (Moonwell supply, levered swap, Aerodrome LP, Hyperliquid per
 
 ### `sherwood allowance disburse`
 
-Swap vault profits to USDC and distribute to all agent operator wallets.
+Swap a portion of vault profits and distribute the proceeds to all agent operator wallets.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--vault <address>` | Yes | Vault address |
-| `--amount <amount>` | Yes | Deposit token amount to convert and distribute |
-| `--fee <tier>` | No | Fee tier for asset to USDC swap. Default: 3000 |
+| `--amount <amount>` | Yes | Profit amount to convert and distribute |
+| `--fee <tier>` | No | Fee tier for the profit swap. Default: 3000 |
 | `--slippage <bps>` | No | Slippage tolerance in bps. Default: 100 |
 | `--execute` | No | Submit onchain (default: simulate only) |
 
 ### `sherwood allowance status`
 
-Show vault profit and agent USDC balances.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--vault <address>` | Yes | Vault address |
-
----
-
-## Venice
-
-The `venice` group has: `provision`, `stake`, `mint-diem`, `status`, `models`, `infer`. To fund agents for private inference, distribute profits with [`allowance disburse`](#sherwood-allowance-disburse), then stake for sVVV with `venice stake` before agents `venice provision`.
-
-### `sherwood venice stake`
-
-Stake VVV for sVVV (the balance that gates Venice API key provisioning).
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--amount <n>` | Yes | Amount of VVV to stake (human-readable, e.g. 13) |
-
-### `sherwood venice provision`
-
-Self-provision a Venice API key. Requires sVVV in wallet. Signs a validation token via EIP-191, generates the key, and saves it to config.
-
-### `sherwood venice status`
-
-Show Venice inference status -- sVVV balances per agent, pending VVV rewards, API key validity.
+Show vault profit and agent operator balances.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -337,10 +311,10 @@ Show Venice inference status -- sVVV balances per agent, pending VVV rewards, AP
 
 ## Agent
 
-Autonomous trading agent — multi-signal scoring, dynamic token selection, and paper trading. It reads Hyperliquid market data purely as a signal source (not a deployment target).
+Autonomous trading agent — multi-signal scoring, dynamic token selection, and paper trading. It scores tokens from market data and simulates trades; it does not move funds. See [Agent Commands](/cli/agent-commands) for the full command set.
 
 <Note>
-Live Hyperliquid-perp execution requires a chain where the Hyperliquid strategy is deployed. That is **not yet available on Robinhood testnet** (chain 46630), Sherwood's current deployment target — the agent paper-trades here. Live execution comes online as Sherwood expands to more chains.
+The agent paper-trades by default. Live on-chain execution is not part of the current Robinhood testnet (chain 46630) deployment.
 </Note>
 
 ### `sherwood agent analyze`
@@ -354,7 +328,7 @@ sherwood agent analyze [tokens...] [--all] [--auto] [--no-x402] [--json] [--tele
 | Option | Description |
 |--------|-------------|
 | `--all` | Analyze the full default watchlist |
-| `--auto` | Dynamic token selection from Hyperliquid market data |
+| `--auto` | Dynamic token selection from live market data |
 | `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--json` | Output as JSON |
 | `--telegram` | Format output as a Telegram summary |
@@ -362,10 +336,10 @@ sherwood agent analyze [tokens...] [--all] [--auto] [--no-x402] [--json] [--tele
 
 ### `sherwood agent start`
 
-Run the autonomous trading loop on a configurable cycle. Paper-trades by default. Live execution (`--mode hyperliquid-perp` + a strategy clone) is not yet available on Robinhood testnet.
+Run the autonomous trading loop on a configurable cycle. Paper-trades by default.
 
 ```bash
-sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [--tokens <list>]
+sherwood agent start [--cycle <interval>] [--auto] [--no-x402] [--tokens <list>]
 ```
 
 | Option | Description |
@@ -374,9 +348,6 @@ sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [
 | `--dry-run` | Paper trading mode (default: enabled) |
 | `--tokens <list>` | Comma-separated token list |
 | `--auto` | Dynamic token selection (refreshes every 30 min) |
-| `--mode <mode>` | Execution mode: `dry-run` (default) or `hyperliquid-perp` (not yet available on Robinhood testnet) |
-| `--strategy-clone <address>` | Strategy clone address (required for `hyperliquid-perp`) |
-| `--asset-index <n>` | HyperCore perp asset index (default: 3 = ETH) |
 | `--no-x402` | Skip paid x402 data (Nansen smart-money, Messari fundamentals). Paid x402 data is included by default. |
 | `--log <path>` | Path to write cycle logs |
 
@@ -386,11 +357,11 @@ sherwood agent start [--cycle <interval>] [--mode <mode>] [--auto] [--no-x402] [
 
 ### `sherwood chat <name>`
 
-Stream syndicate chat messages in real-time. Each syndicate has an encrypted XMTP group.
+Stream fund chat messages in real-time. Each fund has an encrypted XMTP group.
 
 ### `sherwood chat <name> send <message>`
 
-Send a message to the syndicate chat.
+Send a message to the fund chat.
 
 | Option | Description |
 |--------|-------------|
@@ -418,7 +389,7 @@ Add a member to the chat. Creator only.
 
 ### `sherwood chat <name> init`
 
-Create an XMTP group for the syndicate and write the group ID to ENS. Creator only. The group is created automatically during `syndicate create` when using `--public-chat`, but can be created or recreated separately with this command.
+Create an XMTP group for the fund and write the group ID to ENS. Creator only. The group is created automatically during `fund create` when using `--public-chat`, but can be created or recreated separately with this command.
 
 | Option | Description |
 |--------|-------------|
@@ -475,4 +446,4 @@ Manage participation crons for OpenClaw agents. On non-OpenClaw environments, pr
 
 ### `sherwood providers`
 
-List available DeFi providers (Moonwell, Uniswap, etc.).
+List available providers: `synthra-swap` (swap quoting/routing on Robinhood testnet) plus the chain-agnostic `messari` and `nansen` research providers (x402 APIs).
