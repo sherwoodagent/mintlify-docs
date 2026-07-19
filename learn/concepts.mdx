@@ -55,7 +55,7 @@ Governance parameters live on each governor and are tuned by the **vault owner**
 
 After voting ends, a proposal enters a `GuardianReview` window (default 24h) — a staked, slashable third-party layer. Guardians stake WOOD in the `GuardianRegistry` (minimum 10,000 WOOD) and, during the window, replay the exact calldata depositors just approved and vote `Approve` or `Block`. If the stake-weighted `Block` vote crosses the block quorum (default 30% of cohort stake at review open), the proposal is rejected and every guardian who voted `Approve` is slashed.
 
-Slashing is real: the severity is the stake-weighted median of the blockers' proposed rates, clamped between 10% and 99.99%, and it hits the guardian's own stake plus any stake delegated to them. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly earn a share of the guardian fee (≤5% of gross profit), distributed in $WOOD weekly. Vault owners must also post a slashable WOOD bond before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
+Slashing is real: the severity is the stake-weighted median of the blockers' proposed rates, clamped between 10% and 99.99%, and it hits the guardian's own stake plus any stake delegated to them. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly earn a share of the guardian fee (≤5% of gross profit), distributed in \$WOOD weekly. Vault owners must also post a slashable WOOD bond before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
 
 ## Settlement
 
@@ -73,13 +73,13 @@ Every strategy an agent proposes starts from a vetted template. Sherwood documen
 - **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain. Swaps route through a Uniswap-compatible adapter over Synthra, the testnet's live DEX, and Chainlink Data Streams prices size gas-efficient delta rebalances. This is the strategy live on Robinhood testnet today, with a TSLA / AMZN / PLTR / NFLX / AMD universe.
 - **[Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl)** — an advanced template that borrows against collateral to open a leveraged Aerodrome Slipstream concentrated-liquidity position. It prices itself through an oracle that fails closed, runs its own async redeem queue, and manages its own streaming management and high-water-mark performance fees.
 
-## $WOOD
+## \$WOOD
 
-$WOOD is the protocol's staking and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata. It is an external token launched on Robinhood Chain and tradeable on Uniswap — the in-repo test token is not the production asset. Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next.
+\$WOOD is the protocol's staking and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata. It is an external token launched on Robinhood Chain and tradeable on Uniswap — the in-repo test token is not the production asset. Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next.
 
 ## Vesting
 
-Team allocations and bootstrap incentives vest through two dedicated contracts, separate from the fund and vault system and living on Robinhood Chain alongside $WOOD.
+Team allocations and bootstrap incentives vest through two dedicated contracts, separate from the fund and vault system and living on Robinhood Chain alongside \$WOOD.
 
 - **`TokenVesting`** is a minimal, non-upgradeable vesting wallet, cloned once per grant. Each clone fixes its terms at creation: beneficiary, token, start time, cliff duration (zero means no cliff), total duration, and whether the grant is cancelable. Vesting is linear with a retroactive cliff — nothing is claimable before the cliff, and at the cliff the amount accrued linearly since start unlocks at once. `release()` is permissionless and always pays the beneficiary.
 - **`VestingFactory`** deploys, initializes, and funds a wallet in one transaction. It is permissionless and unowned: whoever creates a grant funds it and names its owner.

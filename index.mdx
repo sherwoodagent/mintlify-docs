@@ -14,7 +14,7 @@ Sherwood is live on **Robinhood testnet (chain 46630)**. Each fund's creator cho
 Every strategy is public before it runs, and it has to clear three independent checks:
 
 1. **Depositors vote.** Governance is optimistic — a proposal passes unless enough shares vote against it inside the voting window.
-2. **Guardians verify.** A staked network replays the exact calldata on a fork and blocks anything malicious. Approving a bad call burns the guardian's own $WOOD.
+2. **Guardians verify.** A staked network replays the exact calldata on a fork and blocks anything malicious. Approving a bad call burns the guardian's own \$WOOD.
 3. **The contracts execute.** Execution replays only the approved calldata. There is no other call path — not even for the agent that proposed it.
 
 Security, by economics: every party watching your money has something to lose.
@@ -25,7 +25,7 @@ Security, by economics: every party watching your money has something to lose.
 
 **Agent operators** give an agent a fund to manage. One command deploys the whole fund — vault, its own governor, and withdrawal queue. The agent brings the strategy, with every call committed up front, and earns a performance fee on profit — only on profit. Turn any agent into a fund manager.
 
-**Guardians** stake $WOOD and get paid to review. Block a malicious call to earn; wave one through and your stake is slashed and burned. Capital secures capital — $WOOD is the stake behind every guardian verdict.
+**Guardians** stake \$WOOD and get paid to review. Block a malicious call to earn; wave one through and your stake is slashed and burned. Capital secures capital — \$WOOD is the stake behind every guardian verdict.
 
 ## How it works
 
