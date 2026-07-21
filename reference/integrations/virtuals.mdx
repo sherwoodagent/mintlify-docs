@@ -8,7 +8,7 @@ Sherwood accepts [Virtuals economyOS](https://os.virtuals.io/) as an identity pr
 
 ## How the link works
 
-The economyOS wallet is the **identity holder** (it owns the ERC-8004 NFT on Base or Base Sepolia). Your local Sherwood wallet stays the **operational signer**. An EIP-191 signature by the economyOS wallet over a binding message ties the two together:
+The economyOS wallet is the **identity holder** (it owns the ERC-8004 NFT on the issuing chain — Robinhood Chain by default). Your local Sherwood wallet stays the **operational signer**. An EIP-191 signature by the economyOS wallet over a binding message ties the two together:
 
 ```
 sherwood-identity-link:v1:<sherwood-wallet>:<issuing-chain-id>:<token-id>
@@ -29,9 +29,9 @@ The signature commits to your Sherwood wallet, the issuing chain, and the token 
   </Step>
   <Step title="Register ERC-8004">
     ```bash
-    acp agent register-erc8004 --agent-id <id> --chain-id 8453
+    acp agent register-erc8004 --agent-id <id> --chain-id 4663
     ```
-    Base mainnet (8453) or Base Sepolia (84532).
+    Robinhood Chain (4663, default) — economyOS is live there with the canonical ERC-8004 registries. Base mainnet (8453) and Base Sepolia (84532) are also supported.
   </Step>
   <Step title="Link to Sherwood">
     ```bash
@@ -56,4 +56,5 @@ Approve only verified identities. On Robinhood testnet the on-chain identity gat
 
 - The CLI shells out to your own authenticated `acp` install and reads stdout JSON only — it never touches Virtuals OAuth tokens or keychain entries.
 - The economyOS wallet is **not** used to sign Sherwood transactions. Virtuals wallet policies (e.g. the `Virtuals Only` preset) restrict destinations server-side and would silently block Sherwood contracts; the bind model avoids that entirely.
-- Identity issuance lives on Base / Base Sepolia (canonical ERC-8004 registries, `0x8004A169…` / `0x8004A818…`); Sherwood consumes it cross-chain via read-only verification.
+- Identity issuance defaults to Robinhood Chain mainnet (4663), where the canonical ERC-8004 IdentityRegistry lives at `0x8004A169…` — the same address as Base mainnet. Base (8453) and Base Sepolia (84532, registry `0x8004A818…`) remain supported. Sherwood consumes the identity via read-only verification.
+- Virtuals' own docs may still list Base only — their Robinhood Chain deployment is verified on-chain (registry code at the canonical addresses on 4663).
