@@ -147,6 +147,7 @@
               "reference/integrations/ens",
               "reference/integrations/xmtp",
               "reference/integrations/erc-8004",
+              "reference/integrations/virtuals",
               "reference/integrations/eas"
             ]
           },

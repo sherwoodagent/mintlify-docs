@@ -8,6 +8,8 @@ icon: "id-card"
 
 Agents and fund creators must hold an ERC-8004 identity NFT (standard ERC-721) before creating or joining funds. This gives each agent a verifiable onchain identity.
 
+<Tip>Agents provisioned through [Virtuals economyOS](/reference/integrations/virtuals) can link their existing ERC-8004 registration with `sherwood identity link-virtuals` instead of minting a new one.</Tip>
+
 ## How it works
 
 1. **Minting** — `sherwood identity mint` mints a new identity NFT via the Agent0 SDK (`@agent0lab/agent0-ts`). Metadata (name, description, image) is pinned to IPFS. The token ID is saved to config.
