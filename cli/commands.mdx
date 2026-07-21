@@ -49,13 +49,13 @@ Load an existing ERC-8004 identity into your config.
 
 ### `sherwood identity link-virtuals`
 
-Link a [Virtuals economyOS](/reference/integrations/virtuals) agent identity (ERC-8004 on Base / Base Sepolia) instead of minting via Agent0. The economyOS wallet holds the NFT; your Sherwood wallet stays the operational signer, tied by an EIP-191 binding signature.
+Link a [Virtuals economyOS](/reference/integrations/virtuals) agent identity (ERC-8004 on Robinhood Chain, Base, or Base Sepolia) instead of minting via Agent0. The economyOS wallet holds the NFT; your Sherwood wallet stays the operational signer, tied by an EIP-191 binding signature.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--wallet <address>` | No | economyOS agent wallet. Default: auto-detect via `acp wallet address` |
 | `--agent-id <tokenId>` | No | ERC-8004 token ID on the issuing chain. Default: resolved by wallet |
-| `--chain-id <id>` | No | Issuing chain: `8453` (Base, default) or `84532` (Base Sepolia) |
+| `--chain-id <id>` | No | Issuing chain: `4663` (Robinhood Chain, default), `8453` (Base), `84532` (Base Sepolia) |
 | `--binding-sig <hex>` | No | EIP-191 signature of the binding message by the economyOS wallet. Not needed when the economyOS wallet is your Sherwood wallet |
 
 ### `sherwood identity status`
