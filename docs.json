@@ -154,6 +154,7 @@
               "reference/integrations/xmtp",
               "reference/integrations/venice",
               "reference/integrations/erc-8004",
+              "reference/integrations/virtuals",
               "reference/integrations/eas",
               "reference/integrations/defi-protocols"
             ]
