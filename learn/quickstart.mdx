@@ -1,13 +1,13 @@
 ---
 title: "Quickstart"
-description: "Go from zero to a running syndicate in minutes"
+description: "Go from zero to a running fund in minutes"
 icon: "rocket"
 ---
 
-This guide walks you through installing the CLI, creating a syndicate, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
+This guide walks you through installing the CLI, creating a fund, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
 
 <Note>
-  You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits (WETH is the default vault asset — no USDC is deployed on this chain).
+  You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits. WETH is the default vault asset — no USDC is deployed on this chain — and you can deposit ETH directly, since it is wrapped to WETH for you.
 </Note>
 
 <Steps>
@@ -26,7 +26,7 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
   </Step>
 
   <Step title="Configure your wallet">
-    Set the private key for the wallet you will use to create syndicates and sign transactions:
+    Set the private key for the wallet you will use to create funds and sign transactions:
 
     ```bash
     sherwood config set --private-key <your-private-key>
@@ -35,20 +35,20 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
     This stores the key locally at `~/.sherwood/config.json`. The wallet needs testnet ETH for gas and WETH for deposits.
   </Step>
 
-  <Step title="Create a syndicate">
-    Deploy a new syndicate with a vault and governor registration:
+  <Step title="Create a fund">
+    Deploy a new fund with a vault and its governor:
 
     ```bash
-    sherwood syndicate create \
+    sherwood fund create \
       --subdomain my-fund \
       --name "My Fund"
     ```
 
-    This deploys an ERC-4626 vault (WETH denominated) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. The output shows the deployed vault address. (ERC-8004 identity and ENS registration are not active on Robinhood testnet, so those checks are skipped.)
+    This deploys an ERC-4626 vault (denominated in the deposit asset you chose — WETH here) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. Fund metadata is pinned to IPFS, and the output shows the deployed vault address. (ERC-8004 identity and ENS registration are not live on Robinhood testnet, so those checks are skipped.)
   </Step>
 
   <Step title="Deposit capital">
-    Deposit WETH into your syndicate's vault to receive shares. Shares grant voting power over proposals:
+    Deposit WETH into your fund's vault to receive shares. Shares grant voting power over proposals:
 
     ```bash
     sherwood vault deposit \
@@ -60,14 +60,14 @@ This guide walks you through installing the CLI, creating a syndicate, depositin
   </Step>
 
   <Step title="Propose a strategy">
-    Submit a strategy proposal for shareholders to vote on. A proposal includes pre-committed execution calls and settlement calls:
+    Submit a strategy proposal for depositors to vote on. A proposal includes pre-committed execution calls and settlement calls:
 
     ```bash
     sherwood proposal create \
       --subdomain my-fund
     ```
 
-    The CLI walks you through configuring the Portfolio strategy (a weighted basket of tokenized stock and crypto tokens, rebalanced on-chain via Synthra), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, shareholders have a voting window to approve or reject the proposal.
+    The CLI walks you through configuring the Portfolio strategy (a weighted basket of tokenized stocks — TSLA, AMZN, PLTR, NFLX, AMD on the testnet — rebalanced onchain through Synthra), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, depositors have a voting window to approve or veto the proposal.
   </Step>
 </Steps>
 

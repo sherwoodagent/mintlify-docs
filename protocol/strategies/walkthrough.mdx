@@ -4,10 +4,10 @@ description: "End-to-end guide: from choosing a strategy to settling a proposal"
 icon: "map"
 ---
 
-This guide walks through the complete strategy lifecycle using **Moonwell Supply** as the example. The same flow applies to all strategy templates — only the CLI flags and per-strategy parameters differ.
+This guide walks through the complete strategy lifecycle using the **Portfolio** strategy as the example — a weighted basket of tokenized stocks. The same flow applies to every strategy template; only the CLI flags and per-strategy parameters differ.
 
 <Note>
-  This guide assumes you've completed the [Quickstart](/learn/quickstart) — wallet configured, identity minted, syndicate created, and capital deposited.
+  This guide assumes you've completed the [Quickstart](/learn/quickstart) — wallet configured, identity minted, fund created, and capital deposited.
 </Note>
 
 ## Lifecycle Overview
@@ -28,11 +28,13 @@ graph LR
 ```
 
 - **Draft**: Only for collaborative proposals — awaits co-proposer consent before entering voting. Single-proposer strategies skip straight to Pending.
-- **Pending**: Voting window. Optimistic governance — proposals pass by default unless AGAINST votes reach the veto threshold. The **vault owner** can `vetoProposal()`, but only while the proposal is still Pending.
-- **GuardianReview**: After voting passes, staked guardians review the calldata for a window (default 24h). If they reach **block quorum** (default 30% of guardian stake) the proposal is Rejected and approvers are slashed. This is the only way to block a proposal once it has left Pending — there is no shareholder veto here.
-- **Approved**: Review window ended without a block quorum; the proposal can be executed.
-- **Executed**: Strategy is actively deployed (e.g., USDC earning yield on Moonwell).
-- **Settled**: Strategy unwound, profits distributed, fees taken.
+- **Pending**: Voting window. Optimistic governance — proposals pass by default unless AGAINST votes reach the veto threshold (default 20% of past total supply). The **vault owner** can `vetoProposal()` while Pending, or `emergencyCancel()` while Draft or Pending.
+- **GuardianReview**: After voting passes, staked guardians review the calldata for a window (default 24h). If they reach **block quorum** (seed default 30% of cohort stake) the proposal is Rejected and every approver is slashed. This is the only way to block a proposal once it has left Pending.
+- **Approved**: Review window ended without a block quorum; the proposal can be executed. It expires if left unexecuted past the execution window.
+- **Executed**: The strategy is live — the vault's WETH is deployed into the basket.
+- **Settled**: The basket is sold back to WETH, profits are distributed, and fees are taken.
+
+Terminal states outside the happy path are **Rejected**, **Expired**, and **Cancelled**.
 
 ## Step 1: Choose a Strategy
 
@@ -42,25 +44,30 @@ List available templates and their deployed addresses:
 sherwood strategy list
 ```
 
-| Template | What it does |
-|----------|-------------|
-| `moonwell-supply` | Supply tokens to Moonwell lending market, earn yield |
-| `venice-inference` | Loan model — stake VVV for private AI inference |
-| `aerodrome-lp` | Provide liquidity on Aerodrome, earn AERO rewards |
-| `wsteth-moonwell` | WETH → wstETH → Moonwell for stacked yield |
+Public docs cover two strategies:
+
+| Template | What it does | CLI |
+|----------|-------------|-----|
+| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights | Available today |
+| Leveraged Aerodrome CL | Net-short leveraged Aerodrome concentrated-liquidity position | Template key lands with the next release |
+
+Each fund picks its own deposit asset at creation; on the current deployment (Robinhood testnet) the live funds use **WETH**, and the tokenized-stock universe is **TSLA / AMZN / PLTR / NFLX / AMD**.
 
 ## Step 2: Propose a Strategy
 
-The `strategy propose` command handles everything: clones the template, initializes it, builds batch calls, and submits the proposal.
+The `strategy propose` command handles everything: clones the template, initializes it, builds the batch calls, and submits the proposal.
 
 ### Option A: Direct submission
 
 ```bash
-sherwood strategy propose moonwell-supply \
+sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 100 --min-redeem 99.5 --token USDC \
-  --name "Moonwell USDC Yield" \
-  --description "Supply 100 USDC to Moonwell for 7 days" \
+  --amount 0.5 \
+  --tokens TSLA,AMZN,PLTR,NFLX,AMD \
+  --weights 2500,2500,2000,1500,1500 \
+  --max-slippage 500 \
+  --name "Tokenized Stock Basket" \
+  --description "Deploy 0.5 WETH across five tokenized stocks for 7 days" \
   --duration 7d
 ```
 
@@ -68,25 +75,30 @@ sherwood strategy propose moonwell-supply \
 
 ```bash
 # Clone + init + generate batch call files
-sherwood strategy propose moonwell-supply \
+sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 100 --min-redeem 99.5 --token USDC \
-  --write-calls ./moonwell-calls
+  --amount 0.5 \
+  --tokens TSLA,AMZN,PLTR,NFLX,AMD \
+  --weights 2500,2500,2000,1500,1500 \
+  --max-slippage 500 \
+  --write-calls ./portfolio-calls
 
 # Review the generated files, then submit
 sherwood proposal create \
   --vault 0x... \
-  --name "Moonwell USDC Yield" \
-  --description "Supply 100 USDC to Moonwell for 7 days" \
+  --name "Tokenized Stock Basket" \
+  --description "Deploy 0.5 WETH across five tokenized stocks for 7 days" \
   --duration 7d \
-  --execute-calls ./moonwell-calls/execute.json \
-  --settle-calls ./moonwell-calls/settle.json
+  --execute-calls ./portfolio-calls/execute.json \
+  --settle-calls ./portfolio-calls/settle.json
 ```
 
 The generated JSON files contain the raw batch calls the governor will execute:
 
-- **execute.json**: `[USDC.approve(strategy, amount), strategy.execute()]`
+- **execute.json**: `[WETH.approve(strategy, totalAmount), strategy.execute()]`
 - **settle.json**: `[strategy.settle()]`
+
+On execute, the strategy pulls WETH from the vault and swaps it into each basket token at its target weight. On settle, it sells every token back to WETH.
 
 ## Step 3: Monitor Voting & Guardian Review
 
@@ -100,7 +112,7 @@ sherwood proposal list --vault 0x...
 sherwood proposal show --id <proposal-id> --vault 0x...
 ```
 
-During the **Pending** window, shareholders cast votes; if AGAINST votes reach the veto threshold the proposal is Rejected, and the vault owner may also `vetoProposal()` (Pending only). Once voting passes, the proposal moves to **GuardianReview**: staked guardians inspect the calldata, and a guardian block-quorum (default 30% of stake) is the only way to block it from here. If neither happens, it becomes **Approved**.
+During the **Pending** window, depositors cast votes; voting weight is each holder's checkpointed vote balance at propose time (shares auto-delegate to self on deposit). If AGAINST votes reach the veto threshold the proposal is Rejected, and the vault owner may also `vetoProposal()` (Pending only). Once voting passes, the proposal moves to **GuardianReview**: staked guardians inspect the calldata, and a guardian block quorum is the only way to block it from here. If neither happens, it becomes **Approved**.
 
 ## Step 4: Execute
 
@@ -110,37 +122,33 @@ After the guardian review window ends without a block quorum and the proposal is
 sherwood proposal execute --id <proposal-id> --vault 0x...
 ```
 
-This calls the governor, which executes the batch calls from `execute.json` through the vault. For Moonwell Supply, this pulls USDC from the vault and supplies it to Moonwell's lending market.
+This calls the governor, which executes the batch calls from `execute.json` through the vault. For the Portfolio strategy, this pulls WETH from the vault and buys the basket tokens at their target weights.
+
+<Note>
+  The Portfolio strategy has no vault-side priceable position, so while its proposal is active the vault runs the async request queue (Lane B): deposits and redeems escrow and settle at the single realized per-proposal price. See [Deposits & Withdrawals](/protocol/vault-liquidity).
+</Note>
 
 ## Step 5: Settle
 
-After the strategy duration expires:
+The proposer can settle once **at least 1 hour** has passed since execute; anyone else can settle after the full strategy duration expires:
 
 ```bash
 sherwood proposal settle --id <proposal-id> --vault 0x...
 ```
 
-Settlement unwinds the strategy (redeems mUSDC from Moonwell) and returns funds to the vault. The governor then calculates P&L and distributes fees:
+Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then calculates P&L and distributes fees from profit, in this order (rates snapshotted at propose time):
 
 1. **Protocol fee** — taken from gross profit first
-2. **Guardian fee** — a slice (max 5%) transferred to the GuardianRegistry for review-cohort rewards
-3. **Agent performance fee** — percentage of remaining profit (the vault's `agentFeeBps`, set by the owner; default 5%)
-4. **Management fee** — annual vault fee accrued over the strategy duration
+2. **Guardian fee** — a slice (max 5% of gross profit) routed to the fee recipient for review-cohort rewards
+3. **Agent performance fee** — a percentage of net profit (the vault's `agentFeeBps`, owner-set, hard cap 15%, default 5%), split across any co-proposers
+4. **Management fee** — the vault's management fee accrued over the strategy duration, applied to net-after-agent-fee
 5. **Remaining profit** — stays in the vault, increasing share value for depositors
 
+Failed fee transfers escrow rather than bricking settlement.
+
 <Warning>
-  If the proposer doesn't settle after duration, anyone can call `proposal settle`. The vault owner's emergency fallback is `emergencySettleWithCalls(proposalId, calls)` followed (after the guardian review window) by `finalizeEmergencySettle(calls)` — see Troubleshooting below.
+  If the proposer doesn't settle, anyone can call `proposal settle` after the full strategy duration. The vault owner's emergency fallbacks are `unstick()` (pre-committed settle calls only) and the guardian-reviewed `emergencySettleWithCalls()` flow — see Troubleshooting below.
 </Warning>
-
-## Strategy Comparison
-
-| | Moonwell Supply | Venice Inference | Aerodrome LP | wstETH Moonwell |
-|---|---|---|---|---|
-| **Asset** | USDC (or WETH) | USDC (or VVV) | Any token pair | WETH |
-| **Yield source** | Lending interest | Agent profit | LP fees + AERO | Lido + lending |
-| **Model** | Supply → redeem | Loan → repay | Add liquidity → remove | Swap → supply → redeem → swap |
-| **Settlement** | Automatic (redeem) | Agent repays manually | Automatic (remove LP) | Automatic (redeem + swap) |
-| **Off-chain work** | None | Agent runs inference | None | None |
 
 ## Troubleshooting
 
@@ -150,24 +158,24 @@ If `executeGovernorBatch` reverts, check the batch calls themselves — the stra
 
 ### Slippage protection
 
-All strategies have min-output parameters (`--min-redeem`, `--min-a-out`, etc.) to protect against sandwich attacks. If settlement reverts with slippage errors, the proposer can update params while the strategy is active:
+The Portfolio strategy caps slippage on every swap via `maxSlippageBps` (`--max-slippage`). If a swap can't clear the cap, the strategy reverts. While the proposal is Executed, the proposer can retune weights, slippage, or per-token swap routing without a new proposal by calling `updateParams` on the strategy clone — empty arrays or `0` keep the current values:
 
 ```solidity
-strategy.updateParams(abi.encode(newMinRedeem, ...));
+// (uint256[] newWeightsBps, uint256 newMaxSlippageBps, bytes[] newSwapExtraData)
+strategy.updateParams(abi.encode(newWeightsBps, 800, newSwapExtraData));
 ```
 
 ### Emergency settle
 
-Standard settlement covers the common cases: the proposer can `proposal settle` anytime, and anyone can settle after the strategy duration expires. The `proposal settle` command can also supply custom fallback calldata if the pre-committed settlement calls fail:
+Standard settlement covers the common cases: the proposer can settle 1h after execute, and anyone can settle after the strategy duration expires. If the pre-committed settlement calls fail, the `proposal settle` command can supply custom fallback calldata:
 
 ```bash
 sherwood proposal settle --id <proposal-id> --vault 0x... --calls ./custom-calls.json
 ```
 
-If the standard path can't unwind the position at all, the vault owner uses the guardian-reviewed emergency flow on the governor:
+If the standard path can't unwind the position at all, the vault owner uses the owner-only emergency paths on the governor:
 
-1. `emergencySettleWithCalls(proposalId, calls)` — commits the owner-supplied settlement calldata (by hash) and opens a guardian review window (default 24h).
-2. `finalizeEmergencySettle(calls)` — after the window, executes the committed calls unless guardians reached block quorum (in which case the owner's stake is burned).
-3. `cancelEmergencySettle()` — withdraws a pending emergency settle during the review window.
+- `unstick(proposalId)` — owner-instant settlement, limited to the pre-committed settlement calls.
+- `emergencySettleWithCalls(proposalId, calls)` — commits owner-supplied unwind calldata and opens a guardian review window. It requires a bonded owner stake; if guardians block it, the owner's bond is 100% slashed and burned. `finalizeEmergencySettle(proposalId)` executes the committed calls after the window; `cancelEmergencySettle(proposalId)` withdraws a pending emergency settle during the window.
 
-There is no bare `emergencySettle()` entrypoint; owner-instant settlement (`unstick()`) is limited to pre-committed calls only.
+Rescue functions are owner-only and blocked while any proposal is active.

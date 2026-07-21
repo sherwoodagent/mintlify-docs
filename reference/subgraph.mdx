@@ -4,7 +4,7 @@ description: "GraphQL indexing — entities, queries, and schema reference"
 icon: "diagram-project"
 ---
 
-Sherwood indexes all on-chain activity via [The Graph](https://thegraph.com/), giving you fast access to syndicate listings, agent performance, deposit history, and more.
+Sherwood indexes all on-chain activity via [The Graph](https://thegraph.com/), giving you fast access to fund listings, agent performance, deposit history, and more.
 
 ## Endpoint
 
@@ -16,18 +16,20 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 
 ## Entities
 
+Amounts are denominated in each vault's underlying asset (chosen per fund at creation) — WETH (18 decimals) on today's live funds.
+
 | Entity | Description |
 |--------|-------------|
-| **Syndicate** | A syndicate and its vault. Includes creator, metadata URI, and aggregated deposit/withdrawal totals (USDC). |
-| **Agent** | A registered agent wallet. Includes lifetime stats (total batches executed, total USDC moved). |
-| **Deposit** | An LP deposit into a vault. USDC amount, shares received, timestamp. |
-| **Withdrawal** | An LP withdrawal from a vault. USDC amount, shares burned, timestamp. |
-| **BatchExecution** | A batch of protocol calls executed by an agent. Call count, USDC amount, linked agent. |
+| **Syndicate** | A fund and its vault. Includes creator, metadata URI, and aggregated deposit/withdrawal totals in the underlying asset. |
+| **Agent** | A registered agent wallet. Includes lifetime stats (total batches executed, total asset moved). |
+| **Deposit** | A deposit into a vault. Asset amount, shares received, timestamp. |
+| **Withdrawal** | A withdrawal from a vault. Asset amount, shares burned, timestamp. |
+| **BatchExecution** | A batch of protocol calls executed by an agent. Call count, asset amount, linked agent. |
 | **Depositor** | An address on a vault's depositor whitelist. |
 
 ## Queries
 
-### List active syndicates
+### List active funds
 
 ```graphql
 {
@@ -43,7 +45,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 }
 ```
 
-### Syndicate details with agents and recent activity
+### Fund details with agents and recent activity
 
 ```graphql
 {
@@ -80,7 +82,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 }
 ```
 
-### Filter syndicates by creator
+### Filter funds by creator
 
 ```graphql
 {
@@ -132,7 +134,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 }
 ```
 
-### Approved depositors for a syndicate
+### Approved depositors for a fund
 
 ```graphql
 {
@@ -149,15 +151,15 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | ID | Syndicate ID from factory |
+| `id` | ID | Fund ID from factory |
 | `vault` | Bytes | Vault proxy address |
-| `creator` | Bytes | Address that created the syndicate |
-| `metadataURI` | String | IPFS URI pointing to syndicate metadata JSON |
+| `creator` | Bytes | Address that created the fund |
+| `metadataURI` | String | IPFS URI pointing to fund metadata JSON |
 | `createdAt` | BigInt | Block timestamp |
-| `active` | Boolean | Whether the syndicate is active |
-| `totalDeposits` | BigDecimal | Cumulative USDC deposited |
-| `totalWithdrawals` | BigDecimal | Cumulative USDC withdrawn |
-| `agents` | [Agent] | Agents registered to this syndicate |
+| `active` | Boolean | Whether the fund is active |
+| `totalDeposits` | BigDecimal | Cumulative deposited, in the underlying asset |
+| `totalWithdrawals` | BigDecimal | Cumulative withdrawn, in the underlying asset |
+| `agents` | [Agent] | Agents registered to this fund |
 | `deposits` | [Deposit] | All deposits into this vault |
 | `withdrawals` | [Withdrawal] | All withdrawals from this vault |
 | `batchExecutions` | [BatchExecution] | All batch executions on this vault |
@@ -168,16 +170,16 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | ID | `{vault}-{agentAddress}` |
-| `syndicate` | Syndicate | Parent syndicate |
+| `syndicate` | Syndicate | Parent fund |
 | `agentAddress` | Bytes | Agent wallet address |
 | `agentId` | BigInt | ERC-8004 identity NFT token ID |
 | `active` | Boolean | Whether the agent is currently registered |
 | `registeredAt` | BigInt | Block timestamp of registration |
 | `totalBatches` | BigInt | Lifetime batch executions |
-| `totalAssetAmount` | BigInt | Lifetime vault asset moved (asset decimals) |
+| `totalAssetAmount` | BigInt | Lifetime vault asset moved (18 decimals for WETH) |
 
 <Note>
-**`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Assumptions](/protocol/architecture#trust-assumptions).
+**`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Boundaries](/protocol/architecture#trust-boundaries).
 </Note>
 
 ### Deposit / Withdrawal
@@ -185,11 +187,11 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | ID | `{txHash}-{logIndex}` |
-| `syndicate` | Syndicate | Parent syndicate |
+| `syndicate` | Syndicate | Parent fund |
 | `sender` | Bytes | Transaction sender |
 | `owner` | Bytes | Share recipient (deposit) or share owner (withdrawal) |
 | `receiver` | Bytes | Asset recipient (withdrawal only) |
-| `assets` | BigInt | USDC amount (6 decimals) |
+| `assets` | BigInt | Asset amount (18 decimals for WETH) |
 | `shares` | BigInt | Vault shares minted/burned |
 | `timestamp` | BigInt | Block timestamp |
 | `blockNumber` | BigInt | Block number |
@@ -200,10 +202,10 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | ID | `{txHash}-{logIndex}` |
-| `syndicate` | Syndicate | Parent syndicate |
+| `syndicate` | Syndicate | Parent fund |
 | `agent` | Agent | Agent that executed the batch |
 | `callCount` | BigInt | Number of calls in the batch |
-| `assetAmount` | BigInt | USDC amount declared for the batch (6 decimals) |
+| `assetAmount` | BigInt | Asset amount declared for the batch (18 decimals for WETH) |
 | `timestamp` | BigInt | Block timestamp |
 | `txHash` | Bytes | Transaction hash |
 
@@ -212,8 +214,8 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 The Sherwood CLI queries the subgraph automatically when `SUBGRAPH_URL` is set:
 
 ```bash
-sherwood syndicate list                       # All active syndicates
-sherwood syndicate list --creator 0xabc...    # Filter by creator
+sherwood fund list                       # All active funds
+sherwood fund list --creator 0xabc...    # Filter by creator
 ```
 
 If `SUBGRAPH_URL` is not set, the CLI falls back to on-chain contract calls.

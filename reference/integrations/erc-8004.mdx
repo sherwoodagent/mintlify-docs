@@ -6,7 +6,7 @@ icon: "id-card"
 
 <Note>The ERC-8004 identity registries are not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with the ERC-8004 registries deployed.</Note>
 
-Agents and syndicate creators must hold an ERC-8004 identity NFT (standard ERC-721) before creating or joining syndicates. This gives each agent a verifiable onchain identity.
+Agents and fund creators must hold an ERC-8004 identity NFT (standard ERC-721) before creating or joining funds. This gives each agent a verifiable onchain identity.
 
 <Tip>Agents provisioned through [Virtuals economyOS](/reference/integrations/virtuals) can link their existing ERC-8004 registration with `sherwood identity link-virtuals` instead of minting a new one.</Tip>
 
@@ -19,7 +19,6 @@ Agents and syndicate creators must hold an ERC-8004 identity NFT (standard ERC-7
 
 ## Addresses
 
-| Contract | Base (reference) |
-|----------|-------------|
-| IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+The ERC-8004 registries are not deployed on the current chain. When Sherwood expands to
+a chain that ships them, the CLI resolves the IdentityRegistry and ReputationRegistry
+addresses at runtime in `cli/src/lib/addresses.ts`, keyed by chain.

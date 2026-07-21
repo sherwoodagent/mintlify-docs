@@ -39,7 +39,7 @@ Uniswap-compatible swap adapter backed by Synthra via a QuoterV2 shim).
 | ERC-8004 Identity | Not yet |
 | EAS Attestations | Not yet |
 | ENS Subnames (Durin) | Not yet |
-| Moonwell / Aerodrome / Venice / Hyperliquid | Not yet |
+| Leveraged Aerodrome CL strategy (needs Moonwell + Aerodrome) | Not yet |
 | USDC | No — not deployed |
 
 ### Key details
@@ -64,6 +64,10 @@ come online over time.
 ## Deployed Addresses
 
 Source of truth: `contracts/chains/46630.json`.
+
+<Note>
+On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
+</Note>
 
 ### Sherwood Contracts
 
@@ -107,9 +111,14 @@ the async-redeem queue and settles at one frozen per-proposal price. See
 
 ### Tokens
 
+Each fund chooses its deposit asset at creation (any ERC-20 — typically a stablecoin like USDG/USDC, or WETH). Every fund live today uses **WETH** — specifically Synthra's WETH9, which holds all stock-DEX
+liquidity on this chain. Plain ETH auto-wraps into it on deposit. A second, canonical
+WETH also exists but its pools are effectively empty; do not target it.
+
 | Token | Address (46630) |
 |-------|-----------------|
-| WETH (default vault asset) | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
+| WETH (vault asset — Synthra WETH9) | `0x33e4191705c386532ba27cBF171Db86919200B94` |
+| WETH (canonical — reference only, empty pools) | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
 
 ### Stock Tokens
 

@@ -61,26 +61,10 @@ sherwood agent start \
 | `--dry-run` | `true` | Paper trading mode (default) |
 | `--tokens` | `ethereum,bitcoin,solana,aave,uniswap` | Comma-separated token watchlist |
 | `--log` | none | Path to write cycle log JSONL files |
-| `--mode` | `dry-run` | Execution mode: `dry-run` or `hyperliquid-perp` (live perp not yet available on Robinhood testnet) |
-| `--strategy-clone` | none | Strategy clone address (required for `hyperliquid-perp`) |
-
-### Live Execution (Hyperliquid Perp)
 
 <Note>
-Live Hyperliquid-perp execution requires a chain where the Hyperliquid strategy is deployed. It is **not yet available on Robinhood testnet** (chain 46630), Sherwood's current deployment target. The agent paper-trades here; live execution comes online as Sherwood expands to more chains.
+Live on-chain execution is not part of the current Robinhood testnet (chain 46630) deployment; the agent paper-trades here.
 </Note>
-
-To run the agent in live mode against a deployed HyperliquidPerpStrategy:
-
-```bash
-SHERWOOD_PROPOSER_KEY=0x... sherwood agent start \
-  --mode hyperliquid-perp \
-  --strategy-clone 0x... \
-  --tokens ethereum \
-  --cycle 1h
-```
-
-The agent will call `updateParams()` on the strategy clone to open/close positions and manage stop-losses. The proposer private key is read from the `SHERWOOD_PROPOSER_KEY` environment variable (never passed as a CLI argument).
 
 The loop loads any persisted risk configuration from `~/.sherwood/agent/config.json` (written by `agent config --set`). Each cycle:
 1. Resets daily/weekly/monthly PnL counters at boundaries
