@@ -37,7 +37,9 @@ The signature commits to your Sherwood wallet, the issuing chain, and the token 
     ```bash
     sherwood identity link-virtuals
     ```
-    Auto-detects the economyOS wallet via your authenticated `acp` CLI (or pass `--wallet` / `--agent-id` explicitly). If a binding signature is required, the command prints the exact message to sign with the economyOS wallet; re-run with `--binding-sig <signature>`.
+    Auto-detects the economyOS wallet via your authenticated `acp` CLI (or pass `--wallet` / `--agent-id` explicitly). If a binding signature is required, the command prints the exact message to sign with the economyOS wallet (`acp wallet sign-message --message "..."`); re-run with `--binding-sig <signature>`.
+
+    No ERC-8004 registration yet (e.g. the registration backend doesn't support your chain)? Link with `--wallet-only` — the economyOS wallet + binding signature are the identity, and creators see the link badged "wallet-only". Re-link after registering to upgrade.
   </Step>
 </Steps>
 
