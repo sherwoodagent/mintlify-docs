@@ -1,10 +1,10 @@
 ---
-title: "Leveraged Aerodrome CL"
+title: "[SOON] Leveraged Aerodrome CL"
 description: "Net-short leveraged Aerodrome Slipstream concentrated-liquidity position with anytime deposit / redeem directly at the strategy"
 icon: "layer-group"
 ---
 
-<Note>Not yet available on Robinhood testnet (chain 46630), Sherwood's current deployment target. This strategy will come online as Sherwood expands to more chains.</Note>
+<Note>**In development — not yet live.** This strategy is built and tested but not yet available on Sherwood's current deployment target (Robinhood testnet, chain 46630). It comes online as Sherwood expands to the chains where Aerodrome + Moonwell are deployed.</Note>
 
 The `LeveragedAerodromeCLStrategy` runs a **net-short, leveraged** position on Aerodrome's Slipstream concentrated-liquidity (CL) pools, funded by a Moonwell borrow. USDC is supplied to Moonwell as collateral, cbBTC + WETH are borrowed against it, the two borrowed legs open a Slipstream CL position, and the LP is staked in the gauge to farm and compound AERO.
 
