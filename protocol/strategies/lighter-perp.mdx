@@ -78,5 +78,5 @@ While a proposal is `Executed`, the proposer can call these directly on the clon
 </Note>
 
 <Warning>
-  Because the secure withdrawal is asynchronous, a fund's exit is **two-phase**: the withdrawal is kicked off while the proposal is still open, then settlement claims it later. While the fund is waiting on that withdrawal, deposits and redemptions queue in the async (Lane-B) queue and are paid out once settlement stamps the final price — a lock window worth communicating to depositors for a fund that runs Lighter positions.
+  Because the secure withdrawal is asynchronous, a fund's exit is **staged**: positions are closed, the withdrawal is queued once those closes fill, and settlement claims it later. While the fund is waiting, deposits and redemptions queue in the async (Lane-B) queue and are paid out once settlement stamps the final price — a lock window worth communicating to depositors for a fund that runs Lighter positions.
 </Warning>
