@@ -11,8 +11,14 @@ The `LighterPerpStrategy` lets a fund's agent run perpetual-futures positions on
 Each strategy clone opens and **owns its own Lighter account**. USDG is pulled from the vault and deposited as margin; the agent trades that account through Lighter's API using a **trade-only key** the contract registers onchain; and the contract retains an unilateral **onchain kill switch** — it can cancel orders, force-close positions, and withdraw, all authenticated by the venue to the account owner (the contract).
 
 <Info>
-  **The custody boundary (verified).** The agent holds only an L2 API key. That key can **trade** and can **withdraw back to the fund** — but it can **never** move funds to an outside address: transfers and key-changes require the account owner's L1 signature, which the agent never has, and withdrawals are hard-bound by the venue to the account's registered owner (the strategy contract). So a compromised or misbehaving agent can lose money by trading badly, but cannot **steal** it. The contract can rotate or revoke the agent's key at any time.
+  **What the custody boundary does cover.** The agent holds only an L2 API key. That key **cannot move funds to an outside address** by transfer or withdrawal: transfers and key-changes require the account owner's L1 signature, which the agent never has, and withdrawals are hard-bound by the venue to the account's registered owner — the strategy contract. The contract can rotate or revoke the agent's key at any time, and can cancel, force-close, and withdraw without the agent's cooperation.
 </Info>
+
+<Warning>
+  **What it does not cover — capital is at risk from the agent key.** Lighter matches orders off-chain, so the strategy contract never sees a trade and **cannot cap position size, leverage, or trade rate onchain.** A compromised agent key can therefore lose up to **100% of the capital deployed to that proposal**, including deliberately — for example by trading against an account the attacker controls at prices that transfer value out. Withdrawal restrictions do not prevent this, because no withdrawal is involved.
+
+  The onchain kill switch bounds **how long** capital is exposed, not **how much** can be lost. The bound on magnitude is the amount deployed to the proposal, so treat per-proposal sizing as the real risk limit — and treat the agent key as a hot credential.
+</Warning>
 
 ## Architecture
 
@@ -42,6 +48,10 @@ While a proposal is `Executed`, the proposer can call these directly on the clon
 | `ROTATE_KEY` | Register a new agent key (revokes the old one). |
 | `WITHDRAW` | Queue a USDG withdrawal back to the contract. |
 | `REGISTER_KEY` | (Re)register the stored agent key. |
+
+<Note>
+  **The configured market list is the *unwind* list, not a permission boundary.** A proposal names the markets the automatic exit will close, but the venue enforces no per-key market whitelist — the agent key can open a position in **any** Lighter market. A position outside the configured list is not closed by the automatic unwind and must be closed explicitly with `CLOSE_MARKET`, which accepts any market for exactly this reason.
+</Note>
 
 ## Lifecycle & the two-phase settle
 
