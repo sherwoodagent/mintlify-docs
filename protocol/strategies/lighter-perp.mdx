@@ -46,8 +46,9 @@ While a proposal is `Executed`, the proposer can call these directly on the clon
 | `CANCEL_ALL` | Cancel every resting order on the account. |
 | `CLOSE_MARKET` | Force-close a market with a market order. |
 | `ROTATE_KEY` | Register a new agent key (revokes the old one). |
-| `WITHDRAW` | Queue a USDG withdrawal back to the contract. |
 | `REGISTER_KEY` | (Re)register the stored agent key. |
+
+Withdrawing is deliberately not one of these — it belongs to the staged exit below, because the amount can only be known once positions have actually closed.
 
 <Note>
   **The configured market list is the *unwind* list, not a permission boundary.** A proposal names the markets the automatic exit will close, but the venue enforces no per-key market whitelist — the agent key can open a position in **any** Lighter market. A position outside the configured list is not closed by the automatic unwind and must be closed explicitly with `CLOSE_MARKET`, which accepts any market for exactly this reason.
