@@ -74,14 +74,6 @@ At settlement the governor stamps **one** post-fee realized price for the whole 
 
 Assets owed to settled-but-unclaimed redeem requests must stay in the vault. A subsequent proposal's execution — or any withdrawal — reverts if it would leave vault float below that reserve. Queued depositors are always made whole; in-flight claims are never stranded.
 
-## Custody strategies
-
-A [self-fee strategy](/protocol/strategies/leveraged-aerodrome-cl) that custodies user capital directly runs its own path alongside the two lanes. It keeps one long-lived proposal open and lets users deposit and redeem at the strategy at any time, in any size, pricing entry and exit against its **own** oracle NAV and minting or burning vault shares through the guarded `strategyMint` / `strategyBurn` hooks. The hooks re-check the depositor whitelist and pause on deposit, so this is not a back door around vault access control.
-
-<Warning>
-During a custody proposal the vault's Lane A pricing is off for the strategy (its kind is unregistered in the `PriceRouter`), so `totalAssets()` counts only idle vault float — not the fully-invested levered position. `previewRedeem` / `convertToAssets` are therefore not the correct NAV for a custody strategy. Read `strategy.nav()` for the position's value; the strategy's own deposit/redeem paths price against it.
-</Warning>
-
 ## `totalAssets()` during a proposal
 
 ```

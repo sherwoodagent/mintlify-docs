@@ -92,10 +92,6 @@ if profit > 0:
 
 Protocol and guardian fees come off gross profit first. The agent's performance fee is taken from the net and clamped to the governor's cap. The management fee comes last. Everything left over accrues to depositors. The guardian fee routes onchain to a fee-recipient multisig, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the full breakdown.
 
-<Note>
-**Self-fee strategies opt out.** A strategy that crystallizes its own fees — the [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl) strategy — sets a self-fee flag snapshotted at propose, and the governor takes **none** of the waterfall fees above. Depositors mint and redeem directly against the strategy's own NAV, so the governor's balance-delta P&L would misread net deposits as profit; the strategy handles its own management and high-water-mark performance fees instead.
-</Note>
-
 ## Full lifecycle in the call arrays
 
 The proposal commits the complete lifecycle upfront — opening calls in `executeCalls`, closing calls in `settlementCalls`. A Portfolio-strategy proposal against a WETH-denominated fund looks like:

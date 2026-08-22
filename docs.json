@@ -79,7 +79,6 @@
             "pages": [
               "protocol/strategies/walkthrough",
               "protocol/strategies/uniswap",
-              "protocol/strategies/leveraged-aerodrome-cl",
               "protocol/strategies/lighter-perp"
             ]
           },

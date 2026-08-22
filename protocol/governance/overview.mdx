@@ -71,7 +71,7 @@ There is no `capitalRequired` field and no combined array with a split index —
 - **`strategy`** — the contract whose positions the vault prices via the `PriceRouter` for Lane A live NAV. Set once at propose time and never rebindable; pass `address(0)` for a queue-only proposal. The vault always prices the strategy's positions itself — a strategy is never trusted to report its own value.
 - **`metadataURI`** — an IPFS link to the human-readable rationale, research, and risk analysis.
 - **`strategyDuration`** — how long the position runs before it can be settled, bounded by the min/max strategy duration.
-- **Fee snapshot** — the agent performance fee, protocol fee, guardian fee, and the strategy's self-fee flag are all snapshotted from live config at propose time. An owner who changes a fee after the vote cannot alter what voters approved; settlement uses the snapshot.
+- **Fee snapshot** — the agent performance fee, protocol fee, and guardian fee are all snapshotted from live config at propose time. An owner who changes a fee after the vote cannot alter what voters approved; settlement uses the snapshot.
 
 <Note>
 **The calls are the vote.** Depositors vote on the precise onchain actions, not a description. `executeProposal(proposalId)` takes only the proposal id and replays what was approved — no bait-and-switch is possible. The `metadataURI` explains *why*; the calls are *what*.

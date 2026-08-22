@@ -44,7 +44,7 @@ The ERC-4626 vault that **is** the fund. It holds every position and is the only
 
 Strategy calldata can only enter through `executeGovernorBatch`, which the vault accepts solely from its own governor and runs by delegatecall into `BatchExecutorLib` — the owner has no arbitrary-calldata path into the vault. Asset recovery is limited to dedicated `rescueERC20` / `rescueERC721` / `rescueEth` paths, all owner-only and blocked while a proposal is open.
 
-`totalAssets()` is idle balance plus live strategy NAV, and that NAV is **always** priced vault-side by the `PriceRouter` — the vault never trusts a strategy's self-reported value. Redemptions run in [two lanes](/protocol/vault-liquidity): an instant lane that settles at live NAV, and a queued lane that escrows shares in the `VaultWithdrawalQueue` and pays out at one realized price stamped at settlement. An instant exit taken during a proposal locks the holder's shares until settlement, which closes the mid-flight MEV window. Self-fee strategies may mint or burn shares at their own oracle NAV through guarded `strategyMint` / `strategyBurn` hooks (the whitelist and pause are re-checked, so a strategy is not a back door around access control).
+`totalAssets()` is idle balance plus live strategy NAV, and that NAV is **always** priced vault-side by the `PriceRouter` — the vault never trusts a strategy's self-reported value. Redemptions run in [two lanes](/protocol/vault-liquidity): an instant lane that settles at live NAV, and a queued lane that escrows shares in the `VaultWithdrawalQueue` and pays out at one realized price stamped at settlement. An instant exit taken during a proposal locks the holder's shares until settlement, which closes the mid-flight MEV window.
 
 The redemption lock is derived, not stored: `redemptionsLocked()` reads the governor's active-proposal signal live on every call, so the vault and governor can never disagree about whether a strategy is live.
 
@@ -54,7 +54,7 @@ One governor per vault, deployed as a BeaconProxy so every fund shares an implem
 
 Voting is [optimistic](/protocol/governance/overview): weight is the `ERC20Votes` checkpoint taken one second before propose, and a proposal passes after voting ends unless Against votes reach the veto threshold (default 20% of past supply, bounds 20–50%). The vault owner can veto a Pending proposal or cancel a Draft/Pending one; once a proposal enters guardian review, only the guardian cohort and the execution window decide the outcome.
 
-At settlement the governor pays a profit-only [fee waterfall](/protocol/governance/economics) — protocol, then guardian, then agent (net, split across any co-proposers), then management — using rates snapshotted at propose time. [Self-fee strategies](/protocol/strategies/leveraged-aerodrome-cl) opt out of the waterfall entirely, and failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the four owner-only [emergency-settlement](/protocol/governance/settlement) paths for stuck strategies.
+At settlement the governor pays a profit-only [fee waterfall](/protocol/governance/economics) — protocol, then guardian, then agent (net, split across any co-proposers), then management — using rates snapshotted at propose time. Failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the four owner-only [emergency-settlement](/protocol/governance/settlement) paths for stuck strategies.
 
 ### GovernorBeacon
 
@@ -98,23 +98,18 @@ A stateless library the vault delegatecalls to run a batch of protocol calls ato
 
 ## Strategies
 
-Strategies are the pluggable position logic a proposal points at. A strategy reports only **where and what** it holds — never a value; the vault prices those positions itself through the `PriceRouter`. Public docs cover two.
+Strategies are the pluggable position logic a proposal points at. A strategy reports only **where and what** it holds — never a value; the vault prices those positions itself through the `PriceRouter`.
 
 ### PortfolioStrategy
 
 Holds a weighted basket of tokenized stocks and rebalances toward target weights. Pricing is Chainlink Data Streams-assisted, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
-
-### LeveragedAerodromeCLStrategy
-
-A net-short leveraged concentrated-liquidity strategy: it posts USDC collateral, borrows cbBTC and WETH against it on Moonwell, and runs an Aerodrome Slipstream position staked in the AERO gauge. NAV is oracle-priced and fail-closed, LTV and health are capped, and the strategy manages its own async redeem queue plus its own streaming management and high-water-mark performance fees — so it opts out of the governor's settlement fees. It is a one-per-proposal ERC-1167 clone guarded against reentrancy on every state-changing op. See [Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl).
 
 ## Trust boundaries
 
 A few surfaces rely on governance discipline rather than a runtime check. Integrators and auditors should hold these in context:
 
 1. **The governor is trusted on the fee path.** `vault.transferPerformanceFee` has no amount or recipient cap on the vault side — the governor is trusted to transfer only what settlement math dictates, to a pre-vetted recipient, in the vault's asset. The governor is upgradeable only through the multisig-controlled `GovernorBeacon`, not instantly.
-2. **The active-strategy gate is the trust boundary for share hooks.** `strategyMint` / `strategyBurn` accept only the vault's active strategy adapter — a governance-approved, guardian-reviewed clone of an audited template — with no separate codehash pin. (The governor batch path, by contrast, *is* codehash-pinned: `executeGovernorBatch` reverts unless the delegatecall target still matches the `BatchExecutorLib` captured at initialization.)
-3. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
+2. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
 
 ## Building and testing
 
