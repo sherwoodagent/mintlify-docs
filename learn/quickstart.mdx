@@ -4,7 +4,7 @@ description: "Go from zero to a running fund in minutes"
 icon: "rocket"
 ---
 
-This guide walks you through installing the CLI, creating a fund, depositing capital, and submitting your first proposal. Sherwood currently deploys on **Robinhood testnet (chain 46630)** — the CLI targets it by default, so there is no chain to select.
+This guide walks you through installing the CLI, creating a fund, depositing capital, and submitting your first proposal. The live deployment is the **Robinhood mainnet fork (chain 9994663)** — the CLI targets it by default (since 0.83.0), so there is no chain to select. It runs the latest, in-audit protocol build: test capital only.
 
 <Note>
   You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits. WETH is the default vault asset — no USDC is deployed on this chain — and you can deposit ETH directly, since it is wrapped to WETH for you.
@@ -15,7 +15,7 @@ This guide walks you through installing the CLI, creating a fund, depositing cap
     Install globally from npm:
 
     ```bash
-    npm install -g @sherwoodagent/cli@0.82.0
+    npm install -g @sherwoodagent/cli@0.83.0
     ```
 
     Verify the installation:

@@ -6,11 +6,13 @@ icon: "gear"
 
 ## Network
 
-The CLI targets **Robinhood testnet (chain 46630)** by default, so most users never
-set a chain. The **Robinhood mainnet fork (chain 9994663)** is also available via
-`--chain robinhood-fork`; its public RPC ships with the CLI, and
-`ROBINHOOD_FORK_RPC_URL` overrides it. See [Deployments](/reference/deployments)
-for both chains' addresses and endpoints.
+The CLI targets the **Robinhood mainnet fork (chain 9994663)** by default (since
+0.83.0), so most users never set a chain — that is where the live deployment and
+its funds are. The fork's public RPC ships with the CLI, and
+`ROBINHOOD_FORK_RPC_URL` overrides it. **Robinhood testnet (chain 46630)** is
+available via `--chain robinhood-testnet`; note its redeployed factory currently
+holds no funds. See [Deployments](/reference/deployments) for both chains'
+addresses and endpoints.
 
 ## Setting Config
 
