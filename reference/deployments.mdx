@@ -17,10 +17,10 @@ where the newest governance and guardian contracts land first; reach it with
 | Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active | default |
 | [Robinhood mainnet fork](#robinhood-mainnet-fork-chain-9994663) | 9994663 | Fork (Tenderly Virtual TestNet) | Active | `--chain robinhood-fork` |
 
-On Robinhood testnet the full V2 stack is deployed: vaults, governance, the
-guardian layer (GuardianRegistry + StakedWood with a WOOD fixture token), the
-StrategyFactory keyless clone+init path, and the V2 live-NAV surface (PriceRouter
-+ a Uniswap-compatible swap adapter backed by Synthra via a QuoterV2 shim).
+On Robinhood testnet the post-audit stack is deployed: vaults, governance, the
+guardian layer (GuardianRegistry + StakedWood + TierRegistry, with a WOOD fixture
+token), the StrategyFactory keyless clone+init path, and a Uniswap-compatible swap
+adapter backed by Synthra via a QuoterV2 shim.
 
 ## Feature Matrix
 
@@ -28,10 +28,12 @@ StrategyFactory keyless clone+init path, and the V2 live-NAV surface (PriceRoute
 |---------|---------------------------|
 | Vaults + Factory | Yes |
 | Governor (proposals, voting) | Yes |
-| Guardian layer (registry + sWOOD) | Yes |
+| Guardian layer (registry + sWOOD + TierRegistry) | Yes |
 | Strategy Factory (keyless deploy) | Yes |
-| Live NAV (PriceRouter + adapter) | Yes |
+| Swap adapter (Uniswap-compatible, Synthra-backed) | Yes |
 | Portfolio strategy | Yes |
+| Morpho / concentrated-liquidity templates | No — fork only |
+| Challenge game, token court, proposer bonds, exposure ledger | No — fork only |
 | Synthra DEX (swaps) | Yes |
 | Chainlink Data Streams | Yes |
 | Stock Tokens (RWA) | Yes (TSLA / AMZN / PLTR / NFLX / AMD) |
@@ -69,20 +71,36 @@ Source of truth: `contracts/chains/46630.json`.
 On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
 </Note>
 
+<Warning>
+This stack was **redeployed on 2026-08-21** after the security audit. The previous
+deployment — and the 9 legacy syndicates created under its factory — is superseded:
+those contracts are still on-chain but are no longer the protocol. Every address
+below is from the post-audit deploy.
+</Warning>
+
 ### Sherwood Contracts
 
 | Contract | Address (46630) |
 |----------|-----------------|
-| SyndicateFactory | `0xB9E71Fb33075328d6e94eCFFf8a8629D6d057cce` |
-| GovernorBeacon | `0x11B726c49E0bAc95bEafF8d648cf3030Dc11B73a` |
-| ProtocolConfig | `0xEe6DfE03353CEf1d80F38FbDdD30ce5Fb0531929` |
-| SyndicateVaultImpl | `0x189160156d470B9ce8A55206DE19Ea60D2638ec6` |
-| BatchExecutorLib | `0xd83dc3A79Bb41a02Ca7aC812c0f52212C1BdBC1B` |
-| GuardianRegistry | `0x57f0fa384d0d7e2F234535d1235440312866872B` |
-| StakedWood (sWOOD) | `0x15F48A9f24c8ECaa8f03c28Ecd1a3b4784CdCb3c` |
-| WOOD token (fixture) | `0xCCb4fB59cf40de1E23083037ee81Da1DD747D8d7` |
-| PriceRouter | `0xDd302ffcfA08071780eC1A2f12BccFB9ba6b6731` |
-| StrategyFactory | `0xE1D082ef1CE17f9C6a46e97928337267BFF0C309` |
+| SyndicateFactory | `0xa91AA45AFF32f52b6357044B02a16EBA775feC0b` |
+| GovernorBeacon | `0x3D46Ec018cd5893b685b4dfdc3921A4Eb64E11d1` |
+| ProtocolConfig | `0xC104Eb6a522d6718cA28F344B2373B29d57FF2E0` |
+| SyndicateVaultImpl | `0xC57e12d6e2d8Ed49316F0b69c51893CcA44151F7` |
+| BatchExecutorLib | `0xF3b8db5aa41c7Ce92478A0Fa9C55a6460533eb86` |
+| CallSandboxImpl | `0xf09f6AF7DeBB964eD731376C9Af389F2Ce3d872A` |
+| StrategyFactory | `0xb683Bb8EEcBc2419BC3801df6FeA88f96657e670` |
+
+Guardian layer:
+
+| Contract | Address (46630) |
+|----------|-----------------|
+| GuardianRegistry | `0xA400eFcfFc820C6f812203C58ee00423AeCC0903` |
+| StakedWood (sWOOD) | `0x21A69A6c9814c0d339C57fDdafed3B283702a739` |
+| TierRegistry | `0x99b8068Dc0F6093466964D581f72d947e3e380DB` |
+
+The challenge game, token court, proposer-bond escrow, and exposure ledger are **not
+deployed on this chain** — they live on the
+[mainnet fork](#robinhood-mainnet-fork-chain-9994663) only.
 
 There is **no singleton `SyndicateGovernor`**. Since PR #421 each vault's governor is
 deployed **per-vault** — a `BeaconProxy` the factory creates at `createSyndicate`,
@@ -101,24 +119,32 @@ with custom parameters.
 | PortfolioStrategy | `0x67420Cc504d70a42Adfd8867d878afe0978C7d10` |
 | UniswapSwapAdapter (Synthra-backed) | `0x4fc3492117cC3bbcE0b210D22a8DC244f9d86490` |
 
-Under the V2 live-NAV model the strategy is never trusted for value: each template
-reports its on-venue holdings via `IStrategy.positions()`, and the vault prices them
-through the governance-owned `PriceRouter` per position `kind` — but only when that
-kind's **Lane A** instant lane is enabled. The Portfolio strategy reports no
-priceable positions and is **Lane B only** — entry/exit during a proposal escrows in
-the async-redeem queue and settles at one frozen per-proposal price. See
-[Vault Liquidity](/protocol/vault-liquidity) for the two-lane mechanics.
+Portfolio is the only strategy template approved on this chain. The Morpho supply and
+concentrated-liquidity templates exist on the
+[mainnet fork](#robinhood-mainnet-fork-chain-9994663) only.
+
+A strategy is never trusted for value. The vault's `totalAssets()` is its own idle
+float net of the queue reserve and escrowed fees — it carries no strategy-reported
+term at all. While a proposal is live, entry and exit escrow in the async-redeem
+queue and settle at one frozen per-proposal price stamped at settlement. See
+[Vault Liquidity](/protocol/vault-liquidity) for the queue mechanics.
 
 ### Tokens
 
-Each fund chooses its deposit asset at creation (any ERC-20 — typically a stablecoin like USDG/USDC, or WETH). Every fund live today uses **WETH** — specifically Synthra's WETH9, which holds all stock-DEX
-liquidity on this chain. Plain ETH auto-wraps into it on deposit. A second, canonical
-WETH also exists but its pools are effectively empty; do not target it.
+Each fund chooses its deposit asset at creation (any ERC-20). On this chain that
+means **WETH** — specifically Synthra's WETH9, which holds all stock-DEX liquidity
+here. Plain ETH auto-wraps into it on deposit. A second, canonical WETH also exists
+but its pools are effectively empty; do not target it. The post-audit factory has no
+funds created against it yet, so pick the Synthra WETH9 below.
 
 | Token | Address (46630) |
 |-------|-----------------|
 | WETH (vault asset — Synthra WETH9) | `0x33e4191705c386532ba27cBF171Db86919200B94` |
 | WETH (canonical — reference only, empty pools) | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
+| WOOD token (fixture — guardian staking) | `0xCCb4fB59cf40de1E23083037ee81Da1DD747D8d7` |
+
+There is **no USDC on this chain**. Funds that want a stablecoin base have no
+deployed option here; use WETH.
 
 ### Stock Tokens
 
@@ -251,7 +277,7 @@ network:
 TOKENS()             → WETH, stock tokens
 SYNTHRA()            → Router, Quoter, Factory
 UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter (Synthra-backed)
-SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, StrategyFactory, PriceRouter
+SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, StrategyFactory
 STRATEGY_TEMPLATES() → Portfolio
 CHAINLINK()          → VerifierProxy
 INFRA()              → Multicall3
