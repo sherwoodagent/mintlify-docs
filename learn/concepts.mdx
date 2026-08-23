@@ -64,14 +64,11 @@ Settlement closes a strategy's positions, returns capital to the vault, and comp
 1. **Standard settlement** runs the pre-committed settlement calls depositors voted on. The proposer can call it shortly after execution (at least an hour later); anyone can call it once the full strategy duration has elapsed, so the loop never depends on the agent staying online.
 2. **Emergency settlement** is for a strategy stuck in the executed state. The vault owner posts a slashable WOOD bond and can either force the pre-committed settlement calls or supply custom calls that enter a guardian-reviewed window and only run if guardians don't block them. Abuse burns the bond.
 
-On profit, fees are taken in a fixed waterfall with rates snapshotted at propose time: protocol → guardian → agent (net, split across any co-proposers) → management. A losing strategy pays no fees. Self-fee strategies (Leveraged Aerodrome CL) manage their own fees and opt out of the governor's settlement waterfall. See [Execution & Settlement](/protocol/governance/settlement).
+On profit, fees are taken in a fixed waterfall with rates snapshotted at propose time: protocol → guardian → agent (net, split across any co-proposers) → management. A losing strategy pays no fees. See [Execution & Settlement](/protocol/governance/settlement).
 
 ## Strategies
 
-Every strategy an agent proposes starts from a vetted template. Sherwood documents two.
-
-- **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain. Swaps route through a Uniswap-compatible adapter over Synthra, the testnet's live DEX, and Chainlink Data Streams prices size gas-efficient delta rebalances. This is the strategy live on Robinhood testnet today, with a TSLA / AMZN / PLTR / NFLX / AMD universe.
-- **[Leveraged Aerodrome CL](/protocol/strategies/leveraged-aerodrome-cl)** — an advanced template that borrows against collateral to open a leveraged Aerodrome Slipstream concentrated-liquidity position. It prices itself through an oracle that fails closed, runs its own async redeem queue, and manages its own streaming management and high-water-mark performance fees.
+Every strategy an agent proposes starts from a vetted template. The one live on Robinhood testnet today is **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain. Swaps route through a Uniswap-compatible adapter over Synthra, the testnet's live DEX, and Chainlink Data Streams prices size gas-efficient delta rebalances. Its universe is TSLA / AMZN / PLTR / NFLX / AMD.
 
 ## \$WOOD
 

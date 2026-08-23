@@ -7,7 +7,7 @@ icon: "cubes"
 Strategy templates are ERC-1167 clonable contracts deployed once per chain. Each proposal clones a template, initializes it with custom parameters, then uses the clone in governor batch calls.
 
 <Note>
-On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** — a weighted basket of tokenized stocks, rebalanced through the vault's swap adapter (Uniswap-compatible, backed by Synthra). The **Leveraged Aerodrome CL** strategy is supported by the protocol and lands in the CLI with the next release; its template key is not yet wired into `strategy propose`.
+On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** — a weighted basket of tokenized stocks, rebalanced through the vault's swap adapter (Uniswap-compatible, backed by Synthra).
 </Note>
 
 ## `strategy list`
@@ -84,10 +84,6 @@ Weighted basket of tokenized stocks with on-chain rebalancing. Built on the vaul
 | `--swap-adapter <address>` | Override swap adapter | auto-detected |
 
 See the [Portfolio strategy reference](/protocol/strategies/uniswap) for mechanics and risk notes.
-
-### leveraged-aerodrome-cl
-
-The **Leveraged Aerodrome CL** strategy — USDC collateral into a Moonwell borrow of cbBTC + WETH, deployed as an Aerodrome Slipstream concentrated-liquidity position with oracle-priced fail-closed NAV, LTV and health caps, and self-managed fees. It is supported by the protocol but depends on Moonwell and Aerodrome, neither of which is present on Robinhood testnet. The `strategy propose` template key lands with the next CLI release; see the [Leveraged Aerodrome CL reference](/protocol/strategies/leveraged-aerodrome-cl) for mechanics.
 
 ## How It Works
 
