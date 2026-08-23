@@ -4,22 +4,23 @@ description: "Deployed chain, addresses, and feature matrix"
 icon: "server"
 ---
 
-Sherwood currently deploys on **Robinhood testnet (chain 46630)** — an Arbitrum
-Orbit L2. This is the initial deployment target; the protocol is chain-native and
-will expand to other chains over time, but for now every vault, proposal, and
-strategy lives on Robinhood testnet. The CLI targets it by default — there is no
-chain to select.
+Sherwood deploys on two chains. **Robinhood testnet (chain 46630)** — an Arbitrum
+Orbit L2 — is the CLI's default target. The **Robinhood mainnet fork (chain
+9994663)**, a Tenderly Virtual TestNet, carries the latest protocol build and is
+where the newest governance and guardian contracts land first; reach it with
+`--chain robinhood-fork`.
 
 ## Chain
 
-| Chain | ID | Type | Status |
-|-------|----|------|--------|
-| Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active |
+| Chain | ID | Type | Status | CLI flag |
+|-------|----|------|--------|----------|
+| Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active | default |
+| [Robinhood mainnet fork](#robinhood-mainnet-fork-chain-9994663) | 9994663 | Fork (Tenderly Virtual TestNet) | Active | `--chain robinhood-fork` |
 
-The full V2 stack is deployed: vaults, governance, the guardian layer
-(GuardianRegistry + StakedWood with a WOOD fixture token), the StrategyFactory
-keyless clone+init path, and the V2 live-NAV surface (PriceRouter + a
-Uniswap-compatible swap adapter backed by Synthra via a QuoterV2 shim).
+On Robinhood testnet the full V2 stack is deployed: vaults, governance, the
+guardian layer (GuardianRegistry + StakedWood with a WOOD fixture token), the
+StrategyFactory keyless clone+init path, and the V2 live-NAV surface (PriceRouter
++ a Uniswap-compatible swap adapter backed by Synthra via a QuoterV2 shim).
 
 ## Feature Matrix
 
@@ -60,7 +61,7 @@ AMZN, PLTR, NFLX, AMD). Sherwood is built to be multi-chain; additional chains w
 come online over time.
 </Note>
 
-## Deployed Addresses
+## Deployed Addresses — Robinhood Testnet (46630)
 
 Source of truth: `contracts/chains/46630.json`.
 
@@ -143,6 +144,96 @@ Synthra router plus a QuoterV2 shim.
 | Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+
+## Robinhood Mainnet Fork (chain 9994663)
+
+A fork of Robinhood Chain **mainnet** run as a Tenderly Virtual TestNet: real
+mainnet state — USDG, the official Uniswap v3 and v4 deployments, Chainlink push
+feeds, and tokenized-stock liquidity — with test capital. It runs the latest
+protocol build, so contracts that are not on Robinhood testnet yet (the challenge
+game, token court, proposer-bond escrow, exposure ledger, tier registry) are live
+here first.
+
+### Connecting
+
+```
+https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/231af1
+```
+
+This endpoint is **public**: it serves reads and accepts broadcast transactions,
+and it is the RPC the CLI and SDK bundle as the default for chain 9994663 — no
+setup needed. State-cheat access (`tenderly_setBalance`, `tenderly_setStorageAt`,
+`evm_increaseTime`, and the rest of the vnet admin surface) is **not** exposed
+here; those calls need the vnet's private admin RPC from the Tenderly dashboard.
+
+Explorer: [dashboard.tenderly.co/explorer/vnet/6ad5961e…](https://dashboard.tenderly.co/explorer/vnet/6ad5961e-fbca-452f-939f-ca9a8c020933)
+
+Point the CLI at the fork with `--chain robinhood-fork`:
+
+```bash
+sherwood --chain robinhood-fork strategy list
+sherwood --chain robinhood-fork fund list
+```
+
+To use a different endpoint — the admin RPC, or a freshly minted vnet — set
+`ROBINHOOD_FORK_RPC_URL`, which takes precedence over the bundled default:
+
+```bash
+ROBINHOOD_FORK_RPC_URL=<your-rpc> sherwood --chain robinhood-fork fund list
+```
+
+<Note>
+A Tenderly vnet is ephemeral. If the RPC above stops answering, the vnet has been
+replaced — mint a new one and override it with `ROBINHOOD_FORK_RPC_URL` until the
+bundled default catches up.
+</Note>
+
+### Fork Addresses (9994663)
+
+Source of truth: `contracts/chains/9994663.json`.
+
+| Contract | Address (9994663) |
+|----------|-------------------|
+| SyndicateFactory | `0x02bc9B9C1A4322D5A5df86DadA0a2a02e45108B9` |
+| GovernorBeacon | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
+| ProtocolConfig | `0x36C45dC52FbC267d8536E8456ADe5255eC83A5ab` |
+| SyndicateVaultImpl | `0x9BF51da59B13746e6cCeb1b35c398EDA9776a4Dc` |
+| BatchExecutorLib | `0xdBdBce2af4222Abe0cCDAc05f84364a50577B5a2` |
+| StrategyFactory | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
+
+Guardian and challenge layer — the newest contracts, deployed here first:
+
+| Contract | Address (9994663) |
+|----------|-------------------|
+| GuardianRegistry | `0xdfEe38C4D7595c9c04AdBcaFE01E4Fd6FD6117f4` |
+| StakedWood (sWOOD) | `0xD3037D28693cc7BB3DbF1E17B6e01C4ce628f6DF` |
+| TierRegistry | `0x42B089B816F994d792481fAa308199E9CF63be9f` |
+| ExposureLedger | `0x223e2Fd41aD6487333146fc3998d000E74CB1549` |
+| ProposerBondEscrow | `0xef2D6994faCad11e6CfAF3DaBf7b0B2091009B05` |
+| ChallengeGame | `0x202c1F133006D6706e872433CCAfD729c7A8AE56` |
+| TokenCourt | `0x5DC603881f5d77f41bbd4202F1d518263Dfd497f` |
+
+Strategy templates and the swap adapter. **Portfolio** is the strategy exposed by
+`sherwood strategy list` on this chain:
+
+| Contract | Address (9994663) |
+|----------|-------------------|
+| PortfolioStrategy | `0x0e768a93B814282776022c3EBfc4e3f22Fa1605E` |
+| UniswapSwapAdapter | `0xdBf12248c68d1FCb6083f431A1d6ab6d0ef84E49` |
+
+Tokens. Unlike Robinhood testnet, this chain has **USDG** — the mainnet stablecoin —
+alongside WETH, and WOOD here is a real Uniswap-traded token rather than a fixture:
+
+| Token | Address (9994663) |
+|-------|-------------------|
+| WETH | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
+| USDG | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` |
+| WOOD token | `0xF8BC08092C06dB6148114DCf82AF881F1085f92b` |
+
+The fork also carries the mainnet tokenized-stock universe (AAPL, TSLA, NVDA,
+MSFT, AMZN, META, AMD, GOOGL, SPY, QQQ, SLV) with Chainlink push feeds for each —
+a wider set than Robinhood testnet's five. Those addresses live in
+`contracts/chains/9994663.json`.
 
 ## Deployment Records
 

@@ -4,7 +4,7 @@ description: "Agent-managed perpetuals on Lighter — the vault owns the account
 icon: "chart-candlestick"
 ---
 
-<Note>**In development — not yet live.** The `LighterPerpStrategy` is not yet available on Sherwood's current deployment. Lighter runs on **Robinhood mainnet (chain 4663)**, collateralized in USDG; the template also accepts the Robinhood-mainnet fork (chain 9994663) used for pre-launch testing and refuses every other chain at deploy time.</Note>
+<Note>**In development — not yet live.** The `LighterPerpStrategy` is not yet available on Sherwood's current deployment. Lighter runs on **Robinhood mainnet (chain 4663)**, collateralized in USDG; the template also accepts the [Robinhood-mainnet fork (chain 9994663)](/reference/deployments#robinhood-mainnet-fork-chain-9994663) used for pre-launch testing and refuses every other chain at deploy time.</Note>
 
 The `LighterPerpStrategy` lets a fund's agent run perpetual-futures positions on **Lighter** (a zk-rollup order-book perp DEX deployed on Robinhood Chain, collateralized in **USDG**). It brings the Sherwood custody model to a venue whose trading happens off-chain: **the agent manages, the contract enforces.**
 
