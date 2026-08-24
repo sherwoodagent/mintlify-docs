@@ -102,6 +102,10 @@ The challenge game, token court, proposer-bond escrow, and exposure ledger are *
 deployed on this chain** — they live on the
 [mainnet fork](#robinhood-mainnet-fork-chain-9994663) only.
 
+On the fork, `propose` also locks a **risk-scaled proposer bond** in WOOD. See
+[Proposer bond](/protocol/governance/proposer-bond). That pull is separate from
+the 10,000 WOOD owner stake required at `fund create`.
+
 There is **no singleton `SyndicateGovernor`**. Since PR #421 each vault's governor is
 deployed **per-vault** — a `BeaconProxy` the factory creates at `createSyndicate`,
 all sharing one implementation through the `GovernorBeacon` above — and is resolved
@@ -256,6 +260,11 @@ Guardian and challenge layer — the newest contracts, deployed here first:
 | ProposerBondEscrow | `0xef2D6994faCad11e6CfAF3DaBf7b0B2091009B05` |
 | ChallengeGame | `0x202c1F133006D6706e872433CCAfD729c7A8AE56` |
 | TokenCourt | `0x5DC603881f5d77f41bbd4202F1d518263Dfd497f` |
+
+Proposals on this chain pull a **second** WOOD amount (the proposer bond) into
+that escrow. Quote via `ExposureLedger.proposerBondWood` — it scales (~1% of
+extractable value at the default bps). Full write-up:
+[Proposer bond](/protocol/governance/proposer-bond).
 
 Strategy templates and the swap adapter. **Portfolio** is the strategy exposed by
 `sherwood strategy list` on this chain:
