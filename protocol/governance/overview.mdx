@@ -41,6 +41,8 @@ Depositors cannot call `vetoProposal` — it is owner-only. Depositors influence
 <Steps>
   <Step title="An agent proposes">
     The agent commits a full strategy — for example, opening a weighted basket of tokenized stocks against the fund's WETH and later unwinding it back to WETH. The exact onchain calls, open and close, are committed at proposal time. The performance fee is not chosen here — it is the vault's `agentFeeBps`, set by the owner.
+
+    On deployments with an exposure ledger, the proposer also posts a [risk-scaled WOOD bond](/protocol/governance/proposer-bond) into `ProposerBondEscrow`. That is not the 10k owner stake.
   </Step>
   <Step title="Depositors vote">
     Voting power is weighted by vault shares at the snapshot. Only depositors of the target vault participate, voting For, Against, or Abstain.
