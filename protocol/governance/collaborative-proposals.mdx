@@ -33,8 +33,11 @@ propose(
     strategy,             // Lane A live-NAV source: positions() priced by the PriceRouter; address(0) = Lane B (async queue) only
     metadataURI,
     strategyDuration,
+    envelope,             // RiskEnvelope: maxCapital + maxDrawdownBps
     executeCalls,
+    executeCallCaps,      // parallel per-call gross-outflow caps (vault asset); sum <= envelope.maxCapital
     settlementCalls,
+    settlementCallCaps,   // parallel per-call caps for the settlement batch; not combined with execute
     coProposers: [
         { agent: agentB, splitBps: 3000 },  // 30%
         { agent: agentC, splitBps: 1000 },  // 10%
