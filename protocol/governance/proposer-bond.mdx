@@ -28,6 +28,8 @@ proposerBondWood(asset, requiredCoverage)
 - The number **scales** with book size and WOOD price. **Do not publish a fixed WOOD amount as the requirement.**
 - Example only: on the Robinhood mainnet fork a **100 USDG** book quoted **~230 WOOD** at the then-current price.
 
+The quote is taken from [`requiredCoverage`](/protocol/governance/coverage) at propose. Guardian coverage that later falls short [scales execution](/protocol/governance/coverage#shortfall-scales-rather-than-blocks); it does not resize this bond.
+
 Live view: `ExposureLedger.proposerBondWood`. Escrow address: [Deployments](/reference/deployments#robinhood-mainnet-fork-chain-9994663) (`ProposerBondEscrow`). Fail-closed if WOOD is unpriceable.
 
 ## CLI / wallet

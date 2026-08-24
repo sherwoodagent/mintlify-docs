@@ -1,0 +1,142 @@
+---
+title: "Coverage and underwriting"
+description: "requiredCoverage, the approve-as-underwriting hook, and why a shortfall scales the proposal rather than blocking it"
+icon: "scale-balanced"
+---
+
+Guardians who **Approve** are underwriters. `ExposureLedger` is the coverage book: it prices what a proposal can extract, books bonded WOOD against that price when a guardian approves, and at execute tells the governor how much coverage actually stands behind the calldata.
+
+A coverage **shortfall does not disqualify the proposal**. It **scales** how much capital may leave the vault. Guardian daemons that treat a shortfall as a hard fail are implementing a rule the contracts do not enforce.
+
+The [proposer bond](/protocol/governance/proposer-bond) is a separate WOOD pull at propose. It is quoted from this same `requiredCoverage`.
+
+## requiredCoverage
+
+`SyndicateGovernor._snapshotTierAndGate` writes `proposal.requiredCoverage` at propose. Read it later with `getRequiredCoverage(proposalId)`.
+
+Coverage is the **sum of per-call contributions across both execute and settlement calls**. `_resolveTierAndCoverage` documents the scan; `_scanCalls` is the arithmetic:
+
+```solidity
+coverage += (cap_i * boundBps) / 10_000;
+```
+
+`boundBps` comes from `TierRegistry.tierOf(target, selector)`:
+
+- **Tier 0 / 1** — the certified extractable bound for that selector.
+- **Tier 2 or uncertified** — `10_000` (full notional of the declared cap).
+
+Proposal tier is the **max** tier across **execute** calls only. Coverage is the **sum** of execute coverage **plus** settlement coverage. With no `TierRegistry` wired, `_resolveTierAndCoverage` returns `(2, maxCapital)` — full notional, fail-closed.
+
+A sandbox payload is priced at **full funding** and forced to **tier 2**:
+
+```solidity
+tier_ = 2;
+coverage_ += sandboxFunding;
+```
+
+There is no certified bound that could reduce it. `_deriveAndStoreEffectiveCapital` only demands a bond-encumbered approve quorum at or above `quorumTierThreshold`, so a sandbox that rode along at tier 0 would be arbitrary calldata with no identified underwriter on the hook.
+
+<Note>
+Zero coverage is specified, not a hole. An all-zero-cap batch prices to zero regardless of tier. `requiredCoverage == 0` skips the approve-quorum gate — a proposal that can extract nothing has nothing to underwrite. The per-call meter is the protection: `cap_i == 0` makes `BatchExecutorLib` revert `CallCapExceeded` on any outflow.
+</Note>
+
+### Propose-time gates (these *do* block)
+
+These run in `_snapshotTierAndGate` against the **declared** coverage, before anyone underwrites:
+
+| Check | Function | Revert |
+|---|---|---|
+| Covered-TVL ceiling | `ExposureLedger.requireWithinCoveredTvlCap(asset, coverage_)` | `CoveredTvlCapExceeded` |
+| Booking horizon | `ExposureLedger.requireWithinCoverageHorizon(deadline, strategyDuration)` | `CoverageHorizonExceeded` |
+| Proposer bond | `ExposureLedger.proposerBondWood(asset, coverage_)` then `ProposerBondEscrow.lockBond` | fail-closed if WOOD is unpriceable (`NoWoodPrice`) |
+
+`coveredTvlCapUsd == 0` is fail-closed: nothing is proposable until governance seeds the cap.
+
+At execute, `_resolveTierAndCoverage` runs again. If live coverage exceeds the propose-time snapshot, `executeProposal` reverts `CoverageRegressed` (a same-tier re-certification with a higher `extractableBoundBps` would otherwise slip through). That is a **regression** guard, not the shortfall path.
+
+## Approve is underwriting
+
+The hook is `GuardianRegistry.voteOnProposal` → `ExposureLedger.recordApproval`.
+
+On a first `Approve`, and on a `Block` → `Approve` change, the registry writes its own vote state **then** calls the ledger (CEI). An Approve that never reaches `recordApproval` is a signal with no collateral behind it.
+
+`recordApproval` reserves `min(free bond, the proposal's full coverage in USD)` — not merely the uncovered remainder. Reserving less would let the first approver absorb the whole book while later ones book zero, so flipping that first vote to Block would release everything with nobody left to cover it.
+
+Consequence, from the ledger's own comment: **an under-bonded guardian is not rejected at vote time**. It commits what it can. The cap (`k * slashableBondUsd − openExposureUsd`) is enforced by **booking zero**, not by reverting the vote. Pricing failures (missing feed, stale feed, `NoWoodPrice`) also book nothing rather than revert, so Block votes cannot keep working while Approve votes fail.
+
+`releaseApproval` is the matching unwind on `Approve` → `Block`. A live challenge freezes that path (`CoverageFrozen`).
+
+The execute-time quorum reads the ledger's **own** `_approversOf` list, never the registry, so the two pointers cannot disagree about who covered a proposal.
+
+## Shortfall scales rather than blocks
+
+This is the execute-time rule. Guardian daemons that treat a coverage shortfall as disqualifying are **wrong**.
+
+`IExposureLedger.requireApproveQuorum` is a **coverage measurement with a zero floor**, not an all-or-nothing gate. Its interface states it returns `(coverageRaisedUsd, requiredCoverageUsd)` so the caller can size execution to a coverage-proportional effective capital. It **reverts only** when the approver set is empty or the raised aggregate is exactly zero (`InsufficientApproveCoverage`). A nonzero-but-partial aggregate is **reported to the caller**.
+
+`SyndicateGovernor._deriveAndStoreEffectiveCapital` is that caller. It runs inside `executeProposal` after `executedAt` is stamped, in the same transaction. The gate runs when:
+
+```solidity
+bool gated = ledger != address(0) && proposal.requiredCoverage != 0
+    && proposal.envelopeTier >= IExposureLedger(ledger).quorumTierThreshold();
+```
+
+Launch `quorumTierThreshold` is `0` (every tier). When the gate does not run — no ledger, zero `requiredCoverage`, or tier below the threshold — `effectiveMaxCapital` stays `maxCapital`.
+
+When it does run:
+
+```solidity
+(coverageRaisedUsd, requiredCoverageUsd) = IExposureLedger(ledger)
+    .requireApproveQuorum(address(this), proposalId, asset, proposal.requiredCoverage);
+
+bool scale = gated && coverageRaisedUsd < requiredCoverageUsd;
+uint256 effectiveMaxCapital = scale
+    ? (maxCapital * coverageRaisedUsd) / requiredCoverageUsd
+    : maxCapital;
+```
+
+That is floor integer division. Dust coverage can floor `effectiveMaxCapital` to zero — a zero net-outflow cap, fail-closed. The division never sees a zero denominator on the scaling branch: `requireApproveQuorum` already reverted on a raised aggregate of exactly zero.
+
+The same ratio scales every per-call cap via `_scaleCaps` (`(caps[i] * raised) / required`). Scaled **settlement** caps are persisted so `settleProposal` reuses them verbatim and **never recomputes** coverage. A coverage drop between execute and settle cannot cap the unwind below the size legitimately deployed. Sandbox funding is scaled by the same `effective / max` ratio; a payload whose coverage floors to nothing runs nothing.
+
+`executeProposal` emits `EffectiveMaxCapitalSet(proposalId, declaredMaxCapital, effectiveMaxCapital, coverageRaisedUsd, requiredCoverageUsd)`.
+
+<Warning>
+Silence still does not pass a gated proposal. Empty approvers or a raised aggregate of exactly zero **does** revert `InsufficientApproveCoverage`. The proposal stays `Approved` and expires at `executeBy` unless a covering Approve arrives. That is "no underwriter on the hook," not a shortfall. A **partial** book is the shortfall case, and it scales.
+</Warning>
+
+### What `requireApproveQuorum` measures
+
+`requiredCoverageUsd = coverageUsd(asset, requiredCoverage)`.
+
+Each remaining approver contributes through `_sharedSlashableUsd`: `min(what it reserved at vote time, what its shared slashable bond is worth now)`, anchored at `block.timestamp` so a same-block stake top-up cannot pass on collateral a later conviction cannot reach. The loop sums **reservations**, not allocations — allocations are already scaled to `needUsd` and would fail a fully-subscribed proposal by dust.
+
+This is **not an indemnity**. `coverageRaisedUsd` is bonded conviction standing behind the proposal. Slash proceeds are **burned**, not paid to anyone harmed. `requiredCoverage` is the price of admission to a tier, expressed in the same dollars a loss would be because that is the natural scale — not because the two net out.
+
+## Proposer bond
+
+The propose-path WOOD bond is quoted from this book:
+
+```solidity
+function proposerBondWood(address asset, uint256 requiredCoverage) external view returns (uint256) {
+    uint256 usd = (coverageUsd(asset, requiredCoverage) * proposerBondBps) / BPS_DENOMINATOR;
+    // ...
+    return (usd * 1e8) / px; // px = woodPriceX8()
+}
+```
+
+Default `proposerBondBps` is **100 (1%)**. See [Proposer bond](/protocol/governance/proposer-bond). The bond scales with `requiredCoverage` at propose; it is not resized if guardian coverage later falls short.
+
+## Views
+
+| Read | Where | What |
+|---|---|---|
+| `getRequiredCoverage(proposalId)` | `SyndicateGovernor` | Stored extractable envelope, asset units |
+| `requireApproveQuorum(governor, proposalId, asset, requiredCoverage)` | `ExposureLedger` | `(coverageRaisedUsd, requiredCoverageUsd)` — reverts only on a zero aggregate |
+| `coverageUsd(asset, amount)` | `ExposureLedger` | USD-18 value of `amount` of `asset` |
+| `proposerBondWood(asset, requiredCoverage)` | `ExposureLedger` | WOOD to lock at propose |
+| `slashableBondUsd(guardian)` | `ExposureLedger` | Guardian's bonded capacity |
+| `allocatedUsd(governor, proposalId, guardian)` | `ExposureLedger` | Post-settlement pro-rata share (not the reservation) |
+| `pledgedOf` / `approversOf` | `ExposureLedger` | Pledge at Approve vs live booking |
+
+See [Guardian Review](/protocol/governance/guardian-review) for the Approve / Block vote itself, and [Execution & Settlement](/protocol/governance/settlement) for the post-approval path that consumes `effectiveMaxCapital`.
