@@ -38,7 +38,7 @@ Guarding is a paid job, and the incentives are simple:
 | Step | Who | What |
 |---|---|---|
 | **Open review** | Permissionless | Callable once voting ends. Snapshots the quorum denominator from cohort stake at `openedAt = block.timestamp − 1` — the same checkpoint the per-voter weight uses, so a flash-stake in the same block can't inflate the denominator. |
-| **Vote** | Active guardian | `voteOnProposal(governor, proposalId, support, slashBps)` — `Approve` or `Block`, weighted by stake at first vote. A blocker also proposes a slash severity (`slashBps`). Vote changes are allowed early in the window and locked in the final 10%. |
+| **Vote** | Active guardian | `voteOnProposal(governor, proposalId, support)` — `Approve` or `Block`, weighted by stake at first vote. Block votes carry no severity; the slash penalty is a deterministic ramp computed at resolve. Vote changes are allowed early in the window and locked in the final 10%. |
 | **Resolve** | Permissionless | Finalizes after the review window. Computes the block quorum, slashes approvers if blocked, and emits a per-blocker attribution event for Merkl's off-chain reward math. Idempotent and reentrancy-guarded. |
 
 **Block quorum.** A review resolves *blocked* when Block-side stake weight reaches `blockQuorumBps` (default 30%) of the denominator snapshotted at open. The denominator is guardian own-stake plus delegations to **active** guardians only — delegations parked on inactive or unbonding guardians are dead weight and never inflate the bar honest blockers must clear.
@@ -57,7 +57,7 @@ Vault owners post a WOOD bond at creation. Without a bound bond the factory reje
 
 Slashing is onchain and final — slashed WOOD is **burned**, not sent to a treasury. Burning keeps a cleaner regulatory posture (slash is not protocol revenue), aligns with WOOD scarcity, and removes any incentive to over-slash for treasury capture.
 
-- **Approvers slashed** when a review resolves *blocked*. Severity is the **stake-weighted median of the blockers' proposed `slashBps`**, clamped to the owner-set band (seed **10%–99.99%**). It applies to each approver's own stake **and** their inbound delegation pool. The clamp never reaches 100%, so a slash can never zero a pool outright.
+- **Approvers slashed** when a review resolves *blocked*. Severity is **deterministic**, not voted — a quadratic ramp of block-side decisiveness from `minSlashBps` (default 10%) to `maxSlashBps` (default 100%), saturating at a two-thirds block supermajority. Guardians do not choose the penalty. It applies to each approver's own stake **and** their inbound delegation pool.
 - **Owner bond slashed** when an emergency-settle review resolves blocked — burned in full.
 - Approver slashing is bounded per proposal to keep gas deterministic; **blockers are uncapped**, since capping honest defence would be a griefing vector.
 
@@ -88,7 +88,7 @@ Owner-instant (no onchain timelock; the owner multisig enforces its own delay). 
 | `reviewPeriod` | 24 hours | Single global value, read at propose |
 | `blockQuorumBps` | 30% | Block-side stake needed to reject (bounds keep it below 50%) |
 | Guardian unstake cooldown | 7 days | Must stay ≥ the review period |
-| Slash band | 10% – 99.99% | Clamp on the blockers' median slash severity |
+| `minSlashBps` / `maxSlashBps` | 10% – 100% | Envelope for the deterministic severity ramp, snapshotted at review open |
 
 Load-bearing safety constants: a **50,000 WOOD** minimum cohort stake at review open (cold-start fallback below), a 7-day epoch used for reward attribution, a per-epoch cap on appeal refunds, and a 7-day deadman that lets anyone unpause the registry if the owner goes silent. The pause freezes voting, review resolution, and slashing — it never freezes stake/unstake/claim, so positions are always exitable.
 
