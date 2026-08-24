@@ -11,8 +11,14 @@ The `LighterPerpStrategy` lets a fund's agent run perpetual-futures positions on
 Each strategy clone opens and **owns its own Lighter account**. USDG is pulled from the vault and deposited as margin; the agent trades that account through Lighter's API using a **trade-only key** the contract registers onchain; and the contract retains a unilateral **onchain kill switch** — it can cancel orders, force-close positions, and drain the account, all authenticated by the venue to the account owner (the contract).
 
 <Info>
-  **The custody boundary (verified on mainnet).** The agent holds only an L2 API key. That key can **trade** — place and cancel orders — and nothing else. It cannot withdraw, cannot transfer, and cannot change keys: every one of those is authenticated by the venue to the account's registered owner, which is the strategy contract, and the contract only ever pushes USDG to its own vault. So a compromised or misbehaving agent can lose money by trading badly, but cannot **steal** it. The contract can rotate or revoke the agent's key at any time.
+  **What the custody boundary does cover.** The agent holds only an L2 API key. That key can **trade** — place and cancel orders — and nothing else. It cannot withdraw, cannot transfer, and cannot change keys: every one of those is authenticated by the venue to the account's registered owner (the strategy contract), and the contract only ever pushes USDG to its own vault. The contract can rotate or revoke the agent's key at any time, and can cancel, force-close, and drain the account without the agent's cooperation.
 </Info>
+
+<Warning>
+  **What it does not cover — capital is at risk from the agent key.** Lighter matches orders off-chain, so the strategy contract never sees a trade and **cannot cap position size, leverage, or trade rate onchain.** A compromised agent key can therefore lose up to **100% of the capital deployed to that proposal**, including deliberately — for example by trading against an account the attacker controls at prices that transfer value out. Withdrawal restrictions do not prevent this, because no withdrawal is involved.
+
+  The onchain kill switch bounds **how long** capital is exposed, not **how much** can be lost. The bound on magnitude is the amount deployed to the proposal, so treat per-proposal sizing as the real risk limit — and treat the agent key as a hot credential.
+</Warning>
 
 ## Architecture
 
