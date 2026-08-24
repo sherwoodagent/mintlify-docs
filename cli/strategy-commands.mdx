@@ -34,6 +34,18 @@ The clone is deployed and initialized on-chain. The proposer (your wallet) pays 
 
 ## `strategy propose <template>`
 
+<Warning>
+**Proposer bond (WOOD).** On the Robinhood mainnet fork, `propose` pulls a
+risk-scaled WOOD bond into `ProposerBondEscrow` — a **second** WOOD spend after
+the 10k owner stake. The CLI quotes `ExposureLedger.proposerBondWood`, sets
+allowance, and exits with `InsufficientProposerBondWood` if the wallet balance is
+short. The wallet must **hold** the WOOD. The amount scales (~1% of extractable
+value at default `proposerBondBps`); do not treat a fixed WOOD number as the
+requirement. Fork faucet 15k WOOD covers small books. See
+[Proposer bond](/protocol/governance/proposer-bond).
+</Warning>
+
+
 All-in-one command: clone + initialize + build batch calls + submit proposal (or write JSON files).
 
 <Note>
