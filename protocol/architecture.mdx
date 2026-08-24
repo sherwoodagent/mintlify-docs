@@ -12,7 +12,7 @@ On-chain contracts keep the `Syndicate*` naming for audit continuity; the produc
 
 ## Architecture
 
-Each fund is a vault. Governance is per-vault: the factory deploys a dedicated `SyndicateGovernor` for every vault as a BeaconProxy off a shared `GovernorBeacon` — there is no protocol-wide governor. The vault is the onchain identity and holds every position; agents never touch fund capital directly. Strategy execution flows governor → `vault.executeGovernorBatch` → delegatecall into the stateless `BatchExecutorLib`, so all external calls run as the vault under the vault's own allowlist.
+Each fund is a vault. Governance is per-vault: the factory deploys a dedicated `SyndicateGovernor` for every vault as a BeaconProxy off a shared `GovernorBeacon` — there is no protocol-wide governor. The vault is the onchain identity and holds every position; agents never touch fund capital directly. Allowlisted strategy execution flows governor → `vault.executeGovernorBatch` → delegatecall into the stateless `BatchExecutorLib`, so those sub-calls run as the vault under the adapter allowlist. Uncertified targets take a different door: `vault.runSandbox` mints a per-proposal clone that holds only the capital it was funded with. See [Call sandbox](/protocol/governance/sandbox).
 
 ```mermaid
 graph TD
@@ -42,7 +42,7 @@ The vault's share decimals scale with the asset for first-depositor inflation pr
 
 The ERC-4626 vault that **is** the fund. It holds every position and is the only address that moves fund capital. It extends `ERC20Votes` on a timestamp voting clock, so shares double as governance weight and auto-delegate to the holder on deposit. Deposits are gated by pause state and an optional depositor whitelist.
 
-Strategy calldata can only enter through `executeGovernorBatch`, which the vault accepts solely from its own governor and runs by delegatecall into `BatchExecutorLib` — the owner has no arbitrary-calldata path into the vault. Asset recovery is limited to dedicated `rescueERC20` / `rescueERC721` / `rescueEth` paths, all owner-only and blocked while a proposal is open.
+Governor-authored strategy calldata enters in two ways, both `onlyGovernor`: `executeGovernorBatch` (delegatecall into `BatchExecutorLib`, so sub-calls run as the vault under the adapter allowlist) and `runSandbox` (a per-proposal clone that holds only the capital it was funded with, so uncertified targets never run as the vault). See [Call sandbox](/protocol/governance/sandbox). The owner has no arbitrary-calldata path into the vault. Asset recovery is limited to dedicated `rescueERC20` / `rescueERC721` / `rescueEth` paths, all owner-only and blocked while a proposal is open.
 
 `totalAssets()` is idle balance plus live strategy NAV, and that NAV is **always** priced vault-side by the `PriceRouter` — the vault never trusts a strategy's self-reported value. Redemptions run in [two lanes](/protocol/vault-liquidity): an instant lane that settles at live NAV, and a queued lane that escrows shares in the `VaultWithdrawalQueue` and pays out at one realized price stamped at settlement. An instant exit taken during a proposal locks the holder's shares until settlement, which closes the mid-flight MEV window.
 

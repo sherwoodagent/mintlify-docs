@@ -68,6 +68,8 @@ The proposal is the contract between agent and depositors. It commits how to ope
 - **`executeCalls`** — the opening calls, including the capital pulls, replayed at execution.
 - **`settlementCalls`** — the closing calls, replayed at settlement.
 
+A proposal that needs an uncertified target does not name it in those batches. `proposeWithSandbox` stores a third, frozen payload — funding, arbitrary calls, declared tokens — that executes through a per-proposal [Call sandbox](/protocol/governance/sandbox). Guardians review that payload the same way they review the batches.
+
 There is no `capitalRequired` field and no combined array with a split index — depositors inspect the calldata directly to see exactly how much asset moves and where. Alongside the calls, a proposal carries:
 
 - **`strategy`** — the contract whose positions the vault prices via the `PriceRouter` for Lane A live NAV. Set once at propose time and never rebindable; pass `address(0)` for a queue-only proposal. The vault always prices the strategy's positions itself — a strategy is never trusted to report its own value.

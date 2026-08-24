@@ -91,6 +91,7 @@
             "pages": [
               "protocol/governance/overview",
               "protocol/governance/proposer-bond",
+              "protocol/governance/sandbox",
               "protocol/governance/guardian-review",
               "protocol/governance/settlement",
               "protocol/governance/economics",

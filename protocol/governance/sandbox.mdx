@@ -1,0 +1,116 @@
+---
+title: "Call sandbox"
+description: "Isolated execution that makes uncertified tier-2 targets reachable without an owner listing"
+icon: "box"
+---
+
+`proposeWithSandbox` is the only permissionless path to a tier-2 target. The payload's targets are never allowlisted and never certified. Four facts make that path sound:
+
+1. **Tier 2 is permissionlessly reachable.**
+2. **Isolation, not reputation, bounds the loss.**
+3. **Funding is the structural maximum.**
+4. **No owner transaction exists anywhere in the flow.**
+
+A sandbox is protocol code the vault mints, not a listed third party. It carries no `TierRegistry` entry and is not a `StrategyFactory` template. Blast radius is set by the funding, not by the callee's reputation. The review that remains — guardians, against slashable stake, on a payload frozen at propose — is the one that was pricing the risk.
+
+## Why the batch cannot reach tier 2
+
+`TierRegistry.tierOf` reports `(2, 10_000)` — arbitrary calldata at full notional — for any uncertified `(target, selector)`. That is the default, not a grant.
+
+A governor batch cannot use it. `SyndicateVault._guardBatchCalls` refuses any callee the registry owner has not allowlisted, and that gate is **tier-blind**. An uncertified target is not expensive; it is unreachable. Every new venue named in a batch used to cost an owner transaction.
+
+The gate cannot simply be dropped. A batch runs under `delegatecall`, so a sub-call arrives as the **vault**: it can spend standing allowances, move vault-held position tokens, and satisfy any `msg.sender == vault` gate. Authorization-shaped calldata (`approve(attacker, max)`, ERC-777 `authorizeOperator`, ERC-721 `setApprovalForAll`, any unenumerated router's approval shape) moves zero assets, meters zero, prices zero coverage, and drains in a later transaction. No per-call cap can bound that, because the loss does not land in the metered transaction.
+
+## Isolation, not reputation
+
+Executing one hop further out removes the premise. `CallSandbox` is an ERC-1167 clone the vault mints at execute, salted on the proposal id so the address is derivable before anyone votes. It holds nothing but the vault asset it was funded with.
+
+A target called from the clone sees `msg.sender == address(sandbox)`: no vault allowance to spend, no vault-held position token to move, no `msg.sender == vault` gate satisfied anywhere. Isolation, not reputation, bounds the loss.
+
+Funding is the structural maximum. The most a hostile call set can cost is the balance this contract was handed — which is exactly the figure full-notional tier-2 coverage already charged for. That is why no owner attests a sandbox target.
+
+No owner transaction exists anywhere in the flow. There is no `setAdapterAllowed`, `setClassAllowed`, `certify`, or `setTemplateApproval` step for a sandbox target. `_guardBatchCalls` is not consulted and is not modified: the sandbox path is a separate `onlyGovernor` entry point, not an exemption inside the batch guard.
+
+<Note>
+**Permissionless targets, not permissionless proposing.** `registerAgent` stays `onlyOwner`; only a registered agent can call `proposeWithSandbox`. What becomes permissionless is the *target*, not who may propose.
+</Note>
+
+## Payload
+
+`proposeWithSandbox` takes the same arguments as `propose`, plus a `SandboxPayload`. Every other gate — agent registration, the open-proposal lock, the envelope, the batch caps, the [proposer bond](/protocol/governance/proposer-bond) — is the shared `_propose` body. The two entry points cannot diverge on what a valid proposal is.
+
+| Field | Bound | Meaning |
+|-------|-------|---------|
+| `funding` | Non-zero; `≤ envelope.maxCapital` | Vault asset the clone is handed. Structural maximum loss. Drawn from the same envelope as the execute batch. |
+| `calls` | 1–32; no zero target | Arbitrary `(target, data)` pairs. No `value` field — native transfer is unreachable by construction. Frozen at propose; no setter. |
+| `declaredTokens` | 0–16; no duplicates | Non-asset tokens the payload may end up holding. What is declared is reachable by residue collection. What is not is stranded in the clone and never priced into a deposit. |
+
+`sandboxPayload(proposalId)` returns the stored payload for the whole review period. Guardians underwrite this call set; a mutable payload would let a proposal be covered against one call set and executed against another.
+
+Propose-time refusals that would otherwise only fail at execute (with the bond locked and no way to amend):
+
+- Empty call set, more than 32 calls, more than 16 declared tokens, a zero target, a duplicate declared token, or zero funding.
+- The vault's `sandboxImplementation()` is zero. Binding is factory-only and set-once, so a vault created without one can never be given one.
+- `funding > envelope.maxCapital`.
+
+The payload is written **before** `_propose` mints the id, because coverage pricing inside `_snapshotTierAndGate` reads `_sandboxFunding[id]`. A write afterwards would price the sandbox at zero.
+
+## Coverage
+
+A sandbox is priced at full notional and is always tier 2. `funding` is added to required coverage; `envelopeTier` is forced to 2. There is no certified extractable bound that could reduce it: the targets are uncertified by design.
+
+That force is not cosmetic. The bond-encumbered approve quorum only applies at or above `quorumTierThreshold`. A payload that rode along at tier 0 would be arbitrary calldata reaching an arbitrary target with no identified underwriter on the hook.
+
+The [proposer bond](/protocol/governance/proposer-bond) therefore quotes against the combined figure — batch extractable plus sandbox funding.
+
+## Execute
+
+`executeProposal` dispatches the sandbox **before** the execute batch, then hands the batch whatever is left of the envelope.
+
+Order is load-bearing. The vault prices its tier-2 ceiling off `totalAssets()`, which during the Executed window counts only idle float. After the batch has deployed capital that reading is near zero, so a sandbox dispatched afterwards would revert for every non-trivial funding.
+
+Subtracting the funding is what stops the envelope being spent twice. Without it a proposal could fund a sandbox to its full `maxCapital` and then deploy that same envelope again through the batch. Coverage scaling is the same raised-over-required ratio as `effectiveMaxCapital`; a payload whose coverage floors to nothing runs nothing.
+
+`SyndicateVault.runSandbox` is `onlyGovernor`, `nonReentrant`, and pause-gated:
+
+1. Reverts if the implementation is unset, or if this proposal already minted a sandbox (one per proposal: a second mint would orphan the first from `collectResidue`).
+2. Reverts if `funding > totalAssets() * tier2CallCapBps / 10_000`. The ceiling is read live so a bound tightened after propose still binds. The parameter defaults to `10_000` (100% of TVL); what actually bounds a payload then is `maxCapital`, coverage scaling, and the vault's net-outflow / queue-reserve / buffer checks.
+3. Clones the implementation deterministically (`Clones.cloneDeterministic(impl, bytes32(pid))`).
+4. `init`s the clone with the frozen call set and declared tokens.
+5. **Pushes** `funding` of the vault asset. Never approve-and-pull: an allowance would be a standing authorization whose size proposer calldata could choose — the "authorization meters zero" failure, reproduced at the funding step. Nothing here ever grants the sandbox an allowance against the vault.
+6. Calls `run()`. One-shot. A denied target or any reverting call reverts the whole run — skipping a call would execute a subset of what guardians approved.
+7. Applies the same three custody checks as `executeGovernorBatch`: net outflow cannot exceed `funding`, queue reserve, min buffer.
+
+<Warning>
+`runSandbox` is the second vault function that moves assets without passing `_guardBatchCalls`. Authorization is `onlyGovernor` and nothing else. It is reachable only through a proposal that cleared the vote, the [guardian review](/protocol/governance/guardian-review) period, and the coverage quorum.
+</Warning>
+
+### Accounting denylist
+
+Before dispatch, `CallSandbox.run` refuses stored targets equal to the vault, withdrawal queue, governor, tier registry, exposure ledger, sWOOD, or WOOD. Addresses are resolved live because any of them can be re-pointed after the clone was minted.
+
+This is defense in depth, not the load-bearing guard. It screens **stored targets only**; a payload can still name a proposer-deployed forwarder. What actually holds is upstream: `runSandbox` is `nonReentrant`, so no route back into the vault survives while a run is in flight, and every function on those contracts is gated to its own privileged caller.
+
+The adversary is protocol accounting, not fund theft — the funded balance already bounds theft. A sandbox holding vault capital could otherwise deposit it back to mint shares while deposits are locked, or touch the queue's stamp and reserve counters.
+
+## Residue
+
+The clone implements `IStrategyDelivery` so the vault's residue machinery reaches it the same way it reaches a settled strategy. At `onProposalSettled` the vault records the sandbox against the settling pid, bounded by the same envelope `funding` was carved from.
+
+| Probe | Reports |
+|-------|---------|
+| `undeliveredValue()` | Vault-asset balance still sitting in the clone. Must not revert — the vault reads this on the mint pricing path. |
+| `hasUnvaluedResidue()` | True while any **declared** non-asset token has a non-zero balance (unless abandoned). An under-declared leftover is stranded and never counted as vault value — the proposer's own loss, not the LPs'. |
+
+`sweep()` is vault-only. A bare EOA driving it would land the whole balance in the vault outside the measurement `collectResidue` splits with the exiting cohort. The permissionless property is not lost, only routed: `SyndicateVault.collectResidue` is itself permissionless and reaches `sweep` through the vault, so capital comes home with no registry standing and no owner action.
+
+A sandbox holds no registry entry, so there is nothing to demote and nothing to wedge. After a class conviction that would revert every batch-routed settlement path `DisallowedBatchCallee`, `collectResidue` still works.
+
+Declared-token recovery is best-effort, per token, on a fairly divided gas budget. A hostile token cannot brick the mint path by reverting or by burning the probe's gas. A token whose `transfer` keeps failing is abandoned only after `ABANDON_DELAY` (2 days) from the first observed failure, and any later success clears the mark. Writing a token off on a single failure would let anyone pick the moment on a permissionless function.
+
+## What it is not
+
+- **Not a relaxation of the batch guard.** Naming an uncertified target in `executeCalls` still reverts `DisallowedBatchCallee`. The sandbox is a different door.
+- **Not a way to get a bounded tier for proposer-authored calldata.** A sandbox payload forces tier 2 permanently.
+- **Not native-ETH capable.** `ICallSandbox.Call` has no `value` field.
+- **Not owner-repairable per venue.** Replacing the sandbox implementation is a protocol upgrade (the vault-side binding is set-once). That is the correct weight for the code that runs arbitrary calldata against LP capital, and it is not a gate on any proposal or venue.

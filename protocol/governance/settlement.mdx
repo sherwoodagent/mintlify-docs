@@ -11,9 +11,10 @@ Once a proposal is Approved and the fund is out of cooldown, the pre-committed c
 1. Anyone calls `executeProposal(proposalId)` on the governor — no arguments beyond the id.
 2. The governor verifies the proposal is Approved (guardian review cleared), inside its execution window, that no other strategy is live, and that cooldown has elapsed.
 3. The governor records the active proposal — this is what `vault.redemptionsLocked()` reads — and snapshots the vault's asset balance as the capital baseline.
-4. The governor calls `vault.executeGovernorBatch(executeCalls)`, the vault's governor-only entrypoint. All positions now live on the vault address.
+4. If the proposal stored a sandbox payload, the governor calls `vault.runSandbox` first — mint, fund, dispatch — then subtracts that funding from the envelope handed to the batch. See [Call sandbox](/protocol/governance/sandbox).
+5. The governor calls `vault.executeGovernorBatch(executeCalls)` with whatever capital remains. Batch sub-calls run as the vault under the adapter allowlist; sandbox calls do not.
 
-**Nothing new enters at execution.** The calls were locked at proposal time and voted on. Execution is a replay.
+**Nothing new enters at execution.** The calls — batch and sandbox — were locked at proposal time and voted on. Execution is a replay.
 
 <Note>
 **The redemption lock is a pull-check, not a stored flag.** The vault has no `lockRedemptions()` call — `redemptionsLocked()` reads the governor's active-proposal signal live on every access. Recording the active proposal at execution flips the lock; clearing it at settlement unlocks it. This removes a whole class of state-desync bugs where the vault could disagree with the governor about whether a strategy is live.
