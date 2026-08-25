@@ -6,12 +6,9 @@ icon: "coins"
 
 ## Liquidity during a live strategy
 
-When a strategy is live (`redemptionsLocked() == true`), the vault keeps liquidity available with a two-lane model instead of trusting an unverified price:
+When a strategy is live (`redemptionsLocked() == true`), instant `deposit` / `redeem` are closed. Depositors use the withdrawal queue: `requestRedeem` (or `requestDeposit`) escrows in the `VaultWithdrawalQueue`, settlement stamps one frozen post-fee price, and anyone `claim`s after unlock. The vault does not mark in-flight positions — `totalAssets()` is float minus queue reserve minus escrowed fees.
 
-- **Lane A — instant at live NAV**, when the governance-owned `PriceRouter` can price every position live. Lane A depositors receive a share lock until the proposal settles (anti-MEV guard).
-- **Lane B — queued**, the universal fallback. `requestDeposit` / `requestRedeem` escrow in the `VaultWithdrawalQueue` and settle at one frozen post-fee price after the proposal ends.
-
-See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full flow, lane preconditions, and claim mechanics.
+See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full flow and claim mechanics.
 
 ## The fee waterfall
 

@@ -124,7 +124,7 @@ sherwood proposal execute --id <proposal-id> --vault 0x...
 This calls the governor, which executes the batch calls from `execute.json` through the vault. For the Portfolio strategy, this pulls WETH from the vault and buys the basket tokens at their target weights.
 
 <Note>
-  The Portfolio strategy has no vault-side priceable position, so while its proposal is active the vault runs the async request queue (Lane B): deposits and redeems escrow and settle at the single realized per-proposal price. See [Deposits & Withdrawals](/protocol/vault-liquidity).
+  While the proposal is executing, instant vault deposits and redeems are closed. Use the async request queue: deposits and redeems escrow and settle at the single realized per-proposal price. See [Deposits & Withdrawals](/protocol/vault-liquidity).
 </Note>
 
 ## Step 5: Settle

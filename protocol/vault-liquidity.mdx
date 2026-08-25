@@ -1,23 +1,16 @@
 ---
 title: "Deposits & Withdrawals"
-description: "Two-lane liquidity: instant at live NAV, or a queue that settles at the realized price"
+description: "Instant ERC-4626 outside a live strategy; a queue that settles at the realized price while one is executing"
 icon: "arrow-right-arrow-left"
 ---
 
-> Withdraw instantly whenever the vault can price your exit — otherwise your redemption queues and settles at the realized price. No permission needed.
+> While a strategy is executing, redemptions queue and settle at the realized price. Outside that window, standard ERC-4626 deposit and redeem run against vault float. No permission needed.
 
-Vaults are standard ERC-4626. How a deposit or withdrawal is handled depends only on whether a strategy is live and whether the vault can price the position right now.
+Vaults are standard ERC-4626. Instant `deposit` / `redeem` execute against idle float. They close while a strategy is live; the async queue is then the path in and out. The vault does not mark in-flight strategy positions.
 
-**Outside a proposal** (`redemptionsLocked() == false`): standard ERC-4626. Deposits and redeems execute instantly against the vault's float.
+**Outside an executing strategy** (`redemptionsLocked() == false`): standard ERC-4626. `redeem` / `withdraw` execute instantly against vault float, capped so they cannot drain assets reserved for already-stamped queue claims. Instant `deposit` is additionally closed for the whole open-proposal window (`depositsLocked()`), even before execute — there is no mint against an unrealized strategy.
 
-**During a proposal** (`redemptionsLocked() == true`): the vault will not return capital at a price it has not observed. Two lanes handle this.
-
-| Lane | Path | When available |
-|------|------|----------------|
-| **Lane A — instant** | Deposit / redeem at live NAV, with a share lock until the proposal settles | The `PriceRouter` proves every position instant-eligible (registered, fresh, within deviation and size caps) |
-| **Lane B — queued** | `requestDeposit` / `requestRedeem` escrow assets/shares in `VaultWithdrawalQueue`; claims settle at one frozen per-proposal price after settlement | Always available — the universal fallback |
-
-Because the `PriceRouter` is fail-closed, the choice between lanes is automatic and safe: if a position cannot be priced live, the vault routes the request to the queue rather than guessing.
+**While a strategy is executing** (`redemptionsLocked() == true`): instant `redeem` / `withdraw` return 0. Depositors who want to leave call `requestRedeem`; depositors who want to enter call `requestDeposit`. Shares or assets escrow in `VaultWithdrawalQueue`. At settlement the vault stamps one frozen post-fee price for the proposal. Anyone then `claim`s at that price.
 
 ## Full flow
 
@@ -27,57 +20,43 @@ flowchart TD
     User --> D["vault.deposit / redeem"]
     D --> Lock{redemptionsLocked?}
 
-    Lock -- "No — no active proposal" --> ERC4626["Instant ERC-4626\nagainst vault float"]
+    Lock -- "No — no executing strategy" --> ERC4626["Instant ERC-4626\nagainst vault float"]
 
-    Lock -- "Yes — proposal live" --> LaneACheck{"PriceRouter: every\nposition instant-eligible?"}
+    Lock -- "Yes — strategy executing" --> QEntry
 
-    LaneACheck -- "Yes" --> LaneA["Lane A — instant at live NAV"]
-    LaneA --> LaneALock["Holder's shares locked\nuntil the proposal settles"]
-    LaneALock --> Settled1{Proposal settles}
-    Settled1 --> Unlocked["Lock lifts\nShares free again"]
-
-    LaneACheck -- "No — any position not priceable" --> LaneBEntry
-
-    subgraph LaneBEntry["Lane B — VaultWithdrawalQueue"]
+    subgraph QEntry["VaultWithdrawalQueue"]
         direction TB
-        Req["requestDeposit / requestRedeem"]
-        Req --> Escrow["Escrow assets / shares\ntagged to the active proposal\n(off-vault — never inflate totalAssets)"]
-        Escrow -- "Before price stamped" --> Cancel["cancel → assets / shares returned"]
+        Req["requestRedeem / requestDeposit"]
+        Req --> Escrow["Escrow shares / assets\ntagged to the active proposal\n(deposit assets sit off-vault — never inflate totalAssets)"]
+        Escrow -- "Before price stamped" --> Cancel["cancel → shares / assets returned"]
         Escrow --> SettleProposal{Proposal settles}
         SettleProposal --> FrozenPrice["One post-fee realized price\nstamped for the proposal"]
         FrozenPrice --> Claim["Anyone claims after unlock"]
     end
 ```
 
-## Lane A — instant at live NAV
+## The queue — `requestRedeem` → stamp → `claim`
 
-Lane A lets depositors enter and exit during an active proposal at the live oracle price, without waiting for settlement. Every position in the strategy must be priceable by the `PriceRouter` at call time — registered adapter, fresh price, within the per-kind deviation and instant-size caps, and enabled by governance after audit. If any precondition fails, the vault falls back to Lane B automatically; no error is thrown.
+The queue is the only path out while a strategy is executing.
 
-Today's Portfolio strategy exposes no instant-priceable position, so while a Portfolio proposal is live Lane A never opens — exits route through the queue and settle at the stamped price. Lane A applies to strategies with registered, priceable positions (and to any vault with no proposal active).
+1. **`requestRedeem(shares, owner)`** — shares move into the `VaultWithdrawalQueue`. They are not burned yet. Redemption value is unknown until settlement. Requires `redemptionsLocked() == true`.
+2. **Settlement stamps one price.** The vault records a frozen `num/den` for that proposal — realized assets-per-share after fees, using the same virtual offsets as ERC-4626 so queue claims round like the vault.
+3. **`claim(requestId)`** — after the price is stamped and redemptions unlock, anyone can claim. A redeem claim burns the escrowed shares and pays the vault asset. A deposit claim mints shares at the frozen price.
 
-The trade-off is a **share lock**. Once a Lane A deposit or redeem is processed during a proposal, the holder's shares are locked until that proposal settles — no transfer, no second redeem, no queue request while locked. This is the anti-MEV guard: it stops a holder from pricing off live NAV and then re-entering to arbitrage the settlement (a deposit-low / exit-high attack around a large PnL event).
+`requestDeposit(assets, receiver)` is the symmetric entry: assets escrow in the queue (off-vault, so they never inflate `totalAssets` or get swept into the live strategy) and mint at the stamped price on claim. Instant deposit is already closed for the whole open-proposal window, so this is the path in from Pending through Executed.
 
-<Note>
-A repeat Lane A operation in the same proposal re-stamps the same lock — it does not silently fall back to Lane B. A locked holder who calls `requestRedeem` gets a `SharesLocked` revert, not a hidden queue route.
-</Note>
-
-## Lane B — queued, settles at the realized price
-
-Lane B is the universal fallback and the only lane for a proposal whose positions the `PriceRouter` cannot price live. Deposits and redemptions work symmetrically through it.
-
-- **`requestRedeem(shares, owner)`** — shares are escrowed in the `VaultWithdrawalQueue`. They are not burned yet; redemption value is unknown until the proposal settles.
-- **`requestDeposit(assets, receiver)`** — assets are escrowed in the queue. They never enter the vault until settlement, so they do not inflate `totalAssets` or get swept into the live strategy.
-
-At settlement the governor stamps **one** post-fee realized price for the whole proposal. Every request tagged to that proposal claims at this single, batch-determined price — no front-running between individual claimants. Once the price is stamped and redemptions unlock, anyone can `claim` a request: a deposit claim mints shares at the frozen price; a redeem claim burns the escrowed shares and pays out the vault asset. A request can be `cancel`led only before its price is stamped, and only by the request owner — a post-stamp cancel would be a free look-back option.
+A request can be `cancel`led only before its price is stamped, and only by the request owner — a post-stamp cancel would be a free look-back option.
 
 ### Reserve invariant
 
 Assets owed to settled-but-unclaimed redeem requests must stay in the vault. A subsequent proposal's execution — or any withdrawal — reverts if it would leave vault float below that reserve. Queued depositors are always made whole; in-flight claims are never stranded.
 
-## `totalAssets()` during a proposal
+## `totalAssets()`
 
 ```
-totalAssets() = vault float + PriceRouter live NAV of the strategy's positions
+totalAssets() = vault float − queue reserve − escrowed unpaid fees
 ```
 
-If the strategy cannot be priced live — adapter not registered, kind not enabled, or a position outside its caps — the `PriceRouter` returns "not priceable" and the vault prices itself at float only. Lane B depositors are unaffected: their settlement price is frozen at the actual realized value, not any mid-proposal mark.
+There is no strategy term. The vault does not mark in-flight positions. Pre-stamp escrowed redeem shares still float with the pool; once the settle price is stamped those shares leave the pricing supply, so a later `claim` moves neither the price nor anyone else's position.
+
+Queue claims settle at the actual realized value, not any mid-proposal mark.

@@ -16,7 +16,7 @@ Funds are created by an operator who controls which agents are approved to parti
 
 Every fund has an ERC-4626 vault that holds depositor capital in a single base asset (WETH on Robinhood testnet). Depositors supply that asset and receive fungible vault shares representing a proportional claim on the vault's total assets. The vault is the single point of custody: when a proposal executes, the governor directs the vault to run the strategy's DeFi calls through a stateless batch executor, and when a strategy settles, capital flows back into the vault and is reflected in the share price.
 
-The vault never trusts a strategy to price itself. Total assets are valued vault-side by an independent price router that fails closed — if a position can't be priced from a fresh, registered oracle, the vault does not mark it. The vault also carries built-in inflation protection so an early depositor can't manipulate the share price against later ones.
+The vault never marks in-flight strategy positions. `totalAssets()` is idle float minus the withdrawal-queue reserve minus escrowed unpaid fees. The vault also carries built-in inflation protection so an early depositor can't manipulate the share price against later ones.
 
 ## Shares and voting
 
@@ -24,12 +24,13 @@ Vault shares serve a dual purpose: they represent ownership of the underlying ca
 
 ## Deposits and withdrawals
 
-Deposits and withdrawals run on two lanes. **Withdraw instantly whenever the vault can price your exit — otherwise your redemption queues and settles at the realized price.**
+While no strategy is executing, `redeem` is standard ERC-4626 against vault float. Instant `deposit` closes as soon as a proposal is open. While a strategy is executing, both instant paths are closed:
 
-- **Instant lane** — when no strategy is active, or when the price router can prove every position is fresh and priceable, deposits and redemptions settle immediately at live NAV.
-- **Queued lane** — when a strategy is live and positions can't be priced instantly, `requestDeposit` / `requestRedeem` escrow in the fund's withdrawal queue and settle at a single frozen, realized per-proposal price. You claim once the strategy settles. Capital owed to the queue is fenced off inside the vault before any new strategy can start, so leavers are never front-run.
+- **`requestRedeem` / `requestDeposit`** escrow shares or assets in the fund's withdrawal queue.
+- **Settlement** stamps one frozen, realized per-proposal price.
+- **`claim`** pays out after unlock. Capital owed to the queue is fenced off inside the vault before any new strategy can start, so leavers are never front-run.
 
-See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
+See [Deposits & Withdrawals](/protocol/vault-liquidity) for the queue model.
 
 ## Agent
 

@@ -21,7 +21,7 @@ Security, by economics: every party watching your money has something to lose.
 
 ## Who is Sherwood for?
 
-**Depositors** pool capital into a fund's vault and receive shares that double as votes. An agent runs the strategy — you keep the shares, the votes, and the exit. Withdraw instantly whenever the vault can price your exit; otherwise your redemption queues and settles at the realized price.
+**Depositors** pool capital into a fund's vault and receive shares that double as votes. An agent runs the strategy — you keep the shares, the votes, and the exit. While a strategy is live, redemptions queue and settle at the realized price; otherwise standard ERC-4626 redeem runs against vault float.
 
 **Agent operators** give an agent a fund to manage. One command deploys the whole fund — vault, its own governor, and withdrawal queue. The agent brings the strategy, with every call committed up front, and earns a performance fee on profit — only on profit. Turn any agent into a fund manager.
 

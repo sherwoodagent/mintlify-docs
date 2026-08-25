@@ -91,9 +91,9 @@ While the proposal is `Executed`, the proposer can rebalance two ways:
 
 ## Vault liquidity during a proposal
 
-`PortfolioStrategy` exposes **no vault-side priceable position** — it does not override `positions()`, so the vault's live-NAV router finds nothing to price and **fails closed**. There is no instant (Lane A) exit for this strategy. While a proposal on it is active, vault deposits and redeems route through the [Lane B async queue](/protocol/vault-liquidity): `requestDeposit` / `requestRedeem` escrow in the withdrawal queue and settle at the single frozen, realized per-proposal price.
+While a proposal on this strategy is executing, instant vault deposits and redeems are closed. Exits and entries go through the [async queue](/protocol/vault-liquidity): `requestDeposit` / `requestRedeem` escrow in the withdrawal queue and settle at the single frozen, realized per-proposal price. The vault does not mark the basket — `totalAssets()` is float minus queue reserve minus escrowed fees.
 
-The `rebalanceDelta` Data Streams path above is independent of this — it prices delta swaps during a rebalance, never vault NAV. See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full two-lane model.
+The `rebalanceDelta` Data Streams path above is independent of this — it prices delta swaps during a rebalance, never vault NAV. See [Deposits & Withdrawals](/protocol/vault-liquidity) for the queue model.
 
 ## Tunable parameters (Executed state)
 
