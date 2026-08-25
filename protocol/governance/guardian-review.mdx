@@ -37,11 +37,11 @@ Guarding is a paid job, and the incentives are simple:
 
 | Step | Who | What |
 |---|---|---|
-| **Open review** | Permissionless | Callable once voting ends. Snapshots the quorum denominator from cohort stake at `openedAt = block.timestamp − 1` — the same checkpoint the per-voter weight uses, so a flash-stake in the same block can't inflate the denominator. |
-| **Vote** | Active guardian | `voteOnProposal(governor, proposalId, support)` — `Approve` or `Block`, weighted by the guardian's own stake at first vote (growth-gated `getPastStake`). Block votes carry no severity; the slash penalty is a deterministic ramp computed at resolve. Vote changes are allowed early in the window and locked in the final 10%. |
+| **Open review** | Permissionless | Callable once voting ends. Stores `totalStakeAtOpen` as raw own-stake at `snapshotAt` via `getPastTotalVotes` — propose time (`block.timestamp − 1` at `registerReview`), the same checkpoint the per-voter weight uses. `openedAt` is a separate open-time checkpoint used to size slashes. |
+| **Vote** | Active guardian | `voteOnProposal(governor, proposalId, support)` — `Approve` or `Block`, weighted by the guardian's own stake at `snapshotAt` (growth-gated `getPastStake`). Block votes carry no severity; the slash penalty is a deterministic ramp computed at resolve. Vote changes are allowed early in the window and locked in the final 10%. |
 | **Resolve** | Permissionless | Finalizes after the review window. Computes the block quorum, slashes approvers if blocked, and emits a per-blocker attribution event for Merkl's off-chain reward math. Idempotent and reentrancy-guarded. |
 
-**Block quorum.** A review resolves *blocked* when Block-side stake weight reaches `blockQuorumBps` (default 30%) of the denominator snapshotted at open. Vote weight is the guardian's own stake (growth-gated `getPastStake`), not inbound delegations. A thin cohort still decides its own reviews; only a zero denominator fails open — if `totalStakeAtOpen == 0`, nobody reviewed and the review is not blocked. Otherwise Block when `blockStakeWeight * 10_000 >= blockQuorumBpsAtOpen * denom`.
+**Block quorum.** A review resolves *blocked* when Block-side stake weight reaches `blockQuorumBps` (default 30%) of the denominator: raw own-stake at `snapshotAt`, stored as `totalStakeAtOpen` from `getPastTotalVotes`. `snapshotAt` is propose time (`block.timestamp − 1` at `registerReview`); both sides of the quorum comparison use that same instant. Vote weight is the guardian's own stake (growth-gated `getPastStake`). A thin cohort still decides its own reviews; only a zero denominator fails open — if `totalStakeAtOpen == 0`, nobody reviewed and the review is not blocked. Otherwise Block when `blockStakeWeight * 10_000 >= blockQuorumBpsAtOpen * denom`.
 
 **Guardian vote enum** is separate from the governor's `VoteType`: guardians vote `{ None, Approve, Block }`, keeping the two ABIs from confusing variants.
 
