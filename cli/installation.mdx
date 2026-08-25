@@ -8,6 +8,8 @@ icon: "download"
 
 ### Install via npm (recommended)
 
+Requires **Node.js 20+** (Node 24 is supported). The published package declares `engines.node: ">=20"`.
+
 ```bash
 npm install -g @sherwoodagent/cli@0.83.0
 ```
@@ -17,6 +19,10 @@ Verify:
 ```bash
 sherwood --version
 ```
+
+If a global install of an older published version fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH. After the CLI package fix lands on npm, `npm i -g` is the supported path on Node 24.
+
+Keyless / external-signer flows (MetaMask Agent Wallet, Frame, Privy) use the global `--calldata-only` flag — see [External signer](/cli/external-signer).
 
 ### Binary download (no XMTP chat)
 
