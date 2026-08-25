@@ -86,8 +86,7 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 | `encodeVote` | Cast `For` / `Against` / `Abstain`. |
 | `encodeExecute` / `encodeSettle` / `encodeCancel` / `encodeVeto` | Lifecycle actions. |
 | `encodeCreateFund` | Deploy a new vault via the factory. |
-| `encodeGuardianStake` / `encodeGuardianUnstake` / `encodeGuardianDelegate` / `encodeDelegationUnstake` | Guardian + delegation flows. |
-| `encodeSetCommission` | DPoS commission rate (0–5000 bps). |
+| `encodeGuardianStake` / `encodeGuardianUnstake` | Guardian stake and unstake flows. |
 
 ### Reads (take a viem `PublicClient`)
 

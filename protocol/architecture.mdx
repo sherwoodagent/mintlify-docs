@@ -70,7 +70,7 @@ The review layer between proposal approval and execution. It holds zero assets: 
 
 ### StakedWood (sWOOD)
 
-The sole custodian of staked WOOD: guardian stake, vault-owner bonds, optional DPoS delegation, vote checkpoints, and slashing all live here. sWOOD is non-transferable vote-escrow. A guardian is active only while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least as long as the guardian review period. When the registry signals a blocked proposal, sWOOD slashes the approvers' own stake and their inbound delegation pool by a stake-weighted severity and burns the slashed WOOD; a blocked emergency settlement burns the owner's bond in full. Delegation ships default-off.
+The sole custodian of staked WOOD: guardian stake, vault-owner bonds, vote checkpoints, and slashing all live here. sWOOD is non-transferable vote-escrow. A guardian is active only while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least as long as the guardian review period. Vote weight is the guardian's own stake (growth-gated `getPastStake`), not inbound delegations. When the registry signals a blocked proposal, sWOOD slashes each approver's own stake by the deterministic severity ramp and burns the slashed WOOD; a blocked emergency settlement burns the owner's bond in full.
 
 <Note>
 The in-repo `WoodToken.sol` is a non-production test fixture, not the live token. Mainnet WOOD is an external ERC-20 launched on Robinhood Chain and tradeable on Uniswap. Bind to the external WOOD address from [Deployments](/reference/deployments), not the in-repo artifact.

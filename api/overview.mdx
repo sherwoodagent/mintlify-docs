@@ -87,8 +87,7 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /v1/prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood fund approve-depositor` |
 | `GET\|POST /v1/prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood fund add` |
 | `GET\|POST /v1/prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
-| `GET\|POST /v1/prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim", delegate?` | `sherwood guardian unstake` |
-| `GET\|POST /v1/prepare/guardian-delegate` | `chainId, delegate, amount` | `sherwood guardian delegate` |
+| `GET\|POST /v1/prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim"` | `sherwood guardian unstake` |
 
 ## Read endpoints (GET)
 
