@@ -1,0 +1,101 @@
+---
+title: "Tier policy"
+description: "Tiers price (target, selector) pairs. They are not reachability, and they are not a guardian ladder."
+icon: "layer-group"
+---
+
+A **tier is a property of a `(target, selector)` pair**, set by governance on `TierRegistry` and consumed at propose and execute. It is **not** a property of a guardian. There is no guardian tier ladder in the protocol: every active guardian reviews every proposal. What changes with the pair is the **price of extractable value**, not who is allowed to vote.
+
+`TierRegistry.tierOf(target, selector)` is the read. The governor takes the **max** tier across execute calls as the proposal's envelope tier, and sums per-call `extractableBoundBps` into [`requiredCoverage`](/protocol/governance/coverage).
+
+## The three tiers
+
+The registry recognizes exactly three tiers. Names and numbers are the protocol's:
+
+| Tier | Protocol name | Bound | How it is assigned |
+|------|---------------|-------|--------------------|
+| **0** | closed-loop | certified `extractableBoundBps` | Owner certification of that pair |
+| **1** | oracle-bounded discretion | certified `extractableBoundBps` | Owner certification of that pair |
+| **2** | arbitrary calldata | full notional (`10_000` bps) | **Default.** Anything uncertified, demoted, or codehash-mismatched |
+
+```solidity
+uint8  public constant TIER_ARBITRARY    = 2;
+uint16 public constant FULL_NOTIONAL_BPS = 10_000;
+```
+
+Tier 0 and tier 1 are the **certified** tiers. Certification is keyed `keccak256(abi.encodePacked(target, selector))` — two selectors on the same adapter are independent pairs, each with its own bound and its own bond. A certified bound must be strictly between `0` and `10_000` exclusive: a full-notional "bound" is tier-2 economics and must not wear a 0/1 label (`BoundRequired`).
+
+Governance must not certify proxied adapters at tier 0/1. `tierOf` checks live `EXTCODEHASH` against the hash snapshotted at certification, which catches same-address bytecode mutation and **does not** catch a proxy implementation swap.
+
+## The `(2, 10_000)` default
+
+Uncertified, demoted, or codehash-mismatched pairs all report `(2, 10_000)`:
+
+```solidity
+function tierOf(address target, bytes4 selector) public view returns (uint8 tier, uint16 boundBps) {
+    // address hit, then per-address denial, then code-class fallback...
+    return (TIER_ARBITRARY, FULL_NOTIONAL_BPS);
+}
+```
+
+| Field | Constant | Meaning |
+|-------|----------|---------|
+| `2` | `TIER_ARBITRARY` | Arbitrary calldata. No certified extractable bound. |
+| `10_000` | `FULL_NOTIONAL_BPS` | 100% of the declared per-call cap, in bps. Coverage prices the full notional. |
+
+That pair is the **absence of a certification**, not a grant. With no `TierRegistry` wired, `SyndicateGovernor._resolveTierAndCoverage` returns `(2, maxCapital)` — full notional, fail-closed. A sandbox payload is also forced to tier 2; there is no certified bound that could reduce it.
+
+Coverage for a call is `(cap_i * boundBps) / 10_000`. Tier 0/1 uses the certified bound; tier 2 uses `10_000`. See [Coverage and underwriting](/protocol/governance/coverage).
+
+## Tier is not reachability
+
+<Warning>
+**Tier is not reachability.** `tierOf` prices a pair. It does not decide whether the vault may call that target, approve it, or send it funds. An uncertified pair is **expensive** (full-notional coverage). It is not, by that fact, **reachable**. Reachability is the allowlist.
+</Warning>
+
+The spec line the contracts implement: *tiers PRICE extractable value for coverage; the allowlist bounds WHERE vault funds may be approved or sent at all.* Demoting a pair back to `(2, 10_000)` raises the coverage price. It is a price, not a prohibition. The prohibition is clearing the funds axis.
+
+A governor batch is **tier-blind** on the callee check. `SyndicateVault._guardBatchCalls` refuses any target the registry owner has not listed, regardless of that target's `tierOf`. Naming an uncertified address in `executeCalls` reverts `DisallowedBatchCallee` even though `tierOf` would happily return `(2, 10_000)`.
+
+The converse is also true. Certifying a pair at tier 0 does **not** allowlist it. `certify` never writes the allowlist; restoring standing after a demotion is always an explicit owner `setAdapterAllowed`.
+
+## The three allowlist axes
+
+`ITierRegistry` exposes three independent allowlist reads. They answer three different questions. None of them is a tier.
+
+| Axis | Read | Question | Strength |
+|------|------|----------|----------|
+| **Funds** (spender / recipient) | `isAdapterAllowed(adapter)` | May this address **receive** vault funds through a governor batch? (`_guardBatchCalls` PART 2b) | Strong grant |
+| **Callee** | `isCallableTarget(target)` | May the vault **CALL** this address in a governor batch? (`_guardBatchCalls` PART 2a) | Granted with the funds axis; **survives demotion** |
+| **Counterparty** | `isCounterpartyAllowed(counterparty)` | May a certified strategy template **bind** this address (lending market, position manager, collateral)? | Weak grant. Implied by `isAdapterAllowed`; implies neither of the other two |
+
+Exotic-asset contracts (ERC-721/1155/777, LP-position NFTs) must **not** be listed on the funds axis as batch callees. A concentrated-liquidity template still has to bind a Uniswap position manager — that is why the counterparty axis exists. A counterparty grant withholds **batch reachability**, not fund contact: the template's own reviewed code may approve what it binds. Proposer-authored batch calldata cannot.
+
+The funds and callee axes are granted together by `setAdapterAllowed(a, true)` (or `setClassAllowed` on a template). They diverge only on revocation:
+
+- **Owner delisting** (`setAdapterAllowed(a, false)`) closes **both**. The vault has no further business with that address.
+- **Demotion** (`demote` / `demoteByChallenge` / `poke`) clears the **funds** axis and leaves the **callee** axis standing. Revoking the right to be **paid** must not revoke the vault's ability to **reclaim** capital the target already holds.
+
+A counterparty-only listing opens neither batch axis.
+
+<Note>
+Certification is keyed `(target, selector)`. The funds allowlist is keyed by **bare address**. Demoting one selector therefore de-allowlists the **whole** adapter. That over-breadth is specified, not a bug: recovery is one owner `setAdapterAllowed` call. The alternative is vault funds still approved to a convicted or mutated adapter.
+</Note>
+
+## What this is not
+
+- **Not a guardian ladder.** Guardians are one cohort. Stake weights a review vote; it does not gate which `(target, selector)` a guardian may look at. Tiers do not rank guardians.
+- **Not a permission to call.** See [Tier is not reachability](#tier-is-not-reachability).
+- **Not an indemnity.** A tighter `extractableBoundBps` lowers [`requiredCoverage`](/protocol/governance/coverage). Slash proceeds are still burned.
+
+## Views
+
+| Read | Returns |
+|------|---------|
+| `tierOf(target, selector)` | `(tier, boundBps)` — `(2, 10_000)` unless a live, codehash-matching certification (address or class) applies |
+| `isAdapterAllowed(adapter)` | Funds axis |
+| `isCallableTarget(target)` | Callee axis |
+| `isCounterpartyAllowed(counterparty)` | Counterparty axis (true if listed, or if `isAdapterAllowed`) |
+| `key(target, selector)` | `keccak256(abi.encodePacked(target, selector))` |
+
+See [Coverage and underwriting](/protocol/governance/coverage) for how the bound becomes `requiredCoverage`, and [Guardian Review](/protocol/governance/guardian-review) for the Approve / Block vote that underwrites it.
