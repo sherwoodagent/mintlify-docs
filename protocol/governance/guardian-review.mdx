@@ -15,7 +15,7 @@ Draft → Pending → GuardianReview → Approved → Executed → Settled
                        │                          │
                        ├ Rejected (block quorum → approvers slashed)
                        ├ Rejected (owner veto — Pending only)
-                       └ Approved (no block quorum, or cold-start cohort)
+                       └ Approved (no block quorum)
 ```
 
 Key invariants the registry and governor enforce:
@@ -38,10 +38,10 @@ Guarding is a paid job, and the incentives are simple:
 | Step | Who | What |
 |---|---|---|
 | **Open review** | Permissionless | Callable once voting ends. Snapshots the quorum denominator from cohort stake at `openedAt = block.timestamp − 1` — the same checkpoint the per-voter weight uses, so a flash-stake in the same block can't inflate the denominator. |
-| **Vote** | Active guardian | `voteOnProposal(governor, proposalId, support)` — `Approve` or `Block`, weighted by stake at first vote. Block votes carry no severity; the slash penalty is a deterministic ramp computed at resolve. Vote changes are allowed early in the window and locked in the final 10%. |
+| **Vote** | Active guardian | `voteOnProposal(governor, proposalId, support)` — `Approve` or `Block`, weighted by the guardian's own stake at first vote (growth-gated `getPastStake`). Block votes carry no severity; the slash penalty is a deterministic ramp computed at resolve. Vote changes are allowed early in the window and locked in the final 10%. |
 | **Resolve** | Permissionless | Finalizes after the review window. Computes the block quorum, slashes approvers if blocked, and emits a per-blocker attribution event for Merkl's off-chain reward math. Idempotent and reentrancy-guarded. |
 
-**Block quorum.** A review resolves *blocked* when Block-side stake weight reaches `blockQuorumBps` (default 30%) of the denominator snapshotted at open. The denominator is guardian own-stake plus delegations to **active** guardians only — delegations parked on inactive or unbonding guardians are dead weight and never inflate the bar honest blockers must clear.
+**Block quorum.** A review resolves *blocked* when Block-side stake weight reaches `blockQuorumBps` (default 30%) of the denominator snapshotted at open. Vote weight is the guardian's own stake (growth-gated `getPastStake`), not inbound delegations. A thin cohort still decides its own reviews; only a zero denominator fails open — if `totalStakeAtOpen == 0`, nobody reviewed and the review is not blocked. Otherwise Block when `blockStakeWeight * 10_000 >= blockQuorumBpsAtOpen * denom`.
 
 **Guardian vote enum** is separate from the governor's `VoteType`: guardians vote `{ None, Approve, Block }`, keeping the two ABIs from confusing variants.
 
@@ -57,7 +57,7 @@ Vault owners post a WOOD bond at creation. Without a bound bond the factory reje
 
 Slashing is onchain and final — slashed WOOD is **burned**, not sent to a treasury. Burning keeps a cleaner regulatory posture (slash is not protocol revenue), aligns with WOOD scarcity, and removes any incentive to over-slash for treasury capture.
 
-- **Approvers slashed** when a review resolves *blocked*. Severity is **deterministic**, not voted — a quadratic ramp of block-side decisiveness from `minSlashBps` (default 10%) to `maxSlashBps` (default 100%), saturating at a two-thirds block supermajority. Guardians do not choose the penalty. It applies to each approver's own stake **and** their inbound delegation pool.
+- **Approvers slashed** when a review resolves *blocked*. Severity is **deterministic**: block votes carry no severity, and guardians do not choose the penalty. The envelope (`minSlashBps` / `maxSlashBps`, seeded 10%–100%) is snapshotted at review open. Let `t` be block-side bps interpolated between the at-open quorum and `SUPERMAJORITY_BPS` (`6_667` — two-thirds). Then `severity = lo + (hi − lo) * t²` (1e18 fixed point in the contract). At a scraped quorum, severity is `lo`. Once block-side weight reaches `SUPERMAJORITY_BPS`, severity saturates at `hi`. The slash applies to each approver's own stake only.
 - **Owner bond slashed** when an emergency-settle review resolves blocked — burned in full.
 - Approver slashing is bounded per proposal to keep gas deterministic; **blockers are uncapped**, since capping honest defence would be a griefing vector.
 
@@ -90,11 +90,11 @@ Owner-instant (no onchain timelock; the owner multisig enforces its own delay). 
 | Guardian unstake cooldown | 7 days | Must stay ≥ the review period |
 | `minSlashBps` / `maxSlashBps` | 10% – 100% | Envelope for the deterministic severity ramp, snapshotted at review open |
 
-Load-bearing safety constants: a **50,000 WOOD** minimum cohort stake at review open (cold-start fallback below), a 7-day epoch used for reward attribution, a per-epoch cap on appeal refunds, and a 7-day deadman that lets anyone unpause the registry if the owner goes silent. The pause freezes voting, review resolution, and slashing — it never freezes stake/unstake/claim, so positions are always exitable.
+Load-bearing safety constants: `SUPERMAJORITY_BPS = 6_667` (two-thirds) for the severity ceiling, a 7-day epoch used for reward attribution, a per-epoch cap on appeal refunds, and a 7-day deadman that lets anyone unpause the registry if the owner goes silent. The pause freezes voting, review resolution, and slashing — it never freezes stake/unstake/claim, so positions are always exitable. There is no minimum cohort stake.
 
-## Cold-start
+## Thin cohort
 
-Before a guardian cohort has formed, reviews can open below the 50,000 WOOD minimum cohort stake. When that happens the review resolves *not blocked* automatically — the system stays live, and the only defence falls back to the owner's narrowed `vetoProposal`. To close that fail-open window during bootstrap, the protocol commits to running a guardian agent that votes on every proposal, publishing coverage reports, staking from treasury, and funding the Merkl reward distributor weekly. As the cohort grows, protocol-run guardianship winds down.
+There is no minimum cohort stake. A thin cohort still decides its own reviews. The only fail-open case is a zero electorate: if `totalStakeAtOpen == 0`, the review is not blocked (nobody reviewed). Otherwise Block when `blockStakeWeight * 10_000 >= blockQuorumBpsAtOpen * denom`.
 
 ## Known limitations (early phase)
 
