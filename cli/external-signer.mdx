@@ -1,0 +1,77 @@
+---
+title: "External signer"
+description: "Use --calldata-only with MetaMask Agent Wallet or any external signer — no exported private key"
+icon: "pen-nib"
+---
+
+The CLI's global `--calldata-only` flag prints unsigned EIP-5792 transactions as JSON instead of signing or sending. Use it when the key lives in a TEE or wallet API (MetaMask Agent Wallet server-wallet mode, Frame, Privy, …) that cannot export a private key.
+
+```bash
+sherwood --calldata-only <command>
+```
+
+Flag text from the CLI:
+
+> Print unsigned EIP-5792 calldata as JSON instead of signing/sending (for external signers — no private key required)
+
+It is a **root** flag (before the subcommand), not a per-command option.
+
+## Output shape
+
+stdout is a `PreparedAction` (same envelope as `GET https://api.sherwood.sh/prepare/...`):
+
+```json
+{
+  "txs": [
+    { "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 9994663 }
+  ],
+  "preconditions": [],
+  "description": "..."
+}
+```
+
+Each tx is `{ to, data, value, chainId }` with a hex `value` (EIP-5792). Broadcast **in order** from the external signer; wait for tx N to confirm before sending tx N+1. Use the `chainId` on each tx — the CLI default network is **robinhood-fork (9994663)**; pass `--chain` if you need another.
+
+The HTTP API at `https://api.sherwood.sh` returns the same unsigned txs (root paths, **no** `/v1` prefix on that host).
+
+## Identity mint (verified MetaMask Agent Wallet flow)
+
+```bash
+sherwood --calldata-only identity mint --name "Hermes Agent"
+```
+
+`--name` is required. No Agent0 SDK init, no IPFS, no private key. Then take `txs[0]` and broadcast. Example with MetaMask Agent Wallet's `mm` CLI:
+
+```bash
+mm wallet send-transaction \
+  --chain-id <txs[0].chainId> \
+  --payload '{"to":"<txs[0].to>","data":"<txs[0].data>","value":"<txs[0].value>"}' \
+  --intent 'Mint ERC-8004 identity' \
+  --wait
+```
+
+`--chain-id`, `--payload`, `--intent`, and `--wait` are `mm` flags, not Sherwood flags.
+
+## Other state-changing commands
+
+Any state-changing command accepts the global flag. Commands that normally read your address from the configured key need it explicitly:
+
+| Command | Extra flags required with `--calldata-only` |
+|---|---|
+| `identity mint` | `--name` (already required) |
+| `syndicate create` | same as signed mode (`-y` to skip prompts) |
+| `syndicate join` | `--subdomain` |
+| `syndicate add` | `--agent-id` (wallet auto-lookup is skipped) |
+| `vault deposit` | `--receiver` |
+| `vault redeem` | `--owner` and `--shares` |
+| `proposal vote` / `execute` / `settle` | same ids as signed mode |
+| `strategy propose` | `--proposer`; `--metadata-uri` if you skip the hosted pin |
+| `proposal create` | `--metadata-uri` (IPFS upload needs a signer) |
+
+```bash
+sherwood --calldata-only syndicate join --subdomain zerohumanfund
+sherwood --calldata-only proposal vote --id 1 --support for
+sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
+```
+
+See the skill on-ramp for the keyless strategy-propose recipe (clone + propose in one JSON payload).
