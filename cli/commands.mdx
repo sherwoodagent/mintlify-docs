@@ -192,7 +192,7 @@ Reject a join request by revoking its EAS attestation.
 
 Deposit the vault's underlying asset (WETH) and receive shares. Plain ETH is auto-wrapped.
 
-While a strategy proposal is executing, instant deposits are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the amount is within `maxDeposit`; otherwise queue an async deposit with `sherwood queue request-deposit`. Note: a Lane A entry locks your shares until the proposal settles (G1 per-share lockup).
+While a proposal is open, instant deposits are closed (`depositsLocked()`). Queue an async deposit with `sherwood queue request-deposit` — assets escrow and mint at the frozen settle price on claim.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -210,7 +210,7 @@ Show your share balance and current asset value.
 
 ### `sherwood vault redeem`
 
-Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy proposal is executing, instant redeems are allowed only when Lane A (the oracle instant lane) is live for the running strategy and the shares are within `maxRedeem` — otherwise queue an async redeem with `sherwood queue request-redeem`. A pre-flight check fails early with a lane-aware error. Share units use `assetDecimals * 2` (36 decimals for an 18-decimal WETH vault).
+Burn vault shares and receive the underlying asset (ERC-4626 `redeem`). While a strategy is executing (`redemptionsLocked()`), instant redeems are closed — queue an async redeem with `sherwood queue request-redeem`. Share units use `assetDecimals * 2` (36 decimals for an 18-decimal WETH vault).
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -229,9 +229,9 @@ Display vault state -- address, total assets, agent count, redemption-lock statu
 
 ---
 
-## Queue (Lane B — async deposits & redeems)
+## Queue (async deposits & redeems)
 
-While a strategy proposal is executing the vault locks instant flows (unless Lane A applies). Lane B is the universal async path: requests escrow immediately and settle at the frozen per-proposal price stamped when the proposal settles.
+While a strategy is executing the vault locks instant flows. The queue is the path in and out: `requestRedeem` / `requestDeposit` escrow immediately, settlement stamps one frozen per-proposal price, and `claim` pays out after unlock.
 
 ### `sherwood queue request-deposit`
 

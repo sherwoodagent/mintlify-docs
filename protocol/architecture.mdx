@@ -1,6 +1,6 @@
 ---
 title: "Contract Architecture"
-description: "Smart contract design — vault, per-vault governor, factory, pricing, and the guardian layer"
+description: "Smart contract design — vault, per-vault governor, factory, withdrawal queue, and the guardian layer"
 icon: "cubes"
 ---
 
@@ -26,8 +26,7 @@ graph TD
     R -->|stake / slash / burn| SW
     V <-->|execute / settle| G
     V -->|delegatecall| B["BatchExecutorLib (stateless)"]
-    V -->|vault-side live NAV| PR["PriceRouter (fail-closed)"]
-    V <-->|Lane B escrow| Q
+    V <-->|escrow / stamp / claim| Q
 ```
 
 The vault is the identity — every position the fund opens lives on the vault address. Each vault gets its own governor, a `BeaconProxy` the factory deploys at `createSyndicate`, which runs that one vault's proposal lifecycle, voting, and settlement. The vault resolves its governor from the factory that deployed it (`factory.governorOf(vault)`) — there is no governor address stored on the vault, and no rewire path, so a governor can never be retroactively swapped under a live vault. Upgrading every fund's governor at once is a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
@@ -44,7 +43,7 @@ The ERC-4626 vault that **is** the fund. It holds every position and is the only
 
 Strategy calldata can only enter through `executeGovernorBatch`, which the vault accepts solely from its own governor and runs by delegatecall into `BatchExecutorLib` — the owner has no arbitrary-calldata path into the vault. Asset recovery is limited to dedicated `rescueERC20` / `rescueERC721` / `rescueEth` paths, all owner-only and blocked while a proposal is open.
 
-`totalAssets()` is idle balance plus live strategy NAV, and that NAV is **always** priced vault-side by the `PriceRouter` — the vault never trusts a strategy's self-reported value. Redemptions run in [two lanes](/protocol/vault-liquidity): an instant lane that settles at live NAV, and a queued lane that escrows shares in the `VaultWithdrawalQueue` and pays out at one realized price stamped at settlement. An instant exit taken during a proposal locks the holder's shares until settlement, which closes the mid-flight MEV window.
+`totalAssets()` is vault float minus the queue reserve minus escrowed unpaid fees — there is no strategy NAV term. While a strategy is executing, instant `redeem` / `withdraw` return 0 and depositors use `requestRedeem` on the [withdrawal queue](/protocol/vault-liquidity). Instant `deposit` is closed for the whole open-proposal window. At settlement the vault stamps one frozen post-fee price; anyone can `claim`.
 
 The redemption lock is derived, not stored: `redemptionsLocked()` reads the governor's active-proposal signal live on every call, so the vault and governor can never disagree about whether a strategy is live.
 
@@ -60,10 +59,6 @@ At settlement the governor pays a profit-only [fee waterfall](/protocol/governan
 
 The `UpgradeableBeacon` holding the shared `SyndicateGovernor` implementation for every per-vault governor proxy. `upgradeTo` is a mass-upgrade primitive — it moves all vault governors to a new implementation atomically — so its owner is the factory-owner multisig.
 
-### PriceRouter
-
-The governance-owned, vault-side pricing oracle for live NAV. It maps each position kind to a pricing adapter, applies a per-kind realizability haircut, and enforces a per-kind instant-size cap. It is **fail-closed**: any unknown kind, adapter revert, stale price, or over-cap result returns "not priceable," so the vault silently falls back to the queued settlement lane rather than trusting a questionable value. A position is eligible for the instant lane only after governance audits its adapter and explicitly enables that kind.
-
 ### GuardianRegistry
 
 The review layer between proposal approval and execution. It holds zero assets: it orchestrates the guardian review window, records Approve/Block votes, and calls `StakedWood` to slash when a proposal is blocked. A permissionless review open at the end of voting snapshots the quorum denominator from cohort stake; if Block votes reach quorum (default 30%) the proposal is Rejected and its approvers are slashed. It also drives the owner-bond review for emergency settlement and holds a slash-appeal reserve that can refund wrongful slashes, capped per epoch. Guardian rewards are attributed here from approver and blocker weights but paid out off-chain via weekly Merkl airdrops — there is no onchain reward pool. See [Guardian Review](/protocol/governance/guardian-review).
@@ -78,7 +73,7 @@ The in-repo `WoodToken.sol` is a non-production test fixture, not the live token
 
 ### VaultWithdrawalQueue
 
-The per-vault async substrate for the queued (Lane B) deposit and withdrawal path. When redemptions are locked mid-proposal, the vault escrows shares (redeem) or assets (deposit) here; at settlement the vault stamps one frozen, post-fee price for the whole proposal and every request in it claims at that single realized price. Because nothing mints or burns against an unrealized, strategy-influenced NAV, the mid-flight price-manipulation surface is removed. A request can be cancelled only before its proposal is stamped.
+The per-vault async substrate for deposits and withdrawals while a strategy is live. When redemptions are locked, the vault escrows shares (redeem) or assets (deposit) here; at settlement the vault stamps one frozen, post-fee price for the whole proposal and every request in it claims at that single realized price. Because nothing mints or burns against an unrealized, strategy-influenced NAV, the mid-flight price-manipulation surface is removed. A request can be cancelled only before its proposal is stamped.
 
 ### ProtocolConfig
 
@@ -98,7 +93,7 @@ A stateless library the vault delegatecalls to run a batch of protocol calls ato
 
 ## Strategies
 
-Strategies are the pluggable position logic a proposal points at. A strategy reports only **where and what** it holds — never a value; the vault prices those positions itself through the `PriceRouter`.
+Strategies are the pluggable execute/settle logic a proposal points at. A strategy pulls vault capital, holds venue positions, and returns the asset on settle. It does not report a value, and the vault does not mark it — `totalAssets()` is float only.
 
 ### PortfolioStrategy
 

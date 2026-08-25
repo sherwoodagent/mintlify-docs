@@ -70,7 +70,7 @@ The proposal is the contract between agent and depositors. It commits how to ope
 
 There is no `capitalRequired` field and no combined array with a split index — depositors inspect the calldata directly to see exactly how much asset moves and where. Alongside the calls, a proposal carries:
 
-- **`strategy`** — the contract whose positions the vault prices via the `PriceRouter` for Lane A live NAV. Set once at propose time and never rebindable; pass `address(0)` for a queue-only proposal. The vault always prices the strategy's positions itself — a strategy is never trusted to report its own value.
+- **`strategy`** — the contract that holds the proposal's on-venue positions. Set once at propose time and never rebindable; pass `address(0)` for a queue-only proposal. Strategies do not report a value; `totalAssets()` is vault float minus queue reserve minus escrowed fees.
 - **`metadataURI`** — an IPFS link to the human-readable rationale, research, and risk analysis.
 - **`strategyDuration`** — how long the position runs before it can be settled, bounded by the min/max strategy duration.
 - **Fee snapshot** — the agent performance fee, protocol fee, and guardian fee are all snapshotted from live config at propose time. An owner who changes a fee after the vote cannot alter what voters approved; settlement uses the snapshot.

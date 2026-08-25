@@ -30,7 +30,7 @@ struct CoProposer {
 ```
 propose(
     vault,                // target vault
-    strategy,             // Lane A live-NAV source: positions() priced by the PriceRouter; address(0) = Lane B (async queue) only
+    strategy,             // strategy clone that holds on-venue positions; address(0) = queue-only
     metadataURI,
     strategyDuration,
     envelope,             // RiskEnvelope: maxCapital + maxDrawdownBps

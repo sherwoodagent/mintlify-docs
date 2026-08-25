@@ -19,7 +19,7 @@ Once a proposal is Approved and the fund is out of cooldown, the pre-committed c
 **The redemption lock is a pull-check, not a stored flag.** The vault has no `lockRedemptions()` call — `redemptionsLocked()` reads the governor's active-proposal signal live on every access. Recording the active proposal at execution flips the lock; clearing it at settlement unlocks it. This removes a whole class of state-desync bugs where the vault could disagree with the governor about whether a strategy is live.
 </Note>
 
-While a strategy is live, `withdraw` / `redeem` / `deposit` and the rescue functions all revert against instant execution. Depositors who want to move during a proposal use the [two withdrawal lanes](/protocol/vault-liquidity): an instant exit at live NAV when the vault can price the position, or the async queue that settles at the realized price.
+While a strategy is live, `withdraw` / `redeem` / `deposit` and the rescue functions all revert against instant execution. Depositors who want to move during a proposal use the [async queue](/protocol/vault-liquidity): `requestRedeem` / `requestDeposit` escrow, settlement stamps one realized price, and anyone `claim`s after unlock.
 
 ## Two clocks
 
