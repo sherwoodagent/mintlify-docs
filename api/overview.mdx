@@ -70,24 +70,52 @@ interface PreparedAction {
 
 Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if an `approve` is needed) and broadcast in order via your own RPC.
 
-**Both verbs supported.** Every `/prepare/*` route accepts `GET` (query string) and `POST` (JSON body) and returns identical calldata — except `/prepare/propose`, which is POST-only because nested `executeCalls[] / settlementCalls[] / coProposers[]` arrays don't query-encode cleanly. GET is the easier one-liner; POST is preserved for backward compatibility and complex payloads.
+**Both verbs supported.** Every `/prepare/*` route accepts `GET` (query string) and `POST` (JSON body) and returns identical calldata — except `/prepare/propose`, `/prepare/propose-with-sandbox`, `/prepare/emergency-settle` and `/prepare/strategy-deploy`, which are POST-only: their nested `executeCalls[] / settlementCalls[] / coProposers[] / sandbox.calls[]` arrays don't query-encode cleanly, and `initData` can outrun URL length limits. GET is the easier one-liner; POST is preserved for backward compatibility and complex payloads.
 
 | Endpoint | Args | Equivalent CLI |
 |---|---|---|
-| `GET\|POST /prepare/deposit` | `chainId, vault, receiver, amount\|amountDecimal` | `sherwood vault deposit` |
+| `GET\|POST /prepare/deposit` | `chainId, vault, receiver, amount\|amountDecimal, wrapEth?` | `sherwood vault deposit` |
 | `GET\|POST /prepare/redeem` | `chainId, vault, receiver, owner, shares` | `sherwood vault redeem` |
-| `GET\|POST /prepare/request-redeem` | `chainId, vault, owner, shares` | (queue path; no CLI yet) |
-| `POST /prepare/propose` | `chainId, vault, strategy, metadataURI, strategyDuration, executeCalls, settlementCalls, coProposers?` | `sherwood proposal create` |
-| `GET\|POST /prepare/vote` | `chainId, proposalId, vote: "For"\|"Against"\|"Abstain"` | `sherwood proposal vote` |
-| `GET\|POST /prepare/execute` | `chainId, proposalId` | `sherwood proposal execute` |
-| `GET\|POST /prepare/settle` | `chainId, proposalId` | `sherwood proposal settle` |
-| `GET\|POST /prepare/cancel` | `chainId, proposalId` | `sherwood proposal cancel` |
-| `GET\|POST /prepare/veto` | `chainId, proposalId` | `sherwood proposal veto` |
+| `GET\|POST /prepare/request-redeem` | `chainId, vault, owner, shares` | `sherwood queue request-redeem` |
+| `GET\|POST /prepare/request-deposit` | `chainId, vault, receiver, amount\|amountDecimal` | `sherwood queue request-deposit` |
+| `GET\|POST /prepare/queue-claim` | `chainId, vault\|queue, requestId` | `sherwood queue claim` |
+| `GET\|POST /prepare/queue-cancel` | `chainId, vault\|queue, requestId` | `sherwood queue cancel` |
+| `POST /prepare/strategy-deploy` | `chainId, template, vault, proposer, initData, salt?` | `sherwood strategy clone` |
+| `POST /prepare/propose` | `chainId, vault, strategy, metadataURI, strategyDuration, envelope, executeCalls, executeCallCaps, settlementCalls, settlementCallCaps, coProposers?` | `sherwood proposal create` |
+| `POST /prepare/propose-with-sandbox` | the `/prepare/propose` args plus `sandbox: { funding, calls, declaredTokens }` | `sherwood proposal create-sandbox` |
+| `GET\|POST /prepare/vote` | `chainId, vault, proposalId, vote: "For"\|"Against"\|"Abstain"` | `sherwood proposal vote` |
+| `GET\|POST /prepare/vote-on-proposal` | `chainId, vault, proposalId, vote: "Approve"\|"Block"` | `sherwood proposal review-vote` |
+| `GET\|POST /prepare/execute` | `chainId, vault, proposalId` | `sherwood proposal execute` |
+| `GET\|POST /prepare/settle` | `chainId, vault, proposalId` | `sherwood proposal settle` |
+| `GET\|POST /prepare/cancel` | `chainId, vault, proposalId` | `sherwood proposal cancel` |
+| `GET\|POST /prepare/veto` | `chainId, vault, proposalId` | *(no CLI equivalent)* |
+| `GET\|POST /prepare/unstick` | `chainId, vault, proposalId` | `sherwood proposal unstick` *(hidden)* |
+| `POST /prepare/emergency-settle` | `chainId, vault, proposalId, calls` | `sherwood proposal settle --calls <path>` |
+| `GET\|POST /prepare/governor-set` | `chainId, vault, param, value` | *(no CLI equivalent)* |
 | `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood fund create` |
 | `GET\|POST /prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood fund approve-depositor` |
 | `GET\|POST /prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood fund add` |
+| `GET\|POST /prepare/approve-agent` | `chainId, vault\|subdomain, agentAddress, agentId` | `sherwood fund approve` |
+| `GET\|POST /prepare/join` | `chainId, vault\|subdomain, agentId, message` | `sherwood fund join` |
+| `GET\|POST /prepare/identity-mint` | `chainId, name, description?, image?` | `sherwood identity mint` |
 | `GET\|POST /prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
 | `GET\|POST /prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim"` | `sherwood guardian unstake` |
+
+### Which chain the returned tx targets
+
+Read `txs[i].chainId` — it is not always the `chainId` you asked for, and signing on the wrong chain is a silent failure.
+
+- **Attestations** (`/prepare/join`, the second tx of `/prepare/approve-agent`) always land on the **coordination chain**, currently Robinhood mainnet `4663`, whatever chain the fund runs on. The first tx of `approve-agent` (`registerAgent`) stays on the fund's chain, so that response spans two chains.
+- **`/prepare/identity-mint`** targets whichever chain holds the ERC-8004 registry. A `chainId` with no registry of its own — the `46630` testnet, the `9994663` fork — falls back to `4663`.
+
+### Who may call
+
+Most endpoints encode an owner- or proposer-gated call and simply revert for anyone else. Two are worth calling out because the pair looks symmetric and is not:
+
+- **`/prepare/queue-claim` is permissionless.** Anyone may settle anyone's request once its proposal price is stamped; proceeds go to the request's **owner**, never the caller.
+- **`/prepare/queue-cancel` is owner-only** — the queue reverts `NotQueueOwner` for any other signer. A queued *redeem* may only be cancelled before its price is stamped; a queued *deposit* may be cancelled unconditionally, because deposits price live at claim time.
+
+Guardian staking and unstaking target **sWOOD (StakedWood)**, the sole WOOD custodian — not the guardian registry.
 
 ## Read endpoints (GET)
 
