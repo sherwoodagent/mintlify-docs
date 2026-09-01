@@ -53,7 +53,7 @@ One governor per vault, deployed as a BeaconProxy so every fund shares an implem
 
 Voting is [optimistic](/protocol/governance/overview): weight is the `ERC20Votes` checkpoint taken one second before propose, and a proposal passes after voting ends unless Against votes reach the veto threshold (default 20% of past supply, bounds 20–50%). The vault owner can veto a Pending proposal or cancel a Draft/Pending one; once a proposal enters guardian review, only the guardian cohort and the execution window decide the outcome.
 
-At settlement the governor pays a profit-only [fee waterfall](/protocol/governance/economics) — protocol, then guardian, then agent (net, split across any co-proposers), then management — using rates snapshotted at propose time. Failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the four owner-only [emergency-settlement](/protocol/governance/settlement) paths for stuck strategies.
+At settlement the governor charges the [two fees](/protocol/governance/economics) — a management fee on assets × time deployed, charged on every settlement whether the fund gained or lost, and a performance fee on value above the fund's previous peak price per share, charged only on profitable settlements — using rates snapshotted at propose time. Each is divided once by the splits held on `ProtocolConfig`. Failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the four owner-only [emergency-settlement](/protocol/governance/settlement) paths for stuck strategies.
 
 ### GovernorBeacon
 
@@ -77,7 +77,7 @@ The per-vault async substrate for deposits and withdrawals while a strategy is l
 
 ### ProtocolConfig
 
-Holds the protocol-level fee parameters — protocol fee (cap 10%) and guardian fee (cap 5%) plus their recipients — shared by every per-vault governor. Values are read only at propose time and snapshotted into the proposal, never read live at settle, so changing a fee never affects an in-flight proposal. It is a plain `Ownable2Step` contract behind the protocol multisig.
+Holds the protocol-level fee splits — how the management fee divides across agent, protocol and guardians (default 60/20/20) and how the performance fee divides across agent, protocol, guardians and the fund owner (default 50/15/25/10) — plus the `protocolFeeRecipient` and `guardiansFeeRecipient` addresses, shared by every per-vault governor. Each split must sum to exactly 10,000 bps. Values are read only at propose time and snapshotted into the proposal, never read live at settle, so changing a split never affects an in-flight proposal. It is a plain `Ownable2Step` contract behind the protocol multisig.
 
 ### SyndicateFactory
 

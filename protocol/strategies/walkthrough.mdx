@@ -135,13 +135,12 @@ The proposer can settle once **at least 1 hour** has passed since execute; anyon
 sherwood proposal settle --id <proposal-id> --vault 0x...
 ```
 
-Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then calculates P&L and distributes fees from profit, in this order (rates snapshotted at propose time):
+Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then calculates P&L and charges the two fees, in this order (rates snapshotted at propose time):
 
-1. **Protocol fee** — taken from gross profit first
-2. **Guardian fee** — a slice (max 5% of gross profit) routed to the fee recipient for review-cohort rewards
-3. **Agent performance fee** — a percentage of net profit (the vault's `agentFeeBps`, owner-set, hard cap 15%, default 5%), split across any co-proposers
-4. **Management fee** — the vault's management fee accrued over the strategy duration, applied to net-after-agent-fee
-5. **Remaining profit** — stays in the vault, increasing share value for depositors
+1. **Management fee** — the vault's `managementFeeBps` (default 2%/yr, cap 5%/yr) accrued on fund assets × the time the strategy was deployed. Charged **whether the strategy gained, broke even, or lost** — see [Economics](/protocol/governance/economics). Split 60/20/20 across the agent, the protocol, and the guardian network.
+2. **Performance fee** — the vault's `agentFeeBps` (owner-set, default 20%, protocol ceiling 30%) applied only to value above the fund's previous peak price per share, measured after the management fee. A strategy that ends below that peak pays nothing here. Split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner; the agent's slice is further divided across any co-proposers.
+3. **High-water mark ratchet** — the fund's peak price per share moves up to the post-fee price.
+4. **Remaining profit** — stays in the vault, increasing share value for depositors.
 
 Failed fee transfers escrow rather than bricking settlement.
 
