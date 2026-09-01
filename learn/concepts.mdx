@@ -34,7 +34,7 @@ See [Deposits & Withdrawals](/protocol/vault-liquidity) for the queue model.
 
 ## Agent
 
-An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. Agents earn a performance fee on profitable strategies — only on profit — as an incentive to compete on returns. The fee is a vault-level rate (`agentFeeBps`, default 5%) set by the vault owner, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` (capped at 15%) at settlement.
+An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. The agent is paid the largest slice of both protocol fees: 60% of the management fee and 50% of the performance fee. The performance rate is a vault-level value (`agentFeeBps`, default **20%**) set by the vault owner, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` (default 20%, protocol ceiling 30%) at settlement.
 
 On the current testnet, agents are approved directly by the fund creator. Onchain agent identity (ERC-8004) and attestation-based approval (EAS) are planned but not yet live on this deployment.
 
@@ -56,7 +56,7 @@ Governance parameters live on each governor and are tuned by the **vault owner**
 
 After voting ends, a proposal enters a `GuardianReview` window (default 24h) — a staked, slashable third-party layer. Guardians stake WOOD in the `GuardianRegistry` (minimum 10,000 WOOD) and, during the window, replay the exact calldata depositors just approved and vote `Approve` or `Block`. If the stake-weighted `Block` vote crosses the block quorum (default 30% of cohort stake at review open), the proposal is rejected and every guardian who voted `Approve` is slashed.
 
-Slashing is real: the severity is **deterministic** — block votes carry no severity, and guardians do not choose the penalty. The envelope (`minSlashBps` / `maxSlashBps`, seeded 10%–100%) is snapshotted at review open. Let `t` be block-side bps interpolated between the at-open quorum and `SUPERMAJORITY_BPS` (`6_667` — two-thirds). Then `severity = lo + (hi − lo) * t²` (1e18 fixed point in the contract). At a scraped quorum, severity is `lo`; once block-side weight reaches `SUPERMAJORITY_BPS`, it saturates at `hi`. The slash hits the approver's own stake only. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly earn a share of the guardian fee (≤5% of gross profit), distributed in \$WOOD weekly. Vault owners must also post a slashable WOOD bond before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
+Slashing is real: the severity is **deterministic** — block votes carry no severity, and guardians do not choose the penalty. The envelope (`minSlashBps` / `maxSlashBps`, seeded 10%–100%) is snapshotted at review open. Let `t` be block-side bps interpolated between the at-open quorum and `SUPERMAJORITY_BPS` (`6_667` — two-thirds). Then `severity = lo + (hi − lo) * t²` (1e18 fixed point in the contract). At a scraped quorum, severity is `lo`; once block-side weight reaches `SUPERMAJORITY_BPS`, it saturates at `hi`. The slash hits the approver's own stake only. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly are paid the guardian slice of both protocol fees — 20% of the management fee and 25% of the performance fee — distributed in \$WOOD weekly. Vault owners must also post a slashable WOOD bond before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
 
 ## Settlement
 
@@ -65,7 +65,12 @@ Settlement closes a strategy's positions, returns capital to the vault, and comp
 1. **Standard settlement** runs the pre-committed settlement calls depositors voted on. The proposer can call it shortly after execution (at least an hour later); anyone can call it once the full strategy duration has elapsed, so the loop never depends on the agent staying online.
 2. **Emergency settlement** is for a strategy stuck in the executed state. The vault owner posts a slashable WOOD bond and can either force the pre-committed settlement calls or supply custom calls that enter a guardian-reviewed window and only run if guardians don't block them. Abuse burns the bond.
 
-On profit, fees are taken in a fixed waterfall with rates snapshotted at propose time: protocol → guardian → agent (net, split across any co-proposers) → management. A losing strategy pays no fees. See [Execution & Settlement](/protocol/governance/settlement).
+Settlement charges exactly two fees, at rates snapshotted at propose time:
+
+- **Management fee** — 2%/yr by default (5%/yr hard cap), accrued on fund assets × the time a strategy was deployed. It is charged at **every settlement, whether the fund gained value, stayed flat, or lost value.** It is split 60/20/20 across the agent, the protocol, and the guardian network.
+- **Performance fee** — 20% by default (30% protocol ceiling), charged only on value above the fund's previous peak price per share. A losing strategy pays none of it, and recovering back to a previous peak is free. It is split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner.
+
+There are no deposit, exit, staking, or referral fees. The management leg is what funds guardian review when markets are flat or down, since the performance leg pays nothing below the previous peak. See [Economics](/protocol/governance/economics) and [Execution & Settlement](/protocol/governance/settlement).
 
 ## Strategies
 

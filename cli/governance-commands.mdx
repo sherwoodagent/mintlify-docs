@@ -34,7 +34,7 @@ sherwood proposal create \
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
 <Note>
-**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps` (default 5%, capped at 15% by the vault).
+**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps` (default 20%, protocol ceiling 30%). The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
 </Note>
 
 ### Metadata pinning (IPFS via Pinata)
@@ -79,10 +79,11 @@ sherwood fund set-agent-fee --vault <addr> --bps <bps>```
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--vault` | No | Vault address (default: from config) |
-| `--bps` | Yes | Agent fee in basis points (e.g. `500` = 5%) |
+| `--bps` | Yes | Agent fee in basis points (e.g. `2000` = 20%) |
 
-- Defaults to **5% (500 bps)** at vault creation.
-- Capped at **15% (1500 bps)** by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement.
+- Defaults to **20% (2000 bps)** at vault creation — the headline rate. An explicit `0` is legal.
+- Capped at **30% (3000 bps)** by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` (default 2000 bps) at settlement. Going above the 20% headline therefore takes two changes, not one.
+- Charged only on value above the fund's previous peak price per share. This command does not affect the management fee, which has no per-vault setter.
 - Calls `vault.setAgentFeeBps(bps)`. Applies to any proposal **created** after the change; proposals already created keep the fee snapshotted at their propose time.
 
 ---
@@ -259,13 +260,13 @@ sherwood governor info --vault <addr>```
   Voting Period:        1 day
   Execution Window:     1 day
   Veto Threshold:       20%   (bounds 20–50%)
-  Max Performance Fee:  15%
+  Max Performance Fee:  20%
   Max Strategy Duration: 30 days
   Cooldown Period:      1 hour
 ```
 
 <Note>
-There is no "Registered Vaults" list any more — each governor serves exactly one vault. Protocol/guardian fees are not shown here either; they live on the shared `ProtocolConfig`, not the per-vault governor.
+There is no "Registered Vaults" list any more — each governor serves exactly one vault. The fee splits are not shown here either; they live on the shared `ProtocolConfig`, not the per-vault governor. See [Economics](/protocol/governance/economics).
 </Note>
 
 ---
@@ -285,11 +286,13 @@ sherwood governor set-cooldown         --vault <addr> --seconds <n>
 
 ### `sherwood governor set-protocol-fee` (ProtocolConfig)
 
-The protocol fee moved off the per-vault governor to the protocol-wide `ProtocolConfig` (resolved via `factory.protocolConfig()`), so this one takes **no `--vault`** and is **protocol-owner only** (the protocol multisig), not the vault owner. Max 1000 bps (10%).
-
 ```bash
-sherwood governor set-protocol-fee --bps <n>   # e.g. 500 = 5%, max 1000 = 10%
+sherwood governor set-protocol-fee --bps <n>
 ```
+
+<Warning>
+  **This command is stale and will revert.** It sends `setProtocolFeeBps` to `ProtocolConfig`, but there is no standalone protocol fee in the two-number fee model and `ProtocolConfig` no longer exposes that function. The protocol's share is now a *leg of the two fees* — 20% of the management fee and 15% of the performance fee — changed with `setMgmtSplit` / `setPerfSplit` by the protocol multisig, for which the CLI does not yet ship a command. See [Economics](/protocol/governance/economics).
+</Warning>
 
 ---
 

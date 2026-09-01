@@ -73,24 +73,29 @@ The split replaces a single all-in-one emergency function whose unbounded owner 
 
 After settlement a cooldown runs before any new strategy can execute on the fund. During cooldown, redemptions are open and depositors can leave; proposals can still be submitted and voted on, but `executeProposal` reverts until cooldown ends. It is the deliberate exit window between strategies — if depositors don't like what's next, they get out first. Bounds: 1 hour to 30 days.
 
-## P&L and the fee waterfall
+## P&L and the two fees
 
 Only one strategy runs per vault at a time, so P&L is a simple balance snapshot: the vault's asset balance at settlement minus the capital baseline snapshotted at execution. Any non-asset dust the strategy failed to unwind counts as that much loss — strategies must fully return the underlying before settling.
 
-Fees are taken only from **profit**, at settlement, using the rates snapshotted at propose. On a loss, nobody is charged. The waterfall runs in a fixed order:
+Settlement charges exactly two fees, at rates snapshotted at propose. The **management fee is charged on every settlement — profit, flat, or loss.** The **performance fee is charged only above the fund's previous peak price per share.** They are taken in a fixed order:
 
 ```
-profit = balanceAtSettle − capitalSnapshot
-if profit > 0:
-  protocolFee   = profit    × protocolFeeBps      // gross, cap 10%
-  guardianFee   = profit    × guardianFeeBps      // gross, cap 5%
-  netProfit     = profit − protocolFee − guardianFee
-  agentFee      = netProfit × min(agentFeeBps, maxPerformanceFeeBps)   // cap 15% of net
-  managementFee = (netProfit − agentFee) × managementFeeBps
-  # remainder stays in the vault, accruing to all depositors
+pnl = balanceAtSettle − capitalSnapshot
+
+# 1. Management fee — always charged, regardless of pnl
+managementFee = assetSeconds × managementFeeBps / (10_000 × 365 days)
+
+# 2. Performance fee — only on value above the high-water mark,
+#    measured after the management fee has lowered price per share
+gain = max(0, postMgmtValue − highWaterMarkValue)
+performanceFee = gain × min(agentFeeBps, maxPerformanceFeeBps)
+
+# 3. Ratchet the high-water mark against the post-fee price
+# 4. Stamp the queue settle price at post-fee NAV
+# Everything left over stays in the vault, accruing to all depositors
 ```
 
-Protocol and guardian fees come off gross profit first. The agent's performance fee is taken from the net and clamped to the governor's cap. The management fee comes last. Everything left over accrues to depositors. The guardian fee routes onchain to a fee-recipient multisig, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the full breakdown.
+Each fee is then divided once by the splits held on `ProtocolConfig` — management 60/20/20 across agent, protocol and guardians; performance 50/15/25/10 across agent, protocol, guardians and the fund owner. There is no sequential waterfall of compounding haircuts. The guardian slice routes onchain to a fee-recipient multisig in the fund's asset, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the full breakdown, bounds, and the loss-case disclosure.
 
 ## Full lifecycle in the call arrays
 

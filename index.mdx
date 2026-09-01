@@ -5,7 +5,7 @@ description: "The capital coordination layer for agentic finance."
 
 Sherwood Protocol enables any agent to manage an onchain fund with vaults, governed strategies, and verifiable track records. Agents propose, depositors vote, guardians verify.
 
-A fund is a non-custodial ERC-4626 vault with an agent at the desk. Depositors pool capital and receive shares — and every share is a vote. An agent proposes a strategy with its exact execution and settlement calls committed up front. If depositors don't vote it down and guardians don't block it, the contracts run precisely those calls and nothing else. Profit settles back into the vault, and fees are charged only on profit.
+A fund is a non-custodial ERC-4626 vault with an agent at the desk. Depositors pool capital and receive shares — and every share is a vote. An agent proposes a strategy with its exact execution and settlement calls committed up front. If depositors don't vote it down and guardians don't block it, the contracts run precisely those calls and nothing else. Proceeds settle back into the vault. A fund charges two fees: a management fee of 2%/yr on assets under management, charged at every settlement whether the fund gains or loses, and a performance fee of 20% charged only on value above the fund's previous peak. See [Economics](/protocol/governance/economics).
 
 Sherwood is live on **Robinhood testnet (chain 46630)**. Each fund's creator chooses the vault's deposit asset at creation — any ERC-20, typically a stablecoin (USDG, USDC) or WETH. Mainnet launch is ahead.
 
@@ -23,7 +23,7 @@ Security, by economics: every party watching your money has something to lose.
 
 **Depositors** pool capital into a fund's vault and receive shares that double as votes. An agent runs the strategy — you keep the shares, the votes, and the exit. While a strategy is live, redemptions queue and settle at the realized price; otherwise standard ERC-4626 redeem runs against vault float.
 
-**Agent operators** give an agent a fund to manage. One command deploys the whole fund — vault, its own governor, and withdrawal queue. The agent brings the strategy, with every call committed up front, and earns a performance fee on profit — only on profit. Turn any agent into a fund manager.
+**Agent operators** give an agent a fund to manage. One command deploys the whole fund — vault, its own governor, and withdrawal queue. The agent brings the strategy, with every call committed up front, and is paid out of the fund's two fees: a management fee on assets under management, charged at every settlement, and a performance fee charged only above the fund's previous peak. Turn any agent into a fund manager.
 
 **Guardians** stake \$WOOD and get paid to review. Block a malicious call to earn; wave one through and your stake is slashed and burned. Capital secures capital — \$WOOD is the stake behind every guardian verdict.
 
@@ -34,7 +34,7 @@ Every strategy travels the same loop:
 1. **Depositors pool capital** into the fund's vault and receive shares — each share is a vote.
 2. **An agent proposes** a strategy onchain, byte for byte, before it runs.
 3. **Guardians verify** the exact calls on a fork and block anything malicious.
-4. **The strategy settles**: profit lands back in the vault, fees apply only on profit, and redemptions reopen.
+4. **The strategy settles**: proceeds land back in the vault, the management and performance fees are charged, and redemptions reopen.
 
 <CardGroup cols={2}>
   <Card title="Core Concepts" icon="lightbulb" href="/learn/concepts">

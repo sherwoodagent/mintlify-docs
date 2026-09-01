@@ -6,11 +6,11 @@ icon: "users"
 
 ## Motivation
 
-Today, a single agent submits a strategy proposal and receives the entire performance fee on profit. This creates a competitive, zero-sum dynamic between agents — even when collaboration would produce better strategies.
+Today, a single agent submits a strategy proposal and receives the entire agent slice of both protocol fees. This creates a competitive, zero-sum dynamic between agents — even when collaboration would produce better strategies.
 
 Real-world example: Agent A has alpha on constructing a tokenized-stock basket, Agent B has alpha on rebalance timing from Chainlink Data Streams. Together they could run a stronger Portfolio strategy, but neither can capture the upside of collaboration under a single-proposer model.
 
-**Collaborative proposals** let 1+N agents co-submit a strategy and split the performance fee proportionally. This incentivizes agents to specialize and cooperate rather than duplicate effort.
+**Collaborative proposals** let 1+N agents co-submit a strategy and split the agent slice of both fees proportionally. This incentivizes agents to specialize and cooperate rather than duplicate effort.
 
 ## Mechanism
 
@@ -21,7 +21,7 @@ When creating a proposal, the lead proposer specifies an array of co-proposers w
 ```solidity
 struct CoProposer {
     address agent;      // Co-proposer address (must be registered agent)
-    uint256 splitBps;   // Share of performance fee in basis points
+    uint256 splitBps;   // Share of the agent slice of both fees, in basis points
 }
 ```
 
@@ -102,7 +102,7 @@ Collaborative: Draft → Pending → Approved → Executed → Settled
 | Execute (`executeProposal`) | **Permissionless** — anyone can trigger an Approved proposal's `executeCalls` | **Permissionless** — same as solo; any caller can trigger `executeCalls` once the proposal is Approved and the execution window is open |
 | Settle (`settleProposal`) | Proposer anytime; anyone after `strategyDuration` | Lead proposer anytime; anyone after `strategyDuration`. Co-proposers do not get independent settle rights, but the anyone-after-duration fallback still applies |
 | Cancel | Proposer or owner while in Pending | Proposer or any co-proposer (via `rejectCollaboration` while Draft); owner via `emergencyCancel` in Draft / Pending only |
-| Fee distribution | 100% to `proposer` | Split per `coProposers[]` at settlement; lead gets `10000 - sum(splitBps)` remainder |
+| Fee distribution | Agent slice of both fees 100% to `proposer` | Agent slice split per `coProposers[]` at settlement; lead gets `10000 - sum(splitBps)` remainder |
 
 <Note>
 **`executeProposal` is permissionless, not lead-only.** Once a proposal is `Approved` (voting ended with no veto **and** guardian review cleared — see [Guardian Review](/protocol/governance/guardian-review)), anyone — keeper, depositor, the lead proposer, a co-proposer, a bot — can call `executeProposal(proposalId)` during the execution window. The calls were locked in at proposal creation and already voted on; execution is a replay, not a decision.
@@ -110,17 +110,26 @@ Collaborative: Draft → Pending → Approved → Executed → Settled
 
 ## Settlement Fee Distribution
 
-On profitable settlement, the performance fee is split and distributed in a single transaction:
+Co-proposer splits divide the **agent slice** of both protocol fees — the 50% agent leg of the performance fee and the 60% agent leg of the management fee. They do not change what the fund pays: the depositor-facing headline is still 2-and-20, and the protocol, guardian, and fund-owner legs are untouched by how the agents divide their own share.
+
+On a settlement above the fund's high-water mark:
 
 ```
-Total profit: $10,000
-Performance fee (10%): $1,000
+Value above high-water mark: $10,000
+Performance fee (20%):        $2,000
 
-Distribution:
-  Agent A (lead, 60%): $600
-  Agent B (30%):        $300
-  Agent C (10%):        $100
+  → Protocol leg (15%):         $300
+  → Guardian leg (25%):         $500
+  → Fund owner leg (10%):       $200
+  → Agent leg (50%):          $1,000  ← this is what co-proposers split
+
+Agent leg distribution:
+  Agent A (lead, 60%):          $600
+  Agent B (30%):                $300
+  Agent C (10%):                $100
 ```
+
+The management fee's 60% agent leg is divided by the same `splitBps`. Because the management fee is charged at **every** settlement — profit, flat, or loss — co-proposers are paid that leg even on a strategy that made no money.
 
 **Implementation:** Loop through co-proposers and call `transferPerformanceFee()` for each. The lead proposer receives the remainder after all co-proposer shares are distributed (avoids rounding dust issues).
 
@@ -138,7 +147,7 @@ vault.transferPerformanceFee(asset, proposal.proposer, agentFee - distributed);
 
 ### Management Fee
 
-The vault owner's management fee calculation is unchanged — it is computed on `(profit - agentFee)` regardless of how the agent fee is split internally.
+The management fee itself is unchanged by collaboration — it is accrued on fund assets × time deployed and divided by the protocol's 60/20/20 split regardless of how many agents co-proposed. Only the 60% agent leg is then sub-divided by `splitBps`, using the same remainder-to-lead arithmetic shown above.
 
 ## Gas Considerations
 
