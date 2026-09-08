@@ -93,11 +93,11 @@ Depositors govern **what happens to their money** (the strategy vote). The owner
 | Parameter | Controlled by | Notes |
 |-----------|---------------|-------|
 | `strategy`, `executeCalls`, `settlementCalls`, `strategyDuration`, `metadataURI` | Agent (proposer) | The mandate — committed at proposal time |
-| `agentFeeBps` | Vault owner | Performance fee for the vault (default 20%, protocol ceiling 30%). Snapshotted onto each proposal; clamped to `maxPerformanceFeeBps` at settlement |
+| `agentFeeBps` | Vault owner | Performance fee for the vault (for example 20%), bounded by the protocol ceiling. Snapshotted onto each proposal; clamped to `maxPerformanceFeeBps` at settlement |
 | `votingPeriod`, `executionWindow`, `vetoThresholdBps`, `maxPerformanceFeeBps`, `maxStrategyDuration`, `cooldownPeriod` | Governor (vault-owner setters, per-vault) | Bounded and frozen while a proposal is open |
 | `reviewPeriod` | GuardianRegistry (owner setter) | Guardian review window, read at propose time |
 | Management and performance fee splits, fee recipients | ProtocolConfig (protocol multisig) | Global; snapshotted into the proposal at propose |
-| `managementFeeBps` | SyndicateFactory (factory owner) | Stamped onto each vault at creation (default 2%/yr, cap 5%/yr). No per-vault setter — changes reach new funds only |
+| `managementFeeBps` | SyndicateFactory (factory owner) | Stamped onto each vault at creation (for example 2%/yr), bounded by the factory cap. No per-vault setter — changes reach new funds only |
 
 <Note>
 **Parameters are per-fund and frozen mid-flight.** Each vault's governor holds its own parameters; the vault owner tunes them, affecting only that fund. Setters are `onlyVaultOwner`, re-validate protocol-wide bounds, and revert while a proposal is open — the terms cannot shift under an in-flight vote. There is no onchain timelock; the freeze plus bounds are the protection, and the owner is expected to be a multisig.
