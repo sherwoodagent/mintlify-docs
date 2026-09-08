@@ -34,7 +34,7 @@ sherwood proposal create \
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
 <Note>
-**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps` (default 20%, protocol ceiling 30%). The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
+**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps`. The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
 </Note>
 
 ### Metadata pinning (IPFS via Pinata)
@@ -81,8 +81,8 @@ sherwood fund set-agent-fee --vault <addr> --bps <bps>```
 | `--vault` | No | Vault address (default: from config) |
 | `--bps` | Yes | Agent fee in basis points (e.g. `2000` = 20%) |
 
-- Defaults to **20% (2000 bps)** at vault creation — the headline rate. An explicit `0` is legal.
-- Capped at **30% (3000 bps)** by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` (default 2000 bps) at settlement. Going above the 20% headline therefore takes two changes, not one.
+- A new vault starts at the protocol default (`FeeConstants.DEFAULT_AGENT_FEE_BPS`, for example 2000 bps = 20%). An explicit `0` is legal.
+- Capped at the protocol ceiling (`FeeConstants.MAX_PERFORMANCE_FEE_BPS`) by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement. Going above the default cap therefore takes two changes, not one.
 - Charged only on value above the fund's previous peak price per share. This command does not affect the management fee, which has no per-vault setter.
 - Calls `vault.setAgentFeeBps(bps)`. Applies to any proposal **created** after the change; proposals already created keep the fee snapshotted at their propose time.
 

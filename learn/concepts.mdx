@@ -34,7 +34,7 @@ See [Deposits & Withdrawals](/protocol/vault-liquidity) for the queue model.
 
 ## Agent
 
-An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. The agent is paid the largest slice of both protocol fees: 60% of the management fee and 50% of the performance fee. The performance rate is a vault-level value (`agentFeeBps`, default **20%**) set by the vault owner, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` (default 20%, protocol ceiling 30%) at settlement.
+An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. The agent is paid the largest slice of both protocol fees: 60% of the management fee and 50% of the performance fee. The performance rate is a vault-level value (`agentFeeBps`, for example 20%) set by the vault owner within the protocol ceiling, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` at settlement.
 
 On the current testnet, agents are approved directly by the fund creator. Onchain agent identity (ERC-8004) and attestation-based approval (EAS) are planned but not yet live on this deployment.
 
@@ -67,8 +67,10 @@ Settlement closes a strategy's positions, returns capital to the vault, and comp
 
 Settlement charges exactly two fees, at rates snapshotted at propose time:
 
-- **Management fee** — 2%/yr by default (5%/yr hard cap), accrued on fund assets × the time a strategy was deployed. It is charged at **every settlement, whether the fund gained value, stayed flat, or lost value.** It is split 60/20/20 across the agent, the protocol, and the guardian network.
-- **Performance fee** — 20% by default (30% protocol ceiling), charged only on value above the fund's previous peak price per share. A losing strategy pays none of it, and recovering back to a previous peak is free. It is split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner.
+- **Management fee** — an annualized rate on assets under management (for example 2%/yr), accrued on fund assets × the time a strategy was deployed. It is charged at **every settlement, whether the fund gained value, stayed flat, or lost value.** It is split 60/20/20 across the agent, the protocol, and the guardian network.
+- **Performance fee** — a share of profit (for example 20%), charged only on value above the fund's previous peak price per share. A losing strategy pays none of it, and recovering back to a previous peak is free. It is split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner.
+
+Rates are set per fund within protocol ceilings and are still being finalized for mainnet; the numbers above are illustrative. The live values are read from the vault (`managementFeeBps()`, `agentFeeBps()`).
 
 There are no deposit, exit, staking, or referral fees. The management leg is what funds guardian review when markets are flat or down, since the performance leg pays nothing below the previous peak. See [Economics](/protocol/governance/economics) and [Execution & Settlement](/protocol/governance/settlement).
 

@@ -137,8 +137,8 @@ sherwood proposal settle --id <proposal-id> --vault 0x...
 
 Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then calculates P&L and charges the two fees, in this order (rates snapshotted at propose time):
 
-1. **Management fee** — the vault's `managementFeeBps` (default 2%/yr, cap 5%/yr) accrued on fund assets × the time the strategy was deployed. Charged **whether the strategy gained, broke even, or lost** — see [Economics](/protocol/governance/economics). Split 60/20/20 across the agent, the protocol, and the guardian network.
-2. **Performance fee** — the vault's `agentFeeBps` (owner-set, default 20%, protocol ceiling 30%) applied only to value above the fund's previous peak price per share, measured after the management fee. A strategy that ends below that peak pays nothing here. Split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner; the agent's slice is further divided across any co-proposers.
+1. **Management fee** — the vault's `managementFeeBps` (for example 2%/yr) accrued on fund assets × the time the strategy was deployed. Charged **whether the strategy gained, broke even, or lost** — see [Economics](/protocol/governance/economics). Split 60/20/20 across the agent, the protocol, and the guardian network.
+2. **Performance fee** — the vault's `agentFeeBps` (owner-set within the protocol ceiling, for example 20%) applied only to value above the fund's previous peak price per share, measured after the management fee. A strategy that ends below that peak pays nothing here. Split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner; the agent's slice is further divided across any co-proposers.
 3. **High-water mark ratchet** — the fund's peak price per share moves up to the post-fee price.
 4. **Remaining profit** — stays in the vault, increasing share value for depositors.
 
