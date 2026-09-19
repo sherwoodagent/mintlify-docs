@@ -43,44 +43,49 @@ function tierOf(address target, bytes4 selector) public view returns (uint8 tier
 | `2` | `TIER_ARBITRARY` | Arbitrary calldata. No certified extractable bound. |
 | `10_000` | `FULL_NOTIONAL_BPS` | 100% of the declared per-call cap, in bps. Coverage prices the full notional. |
 
-That pair is the **absence of a certification**, not a grant. With no `TierRegistry` wired, `SyndicateGovernor._resolveTierAndCoverage` returns `(2, maxCapital)` — full notional, fail-closed. A sandbox payload is also forced to tier 2; there is no certified bound that could reduce it.
+That pair is the **absence of a certification**, not a grant. With no `TierRegistry` wired, `SyndicateGovernor._resolveTierAndCoverage` returns `(2, maxCapital)` — full notional, fail-closed.
 
 Coverage for a call is `(cap_i * boundBps) / 10_000`. Tier 0/1 uses the certified bound; tier 2 uses `10_000`. See [Coverage and underwriting](/protocol/governance/coverage).
 
 ## Tier is not reachability
 
 <Warning>
-**Tier is not reachability.** `tierOf` prices a pair. It does not decide whether the vault may call that target, approve it, or send it funds. An uncertified pair is **expensive** (full-notional coverage). It is not, by that fact, **reachable**. Reachability is the allowlist.
+**Tier is not reachability.** `tierOf` prices a pair. It does not decide whether the vault may call that target. An uncertified pair is **expensive** (full-notional coverage). It is not, by that fact, **unreachable** — and a certified one is not, by that fact, reachable. Reachability is a structural property of the batch, checked by the vault.
 </Warning>
 
-The spec line the contracts implement: *tiers PRICE extractable value for coverage; the allowlist bounds WHERE vault funds may be approved or sent at all.* Demoting a pair back to `(2, 10_000)` raises the coverage price. It is a price, not a prohibition. The prohibition is clearing the funds axis.
+The spec line the contracts implement: *tiers PRICE extractable value for coverage; the batch guard bounds WHAT a governor batch may call at all.* Demoting a pair back to `(2, 10_000)` raises the coverage price. It is a price, not a prohibition.
 
-A governor batch is **tier-blind** on the callee check. `SyndicateVault._guardBatchCalls` refuses any target the registry owner has not listed, regardless of that target's `tierOf`. Naming an uncertified address in `executeCalls` reverts `DisallowedBatchCallee` even though `tierOf` would happily return `(2, 10_000)`.
+Tier 2 does carry one hard stop, and it is a size limit rather than a target list. At propose, a call that resolves to tier 2 must declare a cap within the vault's tier-2 ceiling, or `_scanCalls` reverts `Tier2CallCapExceedsCeiling(i)`:
 
-The converse is also true. Certifying a pair at tier 0 does **not** allowlist it. `certify` never writes the allowlist; restoring standing after a demotion is always an explicit owner `setAdapterAllowed`.
+```solidity
+tier2Ceiling = IERC4626(vault).totalAssets() * tier2CallCapBps() / 10_000;
+```
 
-## The three allowlist axes
+Certifying the `(target, selector)` pair is what lifts a call out of tier 2 and out of that ceiling.
 
-`ITierRegistry` exposes three independent allowlist reads. They answer three different questions. None of them is a tier.
+## The batch guard: what a governor batch may call
 
-| Axis | Read | Question | Strength |
-|------|------|----------|----------|
-| **Funds** (spender / recipient) | `isAdapterAllowed(adapter)` | May this address **receive** vault funds through a governor batch? (`_guardBatchCalls` PART 2b) | Strong grant |
-| **Callee** | `isCallableTarget(target)` | May the vault **CALL** this address in a governor batch? (`_guardBatchCalls` PART 2a) | Granted with the funds axis; **survives demotion** |
-| **Counterparty** | `isCounterpartyAllowed(counterparty)` | May a certified strategy template **bind** this address (lending market, position manager, collateral)? | Weak grant. Implied by `isAdapterAllowed`; implies neither of the other two |
+`SyndicateVault._guardBatchCalls` is **structural, not reputational**. There is no vault-side target list, and the registry has no callee or adapter allowlist to consult. Every call in `executeCalls` and `settlementCalls` is one of exactly two shapes:
 
-Exotic-asset contracts (ERC-721/1155/777, LP-position NFTs) must **not** be listed on the funds axis as batch callees. A concentrated-liquidity template still has to bind a Uniswap position manager — that is why the counterparty axis exists. A counterparty grant withholds **batch reachability**, not fund contact: the template's own reviewed code may approve what it binds. Proposer-authored batch calldata cannot.
+| Target | Rule | Revert |
+|--------|------|--------|
+| The vault's `asset()` | The call must name a first argument: `transferFrom` may only pull `from` the vault; any other selector's first argument is the **spender**, whose allowance the vault resets after the batch | `TransferFromNotVault(from)`, `MalformedAssetCall(selector)` (calldata under 36 bytes) |
+| Anything else | Must be a strategy registered on the protocol's `StrategyFactory` (`isRegisteredStrategy`) — a fixed `IStrategy` shape, not a trust check. Registration is permissionless | `NotARegisteredStrategy(target)` |
 
-The funds and callee axes are granted together by `setAdapterAllowed(a, true)` (or `setClassAllowed` on a template). They diverge only on revocation:
+The vault resolves that factory by walking `governor() → tierRegistry() → strategyFactory()`. A hop that does not answer reads as zero, and an unwired factory registers nothing — fail-closed.
 
-- **Owner delisting** (`setAdapterAllowed(a, false)`) closes **both**. The vault has no further business with that address.
-- **Demotion** (`demote` / `demoteByChallenge` / `poke`) clears the **funds** axis and leaves the **callee** axis standing. Revoking the right to be **paid** must not revoke the vault's ability to **reclaim** capital the target already holds.
+A strategy clone reaches its own venue through its own reviewed code, not through proposer calldata. That is where the remaining registry axis applies.
 
-A counterparty-only listing opens neither batch axis.
+## The counterparty axis
 
-<Note>
-Certification is keyed `(target, selector)`. The funds allowlist is keyed by **bare address**. Demoting one selector therefore de-allowlists the **whole** adapter. That over-breadth is specified, not a bug: recovery is one owner `setAdapterAllowed` call. The alternative is vault funds still approved to a convicted or mutated adapter.
-</Note>
+`ITierRegistry` exposes one allowlist read, and it is not a tier:
+
+| Read | Question | Who consults it |
+|------|----------|-----------------|
+| `isCounterpartyAllowed(counterparty)` | May a strategy template **bind** this address (lending market, position manager, swap adapter, price feed)? | The strategy, at init and at every venue-touching call |
+| `isPriceSourceForToken(token, priceSource)` | Is this specific feed the one bound to this token? | `PortfolioStrategy`, per basket slot |
+
+Owner-set with `setCounterpartyAllowed(counterparty, allowed)`. It confers **nothing** to a governor batch: a listed counterparty is not a callable batch target, and an unlisted one is not thereby unreachable through a strategy the factory already registered. A concentrated-liquidity template still has to bind a Uniswap position manager — that is what this axis is for.
 
 ## What this is not
 
@@ -93,9 +98,10 @@ Certification is keyed `(target, selector)`. The funds allowlist is keyed by **b
 | Read | Returns |
 |------|---------|
 | `tierOf(target, selector)` | `(tier, boundBps)` — `(2, 10_000)` unless a live, codehash-matching certification (address or class) applies |
-| `isAdapterAllowed(adapter)` | Funds axis |
-| `isCallableTarget(target)` | Callee axis |
-| `isCounterpartyAllowed(counterparty)` | Counterparty axis (true if listed, or if `isAdapterAllowed`) |
+| `isCounterpartyAllowed(counterparty)` | Counterparty axis — bindable by a strategy template, not callable by a batch |
+| `isPriceSourceForToken(token, priceSource)` | Whether that feed is the one bound to that token |
+| `classOf(target)` | The certified template class a clone belongs to, or `bytes32(0)` |
+| `strategyFactory()` | The `StrategyFactory` the vault's batch guard resolves through |
 | `key(target, selector)` | `keccak256(abi.encodePacked(target, selector))` |
 
 See [Coverage and underwriting](/protocol/governance/coverage) for how the bound becomes `requiredCoverage`, and [Guardian Review](/protocol/governance/guardian-review) for the Approve / Block vote that underwrites it.

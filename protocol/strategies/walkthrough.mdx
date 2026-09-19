@@ -135,13 +135,11 @@ The proposer can settle once **at least 1 hour** has passed since execute; anyon
 sherwood proposal settle --id <proposal-id> --vault 0x...
 ```
 
-Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then calculates P&L and distributes fees from profit, in this order (rates snapshotted at propose time):
+Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then charges two fees, using the splits snapshotted at propose time:
 
-1. **Protocol fee** — taken from gross profit first
-2. **Guardian fee** — a slice (max 5% of gross profit) routed to the fee recipient for review-cohort rewards
-3. **Agent performance fee** — a percentage of net profit (the vault's `agentFeeBps`, owner-set, hard cap 15%, default 5%), split across any co-proposers
-4. **Management fee** — the vault's management fee accrued over the strategy duration, applied to net-after-agent-fee
-5. **Remaining profit** — stays in the vault, increasing share value for depositors
+1. **Management fee** — accrued on asset-seconds over the proposal's life at the vault's `managementFeeBps` (cap 3%), charged whether or not the strategy made money, then divided agent / protocol / guardian
+2. **Performance fee** — the vault's `agentFeeBps` (owner-set, default 20%, hard cap 25%) on profit **above the fund's high-water mark**, then divided agent / protocol / guardian / vault owner. The agent's share is split across any co-proposers
+3. **Remaining profit** — stays in the vault, increasing share value for depositors
 
 Failed fee transfers escrow rather than bricking settlement.
 

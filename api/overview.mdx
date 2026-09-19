@@ -70,7 +70,7 @@ interface PreparedAction {
 
 Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if an `approve` is needed) and broadcast in order via your own RPC.
 
-**Both verbs supported.** Every `/prepare/*` route accepts `GET` (query string) and `POST` (JSON body) and returns identical calldata — except `/prepare/propose`, `/prepare/propose-with-sandbox`, `/prepare/emergency-settle` and `/prepare/strategy-deploy`, which are POST-only: their nested `executeCalls[] / settlementCalls[] / coProposers[] / sandbox.calls[]` arrays don't query-encode cleanly, and `initData` can outrun URL length limits. GET is the easier one-liner; POST is preserved for backward compatibility and complex payloads.
+**Both verbs supported.** Every `/prepare/*` route accepts `GET` (query string) and `POST` (JSON body) and returns identical calldata — except `/prepare/propose`, `/prepare/emergency-settle` and `/prepare/strategy-deploy`, which are POST-only: their nested `executeCalls[] / settlementCalls[] / coProposers[]` arrays don't query-encode cleanly, and `initData` can outrun URL length limits. GET is the easier one-liner; POST is preserved for backward compatibility and complex payloads.
 
 | Endpoint | Args | Equivalent CLI |
 |---|---|---|
@@ -82,9 +82,8 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /prepare/queue-cancel` | `chainId, vault\|queue, requestId` | `sherwood queue cancel` |
 | `POST /prepare/strategy-deploy` | `chainId, template, vault, proposer, initData, salt?` | `sherwood strategy clone` |
 | `POST /prepare/propose` | `chainId, vault, strategy, metadataURI, strategyDuration, envelope, executeCalls, executeCallCaps, settlementCalls, settlementCallCaps, coProposers?` | `sherwood proposal create` |
-| `POST /prepare/propose-with-sandbox` | the `/prepare/propose` args plus `sandbox: { funding, calls, declaredTokens }` | `sherwood proposal create-sandbox` |
 | `GET\|POST /prepare/vote` | `chainId, vault, proposalId, vote: "For"\|"Against"\|"Abstain"` | `sherwood proposal vote` |
-| `GET\|POST /prepare/vote-on-proposal` | `chainId, vault, proposalId, vote: "Approve"\|"Block"` | `sherwood proposal review-vote` |
+| `GET\|POST /prepare/vote-on-proposal` | `chainId, vault, proposalId, vote: "Approve"\|"Block", lockWood` | `sherwood proposal review-vote` |
 | `GET\|POST /prepare/execute` | `chainId, vault, proposalId` | `sherwood proposal execute` |
 | `GET\|POST /prepare/settle` | `chainId, vault, proposalId` | `sherwood proposal settle` |
 | `GET\|POST /prepare/cancel` | `chainId, vault, proposalId` | `sherwood proposal cancel` |
@@ -117,6 +116,8 @@ Most endpoints encode an owner- or proposer-gated call and simply revert for any
 
 Guardian staking and unstaking target **sWOOD (StakedWood)**, the sole WOOD custodian — not the guardian registry.
 
+**`/prepare/vote-on-proposal` requires `lockWood`.** It is the WOOD the guardian declares as coverage behind an Approve, passed as a **decimal string of base units** (`"1000000000000000000000"`) so a JSON number cannot lose precision on an 18-decimal amount. There is no default and no overload without it. `"0"` is legal and is what a Block passes. See [Coverage and underwriting](/protocol/governance/coverage) for how the ledger clamps it and why too small a lock reverts.
+
 ## Read endpoints (GET)
 
 Edge-cacheable reads return state on the fly — no key required.
@@ -126,10 +127,10 @@ Edge-cacheable reads return state on the fly — no key required.
 | `GET /` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://api.sherwood.sh/` (root — do not add `/v1` on this host). |
 | `GET /chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
 | `GET /funds?chain=46630&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/vaults/:address` for richer data. |
-| `GET /governor?chain=46630` | Live governor parameters (voting period, veto bps, fees). |
+| `GET /governor?chain=46630` | Live governor parameters (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
 | `GET /vaults/:address?chain=46630` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
-| `GET /proposals?chain=46630&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. |
-| `GET /proposals/:id?chain=46630` | Single proposal: votes, voter snapshot, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. |
+| `GET /proposals?chain=46630&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
+| `GET /proposals/:id?chain=46630` | Single proposal: against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
 | `GET /health` | Shallow probe — always 200 if the worker is up. |
 | `GET /health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
 

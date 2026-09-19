@@ -4,11 +4,15 @@ description: "Deployed chain, addresses, and feature matrix"
 icon: "server"
 ---
 
-Sherwood deploys on two chains. **Robinhood testnet (chain 46630)** — an Arbitrum
-Orbit L2 — is the CLI's default target. The **Robinhood mainnet fork (chain
-9994663)**, a Tenderly Virtual TestNet, carries the latest protocol build and is
-where the newest governance and guardian contracts land first; reach it with
-`--chain robinhood-fork`.
+Sherwood deploys on two chains. The **Robinhood mainnet fork (chain 9994663)**, a
+Tenderly Virtual TestNet, is the chain of record and the CLI's default target: it
+carries the current protocol build, and the newest governance and guardian contracts
+land there first. **Robinhood testnet (chain 46630)** — an Arbitrum Orbit L2 — runs an
+older stack; reach it with `--chain robinhood-testnet`.
+
+Robinhood **mainnet (4663)** is a coordination chain only — the canonical ERC-8004
+IdentityRegistry lives there and no Sherwood core contract does. It is not a
+deployment target.
 
 ## Chain
 
@@ -17,10 +21,12 @@ where the newest governance and guardian contracts land first; reach it with
 | [Robinhood mainnet fork](#robinhood-mainnet-fork-chain-9994663) | 9994663 | Fork (Tenderly Virtual TestNet) | Active | default (CLI ≥ 0.83.0) |
 | Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active | `--chain robinhood-testnet` |
 
-On Robinhood testnet the post-audit stack is deployed: vaults, governance, the
-guardian layer (GuardianRegistry + StakedWood + TierRegistry, with a WOOD fixture
+On Robinhood testnet a post-audit but pre-v1 stack is deployed: vaults, governance,
+the guardian layer (GuardianRegistry + StakedWood + TierRegistry, with a WOOD fixture
 token), the StrategyFactory keyless clone+init path, and a Uniswap-compatible swap
-adapter backed by Synthra via a QuoterV2 shim.
+adapter backed by Synthra via a QuoterV2 shim. The v1 release described throughout
+these docs is live on the fork; treat 46630 as a legacy stack unless you were told
+otherwise.
 
 ## Feature Matrix
 
@@ -31,15 +37,15 @@ adapter backed by Synthra via a QuoterV2 shim.
 | Guardian layer (registry + sWOOD + TierRegistry) | Yes |
 | Strategy Factory (keyless deploy) | Yes |
 | Swap adapter (Uniswap-compatible, Synthra-backed) | Yes |
-| Portfolio strategy | Yes |
+| Portfolio strategy | Template deployed — but see the feed note below |
 | Morpho / concentrated-liquidity templates | No — fork only |
 | Challenge game, token court, proposer bonds, exposure ledger | No — fork only |
 | Synthra DEX (swaps) | Yes |
-| Chainlink Data Streams | Yes |
+| Chainlink push feeds for the stock universe | No — fork only |
 | Stock Tokens (RWA) | Yes (TSLA / AMZN / PLTR / NFLX / AMD) |
 | XMTP Chat | Yes |
 | WETH (default vault asset) | Yes |
-| ERC-8004 Identity | Not yet |
+| ERC-8004 Identity | Minted on Robinhood mainnet 4663; factory gating off (`agentRegistry` = `address(0)`) |
 | EAS Attestations | Not yet |
 | ENS Subnames (Durin) | Not yet |
 | USDC | No — not deployed |
@@ -48,18 +54,18 @@ adapter backed by Synthra via a QuoterV2 shim.
 
 **Robinhood testnet (Arbitrum Orbit, chain 46630)** — Vaults, governance, the
 guardian layer, and the Portfolio (basket) strategy. Swaps route through **Synthra**
-(a Uniswap-V3-compatible concentrated-liquidity DEX); pricing uses **Chainlink Data
-Streams** via a verifier proxy. Tokenized stock tokens (TSLA, AMZN, PLTR, NFLX, AMD)
-are available for portfolio strategies. **WETH** is the default vault asset (no USDC
+(a Uniswap-V3-compatible concentrated-liquidity DEX). Tokenized stock tokens (TSLA,
+AMZN, PLTR, NFLX, AMD) are deployed here, but v1's Portfolio strategy requires a
+**Chainlink push feed bound per basket slot** and those feeds exist only on the
+mainnet fork — so a basket proposal on this chain has no feed to bind. **WETH** is the default vault asset (no USDC
 is deployed). Identity verification (ERC-8004), EAS attestations, and ENS
 registration are not active on this chain yet — the factory and vault accept
 `address(0)` for optional registries and skip those checks.
 
 <Note>
 **What's planned.** Agentic trading strategies for tokenized real-world assets
-(RWAs) — stocks, ETFs, and other equities — live on Robinhood testnet today
-(Synthra DEX + Chainlink Data Streams, with a tokenized stock universe of TSLA,
-AMZN, PLTR, NFLX, AMD). Sherwood is built to be multi-chain; additional chains will
+(RWAs) — stocks, ETFs, and other equities — run on the Robinhood mainnet fork
+today, against the mainnet stock universe and its Chainlink push feeds. Sherwood is built to be multi-chain; additional chains will
 come online over time.
 </Note>
 
@@ -87,7 +93,6 @@ below is from the post-audit deploy.
 | ProtocolConfig | `0xC104Eb6a522d6718cA28F344B2373B29d57FF2E0` |
 | SyndicateVaultImpl | `0xC57e12d6e2d8Ed49316F0b69c51893CcA44151F7` |
 | BatchExecutorLib | `0xF3b8db5aa41c7Ce92478A0Fa9C55a6460533eb86` |
-| CallSandboxImpl | `0xf09f6AF7DeBB964eD731376C9Af389F2Ce3d872A` |
 | StrategyFactory | `0xb683Bb8EEcBc2419BC3801df6FeA88f96657e670` |
 
 Guardian layer:
@@ -171,7 +176,6 @@ Synthra router plus a QuoterV2 shim.
 | Synthra QuoterV2 | `0x231606c321A99DE81e28fE48B07a93F1ba49e713` |
 | Synthra QuoterV2 shim | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
 | Synthra V3 Factory | `0x911b4000D3422F482F4062a913885f7b035382Df` |
-| Chainlink Verifier Proxy | `0x72790f9eB82db492a7DDb6d2af22A270Dcc3Db64` |
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
 
@@ -242,24 +246,25 @@ Source of truth: `contracts/chains/9994663.json`.
 
 | Contract | Address (9994663) |
 |----------|-------------------|
-| SyndicateFactory | `0x02bc9B9C1A4322D5A5df86DadA0a2a02e45108B9` |
-| GovernorBeacon | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
-| ProtocolConfig | `0x36C45dC52FbC267d8536E8456ADe5255eC83A5ab` |
-| SyndicateVaultImpl | `0x9BF51da59B13746e6cCeb1b35c398EDA9776a4Dc` |
-| BatchExecutorLib | `0xdBdBce2af4222Abe0cCDAc05f84364a50577B5a2` |
-| StrategyFactory | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
+| SyndicateFactory | `0x619af1488F32B4797f6faDa3C3a8De72a5B693E0` |
+| GovernorBeacon | `0x3CF45eFE9fBDdd6cB749384Bf5c1bA5Ec96af05d` |
+| ProtocolConfig | `0x8aDb5810B5bF8B9149BE3Ca45Cb441818a9679bB` |
+| SyndicateVaultImpl | `0xdaB4707c9997a84e931FE98F4688adaFc70b6B95` |
+| BatchExecutorLib | `0x899FC2Cac572F64A233344115b488E71E0044f34` |
+| StrategyFactory | `0xb06788F027268a9A06c3AD41a88559530D2E54b1` |
 
 Guardian and challenge layer — the newest contracts, deployed here first:
 
 | Contract | Address (9994663) |
 |----------|-------------------|
-| GuardianRegistry | `0xdfEe38C4D7595c9c04AdBcaFE01E4Fd6FD6117f4` |
-| StakedWood (sWOOD) | `0xD3037D28693cc7BB3DbF1E17B6e01C4ce628f6DF` |
-| TierRegistry | `0x42B089B816F994d792481fAa308199E9CF63be9f` |
-| ExposureLedger | `0x223e2Fd41aD6487333146fc3998d000E74CB1549` |
-| ProposerBondEscrow | `0xef2D6994faCad11e6CfAF3DaBf7b0B2091009B05` |
-| ChallengeGame | `0x202c1F133006D6706e872433CCAfD729c7A8AE56` |
-| TokenCourt | `0x5DC603881f5d77f41bbd4202F1d518263Dfd497f` |
+| GuardianRegistry | `0xD8F9E7446E6d6c02198AAaF674A0C5e3d5D1BF72` |
+| StakedWood (sWOOD) | `0xdDf2B4C52B9575e0e6D03a3A57D75D06a4a9e203` |
+| TierRegistry | `0x4614f058920941A0a9a852e62485fbDE692D75E1` |
+| ExposureLedger | `0x99D789E7C8E65dB5597dCa692F082B47BE30AB33` |
+| ProposerBondEscrow | `0x7d25058c891d3AC5C8bc8Da6aA937DFeE648B5cF` |
+| ChallengeGame | `0x7046FececcA6c0f5E66Cc998099593ae71A1bbee` |
+| TokenCourt | `0xC30bA62727be65fd867385Ce27Ff7C78bd66A897` |
+| WOOD/USD feed | `0x0C2dA5FD01e42AE11CeB1d3149867b1896e23B6B` |
 
 Proposals on this chain pull a **second** WOOD amount (the proposer bond) into
 that escrow. Quote via `ExposureLedger.proposerBondWood` — it scales (~1% of
@@ -271,8 +276,10 @@ Strategy templates and the swap adapter. **Portfolio** is the strategy exposed b
 
 | Contract | Address (9994663) |
 |----------|-------------------|
-| PortfolioStrategy | `0x0e768a93B814282776022c3EBfc4e3f22Fa1605E` |
-| UniswapSwapAdapter | `0xdBf12248c68d1FCb6083f431A1d6ab6d0ef84E49` |
+| PortfolioStrategy | `0xAA5872009c527cCb80343E41C52840CEdb095eb0` |
+| MorphoSupplyStrategy | `0x5B55E1Da361573CB0788e750038567D2569BE41d` |
+| ConcentratedLiquidityStrategy | `0xcba9C84F2d382729D1519c5F7f4a9AAaC075f8B5` |
+| UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |
 
 Tokens. Unlike Robinhood testnet, this chain has **USDG** — the mainnet stablecoin —
 alongside WETH, and WOOD here is a real Uniswap-traded token rather than a fixture:
@@ -284,9 +291,11 @@ alongside WETH, and WOOD here is a real Uniswap-traded token rather than a fixtu
 | WOOD token | `0xF8BC08092C06dB6148114DCf82AF881F1085f92b` |
 
 The fork also carries the mainnet tokenized-stock universe (AAPL, TSLA, NVDA,
-MSFT, AMZN, META, AMD, GOOGL, SPY, QQQ, SLV) with Chainlink push feeds for each —
-a wider set than Robinhood testnet's five. Those addresses live in
-`contracts/chains/9994663.json`.
+MSFT, AMZN, META, AMD, GOOGL, SPY, QQQ, SLV) with a Chainlink push feed for each —
+a wider set than Robinhood testnet's five. Token addresses and their
+`CHAINLINK_<SYM>_USD_FEED` entries live in `chains/9994663.json`; the Portfolio
+strategy binds one feed per basket slot and the CLI resolves them from that book
+when a `--feeds` slot is left empty.
 
 ## Deployment Records
 
@@ -301,12 +310,12 @@ is a `Record<Network, ...>` map keyed by chain; Robinhood testnet is the active
 network:
 
 ```
-TOKENS()             → WETH, stock tokens
+TOKENS()             → WETH / USDG, stock tokens
 SYNTHRA()            → Router, Quoter, Factory
-UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter (Synthra-backed)
+UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter
 SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, StrategyFactory
-STRATEGY_TEMPLATES() → Portfolio
-CHAINLINK()          → VerifierProxy
+STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity
+CHAINLINK()          → per-token <SYM>_USD_FEED push feeds
 INFRA()              → Multicall3
 ```
 

@@ -77,7 +77,7 @@ The per-vault async substrate for deposits and withdrawals while a strategy is l
 
 ### ProtocolConfig
 
-Holds the protocol-level fee parameters — protocol fee (cap 10%) and guardian fee (cap 5%) plus their recipients — shared by every per-vault governor. Values are read only at propose time and snapshotted into the proposal, never read live at settle, so changing a fee never affects an in-flight proposal. It is a plain `Ownable2Step` contract behind the protocol multisig.
+Holds the protocol-level fee parameters — the management and performance **splits** (`mgmtSplit` / `perfSplit`) plus the protocol and guardian fee recipients — shared by every per-vault governor. There is no `protocolFeeBps` or `guardianFeeBps`: each party's cut is a leg of the split. Values are read only at propose time and snapshotted into the proposal, never read live at settle, so changing a fee never affects an in-flight proposal. It is a plain `Ownable2Step` contract behind the protocol multisig.
 
 ### SyndicateFactory
 
@@ -97,7 +97,7 @@ Strategies are the pluggable execute/settle logic a proposal points at. A strate
 
 ### PortfolioStrategy
 
-Holds a weighted basket of tokenized stocks and rebalances toward target weights. Pricing is Chainlink Data Streams-assisted, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
+Holds a weighted basket of tokenized stocks and rebalances toward target weights. Rebalance sizing reads a Chainlink push feed bound per basket slot, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
 
 ## Trust boundaries
 

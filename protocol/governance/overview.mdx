@@ -54,7 +54,7 @@ Depositors cannot call `vetoProposal` — it is owner-only. Depositors influence
     The pre-committed calls are replayed through the vault. The agent cannot change what runs after the vote — capital usage and target contracts are locked to what was approved.
   </Step>
   <Step title="The strategy settles">
-    Once the strategy duration ends, anyone can trigger settlement. The vault replays the pre-committed unwind calls, P&L is booked, fees are distributed on profit, and a `ProposalSettled` event is emitted.
+    Once the strategy duration ends, anyone can trigger settlement. The vault replays the pre-committed unwind calls, P&L is booked, the management fee and (on profit above the high-water mark) the performance fee are charged and split, and a `ProposalSettled` event is emitted.
   </Step>
   <Step title="Cooldown">
     Redemptions re-open so depositors can withdraw. No new strategy can execute until cooldown expires.
@@ -73,7 +73,7 @@ There is no `capitalRequired` field and no combined array with a split index —
 - **`strategy`** — the contract that holds the proposal's on-venue positions. Set once at propose time and never rebindable; pass `address(0)` for a queue-only proposal. Strategies do not report a value; `totalAssets()` is vault float minus queue reserve minus escrowed fees.
 - **`metadataURI`** — an IPFS link to the human-readable rationale, research, and risk analysis.
 - **`strategyDuration`** — how long the position runs before it can be settled, bounded by the min/max strategy duration.
-- **Fee snapshot** — the agent performance fee, protocol fee, and guardian fee are all snapshotted from live config at propose time. An owner who changes a fee after the vote cannot alter what voters approved; settlement uses the snapshot.
+- **Fee snapshot** — the agent performance fee and the protocol's management / performance splits are all snapshotted from live config at propose time. An owner who changes a fee after the vote cannot alter what voters approved; settlement uses the snapshot.
 
 <Note>
 **The calls are the vote.** Depositors vote on the precise onchain actions, not a description. `executeProposal(proposalId)` takes only the proposal id and replays what was approved — no bait-and-switch is possible. The `metadataURI` explains *why*; the calls are *what*.
@@ -93,10 +93,10 @@ Depositors govern **what happens to their money** (the strategy vote). The owner
 | Parameter | Controlled by | Notes |
 |-----------|---------------|-------|
 | `strategy`, `executeCalls`, `settlementCalls`, `strategyDuration`, `metadataURI` | Agent (proposer) | The mandate — committed at proposal time |
-| `agentFeeBps` | Vault owner | Performance fee for the vault (default 5%, cap 15%). Snapshotted onto each proposal; clamped to `maxPerformanceFeeBps` at settlement |
+| `agentFeeBps` | Vault owner | Performance fee for the vault (default 20%, vault cap 25%). Snapshotted onto each proposal; clamped to `maxPerformanceFeeBps` at settlement |
 | `votingPeriod`, `executionWindow`, `vetoThresholdBps`, `maxPerformanceFeeBps`, `maxStrategyDuration`, `cooldownPeriod` | Governor (vault-owner setters, per-vault) | Bounded and frozen while a proposal is open |
 | `reviewPeriod` | GuardianRegistry (owner setter) | Guardian review window, read at propose time |
-| Protocol fee, guardian fee | ProtocolConfig (protocol multisig) | Global; snapshotted into the proposal at propose |
+| `mgmtSplit`, `perfSplit` (protocol / guardian / owner shares) | ProtocolConfig (protocol multisig) | Global; snapshotted into the proposal at propose |
 
 <Note>
 **Parameters are per-fund and frozen mid-flight.** Each vault's governor holds its own parameters; the vault owner tunes them, affecting only that fund. Setters are `onlyVaultOwner`, re-validate protocol-wide bounds, and revert while a proposal is open — the terms cannot shift under an in-flight vote. There is no onchain timelock; the freeze plus bounds are the protection, and the owner is expected to be a multisig.

@@ -77,20 +77,25 @@ After settlement a cooldown runs before any new strategy can execute on the fund
 
 Only one strategy runs per vault at a time, so P&L is a simple balance snapshot: the vault's asset balance at settlement minus the capital baseline snapshotted at execution. Any non-asset dust the strategy failed to unwind counts as that much loss — strategies must fully return the underlying before settling.
 
-Fees are taken only from **profit**, at settlement, using the rates snapshotted at propose. On a loss, nobody is charged. The waterfall runs in a fixed order:
+Two fees are charged at settlement, in this order, using the splits snapshotted at propose:
 
 ```
-profit = balanceAtSettle − capitalSnapshot
-if profit > 0:
-  protocolFee   = profit    × protocolFeeBps      // gross, cap 10%
-  guardianFee   = profit    × guardianFeeBps      // gross, cap 5%
-  netProfit     = profit − protocolFee − guardianFee
-  agentFee      = netProfit × min(agentFeeBps, maxPerformanceFeeBps)   // cap 15% of net
-  managementFee = (netProfit − agentFee) × managementFeeBps
-  # remainder stays in the vault, accruing to all depositors
+pnl = balanceAtSettle − capitalSnapshot
+
+# 1. management fee — on time, not on profit
+mgmtFee = assetSeconds × managementFeeBps / (10_000 × 365 days)   // rate cap 3%
+        → agent / protocol / guardian, per the snapshotted mgmtSplit
+
+# 2. performance fee — only above the fund's previous peak
+base    = min(vault.aboveHighWaterMark(), max(pnl, 0))            // read after the mgmt fee
+perfFee = base × min(agentFeeBps, maxPerformanceFeeBps)           // agent rate cap 25%
+        → agent / protocol / guardian / owner, per the snapshotted perfSplit
+vault.ratchetHighWaterMark()
+
+# remainder stays in the vault, accruing to all depositors
 ```
 
-Protocol and guardian fees come off gross profit first. The agent's performance fee is taken from the net and clamped to the governor's cap. The management fee comes last. Everything left over accrues to depositors. The guardian fee routes onchain to a fee-recipient multisig, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the full breakdown.
+There is no separate `protocolFeeBps` or `guardianFeeBps`: the protocol and guardian shares are **legs of the split** on each of those two fees, and a leg whose recipient is unconfigured folds into the agent's remainder. The guardian leg routes onchain to a fee-recipient multisig, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the full breakdown.
 
 ## Full lifecycle in the call arrays
 

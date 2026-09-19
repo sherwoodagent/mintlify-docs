@@ -94,7 +94,9 @@ If the venue returns less than was queued — a partial fill, a write-off — se
 
 ## After settlement: residue
 
-Anything that arrives at the clone after the settlement stamp — a late-maturing withdrawal, a second `queueWithdraw` that drains what the first one missed — is **residue**. The clone reports it to the vault through the standard delivery interface (`hasUndeliveredValue`, `undeliveredValue`, `hasUnvaluedResidue`), and the vault collects it through a single measured door, `collectResidue`, so that depositors who exited in the meantime still receive their share. Anyone can claim a matured withdrawal into the clone (`recoverResiduals`), but only the vault can move USDG from the clone into the vault.
+Anything that arrives at the clone after the settlement stamp — a late-maturing withdrawal, a second `queueWithdraw` that drains what the first one missed — is **residue**. The clone reports it to the vault through a delivery interface (`hasUndeliveredValue`, `undeliveredValue`, `hasUnvaluedResidue`) and the vault collects it through a single measured door, `collectResidue`, so that depositors who exited in the meantime still receive their share. Anyone can claim a matured withdrawal into the clone (`recoverResiduals`), but only the vault can move USDG from the clone into the vault.
+
+<Note>That vault-side delivery and residue surface is **not in the v1 vault** — `collectResidue` and the `IStrategyDelivery` hooks ship with this strategy, not ahead of it. It is part of what is still in development here.</Note>
 
 <Warning>
   Because the secure withdrawal is asynchronous, a fund's exit is slow by construction: close, queue, wait for maturity, settle. While the fund is waiting, deposits and redemptions sit in the async (Lane-B) queue and are paid out once settlement stamps the final price — a lock window worth communicating to depositors of a fund that runs Lighter positions.

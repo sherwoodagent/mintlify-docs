@@ -10,50 +10,52 @@ When a strategy is live (`redemptionsLocked() == true`), instant `deposit` / `re
 
 See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full flow and claim mechanics.
 
-## The fee waterfall
+## The two-number fee model
 
-Fees are taken only from **profit**, at settlement, using rates snapshotted at propose time. On a loss, nobody is charged. Four fees are paid in a fixed order — protocol and guardian off gross profit, then agent and management off the net.
+A fund charges **two** fees, both at settlement: an always-on **management fee** accrued over the time capital was deployed, and a **performance fee** on profit above the fund's previous peak. Each is then divided between the parties that produced it, by a split held on the global **`ProtocolConfig`** and snapshotted onto the proposal at propose time — so settlement pays out what voters saw, even if the config changes mid-flight.
 
-| Order | Fee | Base | Cap | Recipient |
-|-------|-----|------|-----|-----------|
-| 1 | **Protocol fee** | Gross profit | 10% | Protocol fee recipient (ProtocolConfig) |
-| 2 | **Guardian fee** | Gross profit | 5% | Guardian fee recipient (then distributed via Merkl) |
-| 3 | **Agent performance fee** | Net profit (after 1 & 2) | 15% | Agent (split across co-proposers) |
-| 4 | **Management fee** | Remainder (after 3) | set at init (seed 0.5%) | Vault owner |
+| Fee | Base | Rate | Split (launch, `ProtocolConfig`) |
+|-----|------|------|----------------------------------|
+| **Management** | Asset-seconds over the proposal's life | vault `managementFeeBps`, cap **3%** (`SyndicateFactory.MAX_MANAGEMENT_FEE_BPS = 300`) | `mgmtSplit` — agent 60% / protocol 20% / guardian 20% |
+| **Performance** | Profit above the high-water mark | snapshotted `agentFeeBps`, clamped to the governor's `maxPerformanceFeeBps` | `perfSplit` — agent 50% / protocol 15% / guardian 25% / vault owner 10% |
 
 ```
-profit = balanceAtSettle − capitalSnapshot
-if profit > 0:
-  protocolFee   = profit    × protocolFeeBps
-  guardianFee   = profit    × guardianFeeBps
-  netProfit     = profit − protocolFee − guardianFee
-  agentFee      = netProfit × min(agentFeeBps, maxPerformanceFeeBps)
-  managementFee = (netProfit − agentFee) × managementFeeBps
-  # everything left over stays in the vault, accruing to all depositors
+# 1. management fee — charged first, whether or not the strategy made money
+mgmtFee = assetSeconds × managementFeeBps / (10_000 × 365 days)
+        → agent / protocol / guardian, per mgmtSplit
+
+# 2. performance fee — only above the fund's previous peak
+base    = min(vault.aboveHighWaterMark(), max(pnl, 0))      # read AFTER the mgmt fee
+perfFee = base × min(agentFeeBps, maxPerformanceFeeBps)
+        → agent / protocol / guardian / owner, per perfSplit
+vault.ratchetHighWaterMark()
+
+# everything left over stays in the vault, accruing to all depositors
 ```
 
-This ordering guarantees combined fees never exceed profit and keeps a clear priority: the protocol and guardian layers are paid first for running the network and verifying the calldata, the agent earns carry on what's left, the owner takes a management cut on the remainder, and depositors keep the rest.
+`assetSeconds` is the vault's own integral of assets over time, handed to the governor and reset at settlement — the idle gap between proposals accrues nothing. On the performance leg, a fund that fell and recovered pays nothing for the ground it re-covers: the mark only ratchets up, and it ratchets against the **post-fee** price.
 
-### Protocol fee
-
-Taken from gross profit before every other fee. Both `protocolFeeBps` (cap 10%) and its recipient live on the global **`ProtocolConfig`** behind the protocol multisig — **not** the per-vault governor. Each governor reads them at propose time and snapshots them into the proposal, so settlement charges the rate voters saw even if the config changes mid-flight. A nonzero fee requires a recipient to be set first (coupling enforced in both directions).
-
-### Guardian fee
-
-Taken from gross profit, capped at **5%**, and routed onchain to the guardian fee-recipient multisig at settlement. The actual distribution to individual guardians happens **off-chain, weekly, via [Merkl](https://merkl.xyz)** airdrops, attributed from the onchain approver weights — there is no onchain guardian reward pool. See [Guardian Review](/protocol/governance/guardian-review).
+A leg whose recipient was never configured pays nothing and folds into the **agent's remainder**, rather than being escrowed against `address(0)` where it would be permanently unclaimable. The agent takes the remainder rather than its own floor-divided share, so rounding dust lands with the largest earner instead of stranding.
 
 ### Performance (agent) fee
 
-The cut a proposing agent earns on net profit. It is a **vault-level property**, not a per-proposal value:
+The rate is a **vault-level property**, not a per-proposal value:
 
 - `agentFeeBps` lives on the vault. Set it with `vault.setAgentFeeBps(bps)` (owner only) or the CLI `sherwood fund set-agent-fee --bps <bps>`.
-- Defaults to **5%** at creation, capped at **15%** by the vault and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement.
+- Defaults to **20% (2000 bps)** at creation — the headline rate — and is capped at **25% (2500 bps)** by the vault (`MAX_AGENT_FEE_BPS`).
+- A factory-created vault's governor starts at `maxPerformanceFeeBps` **2000 bps**, so anything above the headline is clamped down at settlement (the governor emits `FeeClamped` and continues) until the owner raises that ceiling.
 - When a proposal is created the governor **snapshots** the vault's current `agentFeeBps` onto it — a later owner change only affects proposals created after it.
-- `propose()` takes no fee argument. To split the fee among collaborators, use [co-proposers](/protocol/governance/collaborative-proposals).
+- `propose()` takes no fee argument. To split the agent's share among collaborators, use [co-proposers](/protocol/governance/collaborative-proposals).
+
+### Protocol and guardian shares
+
+Neither is a rate of its own any more: there is no `protocolFeeBps` and no `guardianFeeBps`. Both are **split legs** of the two fees above, tuned on `ProtocolConfig` by the protocol multisig with `setMgmtSplit` / `setPerfSplit` (each set of legs must sum to 10000 bps). `protocolFeeRecipient` and `guardiansFeeRecipient` are destinations only.
+
+The guardian share routes onchain to the guardian fee-recipient multisig at settlement, and the governor emits `GuardianFeeAccrued` — but only on actual delivery, so an escrowed transfer cannot make the payout bot airdrop for a fee that never landed. Distribution to individual guardians happens **off-chain, weekly, via [Merkl](https://merkl.xyz)** airdrops, attributed from the onchain approver weights. There is no onchain guardian reward pool. See [Guardian Review](/protocol/governance/guardian-review).
 
 ### Management fee
 
-The management fee incentivizes vault operation — the owner curates agents, tunes parameters, and handles emergencies, and without it there is no reason to run a vault. It is set at the factory when the vault is created (seed 0.5%, cap 10%), applied to the remainder after the agent's cut, and paid only on profit — so the owner's incentive is aligned with depositor outcomes.
+The management fee incentivizes vault operation — the owner curates agents, tunes parameters, and handles emergencies. It is set at the factory when the vault is created, capped at **3%**, has no setter afterwards, and is charged on asset-seconds rather than on profit, so it is the leg that funds review and operations through a flat market. The vault owner's own earnings come from the performance leg's `ownerBps`.
 
 ### Failed transfers escrow
 
@@ -65,7 +67,7 @@ Only **one strategy is live per vault at a time.** This keeps capital accounting
 
 ## When a strategy loses money
 
-- The agent earns nothing — the performance fee applies only to profit.
+- The agent earns no carry — the performance fee applies only to profit above the high-water mark. The management fee still accrues, because it pays for the time capital was managed.
 - The loss is socialized across all depositors, as in any fund.
 - The loss is recorded onchain via the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event, which indexers aggregate into per-agent track records. There is no agent-slashing mechanism for losses; guardian and owner-bond slashing (see [Guardian Review](/protocol/governance/guardian-review)) is a separate layer for malicious calldata, not for honest losses.
 

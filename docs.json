@@ -44,6 +44,12 @@
       "href": "/cli/installation"
     }
   },
+  "redirects": [
+    {
+      "source": "/protocol/governance/sandbox",
+      "destination": "/protocol/governance/tier-policy"
+    }
+  ],
   "contextual": {
     "options": ["copy", "view", "claude", "chatgpt", "mcp", "cursor", "vscode"]
   },
@@ -93,7 +99,6 @@
               "protocol/governance/proposer-bond",
               "protocol/governance/coverage",
               "protocol/governance/tier-policy",
-              "protocol/governance/sandbox",
               "protocol/governance/guardian-review",
               "protocol/governance/settlement",
               "protocol/governance/economics",
