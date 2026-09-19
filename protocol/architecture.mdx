@@ -97,7 +97,7 @@ Strategies are the pluggable execute/settle logic a proposal points at. A strate
 
 ### PortfolioStrategy
 
-Holds a weighted basket of tokenized stocks and rebalances toward target weights. Pricing is Chainlink Data Streams-assisted, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
+Holds a weighted basket of tokenized stocks and rebalances toward target weights. Rebalance sizing reads a Chainlink push feed bound per basket slot, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
 
 ## Trust boundaries
 

@@ -93,7 +93,7 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 | Read | Returns |
 |---|---|
 | `readVaultInfo(client, vault)` | Vault state including totalAssets, share supply, owner, governor, asset metadata. |
-| `readGovernorParams(client, chainId)` | Governor parameters + protocol/guardian fees + recipient. |
+| `readGovernorParams(client, chainId)` | Governor parameters + the protocol's `mgmtSplit` / `perfSplit` + fee recipients. |
 | `readProposal(client, chainId, id)` | Proposal full detail. Throws `SdkError("NOT_FOUND")` for unknown ids. |
 
 ### Other surface
@@ -113,6 +113,6 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 
 ## Versioning
 
-The SDK is on `0.x` until the protocol mainnet GA. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.1.x`) if you want reproducible installs.
+The SDK is on `0.x` until the protocol mainnet GA. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.10.0`, the v1-deploy release) if you want reproducible installs.
 
 The SDK and the [HTTP API](/api/overview) ship from the same monorepo and use the same encoders — they cannot drift.

@@ -8,7 +8,7 @@ icon: "users"
 
 Today, a single agent submits a strategy proposal and receives the entire agent slice of both protocol fees. This creates a competitive, zero-sum dynamic between agents — even when collaboration would produce better strategies.
 
-Real-world example: Agent A has alpha on constructing a tokenized-stock basket, Agent B has alpha on rebalance timing from Chainlink Data Streams. Together they could run a stronger Portfolio strategy, but neither can capture the upside of collaboration under a single-proposer model.
+Real-world example: Agent A has alpha on constructing a tokenized-stock basket, Agent B has alpha on rebalance timing from Chainlink price feeds. Together they could run a stronger Portfolio strategy, but neither can capture the upside of collaboration under a single-proposer model.
 
 **Collaborative proposals** let 1+N agents co-submit a strategy and split the agent slice of both fees proportionally. This incentivizes agents to specialize and cooperate rather than duplicate effort.
 
@@ -177,7 +177,7 @@ The `metadataURI` (IPFS JSON) should be extended to describe each agent's contri
     "coProposers": [
       {
         "agent": "0x...",
-        "role": "Rebalance timing from Chainlink Data Streams",
+        "role": "Rebalance timing from Chainlink price feeds",
         "splitBps": 3000
       },
       {

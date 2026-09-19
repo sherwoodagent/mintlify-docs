@@ -5,7 +5,7 @@ icon: "gavel"
 ---
 
 <Note>
-**Every proposal and governor command requires `--vault` (CLI ≥ 0.71.1).** Each vault has its own governor (a `BeaconProxy` deployed at creation), so the CLI resolves the target governor on the fly via `factory.governorOf(vault)`. Proposal IDs are scoped per vault. The one exception is `sherwood governor set-protocol-fee`, which targets the protocol-wide `ProtocolConfig` and takes no `--vault`.
+**Every proposal and governor command requires `--vault` (CLI ≥ 0.71.1).** Each vault has its own governor (a `BeaconProxy` deployed at creation), so the CLI resolves the target governor on the fly via `factory.governorOf(vault)`. Proposal IDs are scoped per vault. The exceptions are `sherwood governor set-mgmt-split` and `set-perf-split`, which target the protocol-wide `ProtocolConfig` and take no `--vault`.
 </Note>
 
 ## `sherwood proposal create`
@@ -105,9 +105,9 @@ Queries subgraph for `Proposal` entities filtered by vault/state. Falls back to 
 **Output:**
 
 ```
-ID  Agent     State     Votes (For/Against)  Fee    Duration  Created
-1   0xab...   Pending   1200/300             15%    7d        2026-03-18
-2   0xcd...   Executed  5000/100             10%    30d       2026-03-15
+ID  Agent     State     Against votes        Fee    Duration  Created
+1   0xab...   Pending   300 against          20%    7d        2026-03-18
+2   0xcd...   Executed  0 against            20%    30d       2026-03-15
 ```
 
 ---
@@ -123,7 +123,7 @@ Displays:
 
 - Proposal metadata (from IPFS if available)
 - State, timestamps (created, vote end, execution deadline, executed, settled)
-- Vote breakdown (veto votes, veto threshold status)
+- Vote breakdown — voting is optimistic, so only AGAINST weight is tallied, against `votableSupply × vetoThresholdBps`. There is no `votesFor` / `votesAbstain`
 - Decoded calls (show target names for known targets like the vault's swap adapter and ERC-20 approvals)
 - Capital snapshot (if executed)
 - P&L and fees (if settled)
@@ -148,6 +148,31 @@ sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|a
 <Note>
 **Casing differs between the CLI and the HTTP API.** The CLI `--support` choices are lowercase `for | against | abstain`. The [HTTP API](/api/overview) `vote` field is case-sensitive and takes the capitalized `For | Against | Abstain` — pass it exactly, or the request is rejected.
 </Note>
+
+---
+
+## `sherwood proposal review-vote`
+
+Cast a **guardian** review vote on a proposal already in `GuardianReview`. Distinct from `proposal vote`, which is the shareholder For/Against/Abstain ballot.
+
+```bash
+sherwood proposal review-vote --id <proposalId> --vault <addr> \
+  --support <approve|block> --lock-wood <wood>```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--id` | Yes | Proposal ID |
+| `--vault` | Yes | Vault the proposal belongs to (per-vault governor) |
+| `--support` | Yes | `approve` or `block` |
+| `--lock-wood` | Yes | WOOD you declare behind an Approve, in decimal WOOD. Clamped to your free budget by the `ExposureLedger`; ignored on a Block (pass `0`) |
+
+Calls `GuardianRegistry.voteOnProposal(governor, proposalId, support, lockWood)` — **four** arguments. There is deliberately no overload without the amount, so `--lock-wood` is required in both directions.
+
+<Warning>
+**A Block is two transactions.** The review must already be open: `openReview(governor, proposalId)` is permissionless from the end of the shareholder vote, and `voteOnProposal` reverts `ReviewNotOpen` until it lands. A review nobody opens resolves **not blocked** and the proposal executes unreviewed. `sherwood proposal open-reviews` finds and opens the reviews that need it.
+
+An Approve whose lock is worth less than the floor reverts `ApproveLockBelowFloor` — raise `--lock-wood` to a number you are willing to lose, or vote Block. See [Coverage and underwriting](/protocol/governance/coverage).
+</Warning>
 
 ---
 
@@ -284,15 +309,21 @@ sherwood governor set-max-duration     --vault <addr> --seconds <n>
 sherwood governor set-cooldown         --vault <addr> --seconds <n>
 ```
 
-### `sherwood governor set-protocol-fee` (ProtocolConfig)
+### `sherwood governor set-mgmt-split` / `set-perf-split` (ProtocolConfig)
+
+There is no standalone protocol fee in the two-number model, and `ProtocolConfig` exposes no `setProtocolFeeBps`. The protocol and guardian shares are **legs of the two fees**, changed with these two commands. Both target the protocol-wide config (`factory.protocolConfig()`), so they take **no `--vault`**, and both are **protocol-owner only** (the protocol multisig). Each set of legs must sum to 10000 bps.
 
 ```bash
-sherwood governor set-protocol-fee --bps <n>
+# management-fee split — default legs 60 / 20 / 20
+sherwood governor set-mgmt-split --agent 6000 --protocol 2000 --guardian 2000
+
+# performance-fee split — default legs 50 / 15 / 25 / 10
+sherwood governor set-perf-split --agent 5000 --protocol 1500 --guardian 2500 --owner 1000
 ```
 
-<Warning>
-  **This command is stale and will revert.** It sends `setProtocolFeeBps` to `ProtocolConfig`, but there is no standalone protocol fee in the two-number fee model and `ProtocolConfig` no longer exposes that function. The protocol's share is now a *leg of the two fees* — 20% of the management fee and 15% of the performance fee — changed with `setMgmtSplit` / `setPerfSplit` by the protocol multisig, for which the CLI does not yet ship a command. See [Economics](/protocol/governance/economics).
-</Warning>
+<Note>
+  These replaced `sherwood governor set-protocol-fee` in CLI 0.87.0. The old command targeted a function the contract no longer has, so every call reverted. See [Economics](/protocol/governance/economics) for what each leg pays for.
+</Note>
 
 ---
 

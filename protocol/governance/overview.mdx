@@ -54,7 +54,7 @@ Depositors cannot call `vetoProposal` — it is owner-only. Depositors influence
     The pre-committed calls are replayed through the vault. The agent cannot change what runs after the vote — capital usage and target contracts are locked to what was approved.
   </Step>
   <Step title="The strategy settles">
-    Once the strategy duration ends, anyone can trigger settlement. The vault replays the pre-committed unwind calls, P&L is booked, fees are distributed on profit, and a `ProposalSettled` event is emitted.
+    Once the strategy duration ends, anyone can trigger settlement. The vault replays the pre-committed unwind calls, P&L is booked, the management fee and (on profit above the high-water mark) the performance fee are charged and split, and a `ProposalSettled` event is emitted.
   </Step>
   <Step title="Cooldown">
     Redemptions re-open so depositors can withdraw. No new strategy can execute until cooldown expires.
