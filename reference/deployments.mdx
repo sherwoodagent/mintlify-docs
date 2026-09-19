@@ -187,7 +187,7 @@ here first.
 ### Connecting
 
 ```
-https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/231af1
+https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/f509bc-4fdefe
 ```
 
 This endpoint is **public**: it serves reads and accepts broadcast transactions,
@@ -196,7 +196,7 @@ setup needed. State-cheat access (`tenderly_setBalance`, `tenderly_setStorageAt`
 `evm_increaseTime`, and the rest of the vnet admin surface) is **not** exposed
 here; those calls need the vnet's private admin RPC from the Tenderly dashboard.
 
-Explorer: [dashboard.tenderly.co/explorer/vnet/6ad5961e…](https://dashboard.tenderly.co/explorer/vnet/6ad5961e-fbca-452f-939f-ca9a8c020933)
+Explorer: the vnet's **Explorer** tab in the Tenderly dashboard. Its URL carries the vnet's id, which changes with every re-mint, so it is not pinned here.
 
 Point the CLI at the fork with `--chain robinhood-fork`:
 
@@ -242,24 +242,24 @@ Source of truth: `contracts/chains/9994663.json`.
 
 | Contract | Address (9994663) |
 |----------|-------------------|
-| SyndicateFactory | `0x02bc9B9C1A4322D5A5df86DadA0a2a02e45108B9` |
-| GovernorBeacon | `0x2e8aB422Db9127F1a70d8C38A15903f22B51DA97` |
-| ProtocolConfig | `0x36C45dC52FbC267d8536E8456ADe5255eC83A5ab` |
-| SyndicateVaultImpl | `0x9BF51da59B13746e6cCeb1b35c398EDA9776a4Dc` |
-| BatchExecutorLib | `0xdBdBce2af4222Abe0cCDAc05f84364a50577B5a2` |
-| StrategyFactory | `0xb3C009aECAeDd5ccC62Ec12eDAAA55F19C4A1eFb` |
+| SyndicateFactory | `0x619af1488F32B4797f6faDa3C3a8De72a5B693E0` |
+| GovernorBeacon | `0x3CF45eFE9fBDdd6cB749384Bf5c1bA5Ec96af05d` |
+| ProtocolConfig | `0x8aDb5810B5bF8B9149BE3Ca45Cb441818a9679bB` |
+| SyndicateVaultImpl | `0xdaB4707c9997a84e931FE98F4688adaFc70b6B95` |
+| BatchExecutorLib | `0x899FC2Cac572F64A233344115b488E71E0044f34` |
+| StrategyFactory | `0xb06788F027268a9A06c3AD41a88559530D2E54b1` |
 
 Guardian and challenge layer — the newest contracts, deployed here first:
 
 | Contract | Address (9994663) |
 |----------|-------------------|
-| GuardianRegistry | `0xdfEe38C4D7595c9c04AdBcaFE01E4Fd6FD6117f4` |
-| StakedWood (sWOOD) | `0xD3037D28693cc7BB3DbF1E17B6e01C4ce628f6DF` |
-| TierRegistry | `0x42B089B816F994d792481fAa308199E9CF63be9f` |
-| ExposureLedger | `0x223e2Fd41aD6487333146fc3998d000E74CB1549` |
-| ProposerBondEscrow | `0xef2D6994faCad11e6CfAF3DaBf7b0B2091009B05` |
-| ChallengeGame | `0x202c1F133006D6706e872433CCAfD729c7A8AE56` |
-| TokenCourt | `0x5DC603881f5d77f41bbd4202F1d518263Dfd497f` |
+| GuardianRegistry | `0xD8F9E7446E6d6c02198AAaF674A0C5e3d5D1BF72` |
+| StakedWood (sWOOD) | `0xdDf2B4C52B9575e0e6D03a3A57D75D06a4a9e203` |
+| TierRegistry | `0x4614f058920941A0a9a852e62485fbDE692D75E1` |
+| ExposureLedger | `0x99D789E7C8E65dB5597dCa692F082B47BE30AB33` |
+| ProposerBondEscrow | `0x7d25058c891d3AC5C8bc8Da6aA937DFeE648B5cF` |
+| ChallengeGame | `0x7046FececcA6c0f5E66Cc998099593ae71A1bbee` |
+| TokenCourt | `0xC30bA62727be65fd867385Ce27Ff7C78bd66A897` |
 
 Proposals on this chain pull a **second** WOOD amount (the proposer bond) into
 that escrow. Quote via `ExposureLedger.proposerBondWood` — it scales (~1% of
@@ -271,8 +271,8 @@ Strategy templates and the swap adapter. **Portfolio** is the strategy exposed b
 
 | Contract | Address (9994663) |
 |----------|-------------------|
-| PortfolioStrategy | `0x0e768a93B814282776022c3EBfc4e3f22Fa1605E` |
-| UniswapSwapAdapter | `0xdBf12248c68d1FCb6083f431A1d6ab6d0ef84E49` |
+| PortfolioStrategy | `0xAA5872009c527cCb80343E41C52840CEdb095eb0` |
+| UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |
 
 Tokens. Unlike Robinhood testnet, this chain has **USDG** — the mainnet stablecoin —
 alongside WETH, and WOOD here is a real Uniswap-traded token rather than a fixture:
