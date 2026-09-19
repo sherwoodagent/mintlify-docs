@@ -191,7 +191,7 @@ here first.
 ### Connecting
 
 ```
-https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/231af1
+https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/f509bc-4fdefe
 ```
 
 This endpoint is **public**: it serves reads and accepts broadcast transactions,
@@ -200,7 +200,7 @@ setup needed. State-cheat access (`tenderly_setBalance`, `tenderly_setStorageAt`
 `evm_increaseTime`, and the rest of the vnet admin surface) is **not** exposed
 here; those calls need the vnet's private admin RPC from the Tenderly dashboard.
 
-Explorer: [dashboard.tenderly.co/explorer/vnet/6ad5961e…](https://dashboard.tenderly.co/explorer/vnet/6ad5961e-fbca-452f-939f-ca9a8c020933)
+Explorer: the vnet's **Explorer** tab in the Tenderly dashboard. Its URL carries the vnet's id, which changes with every re-mint, so it is not pinned here.
 
 Point the CLI at the fork with `--chain robinhood-fork`:
 

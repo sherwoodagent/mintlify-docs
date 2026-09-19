@@ -34,7 +34,7 @@ sherwood proposal create \
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
 <Note>
-**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps` (default 20%; the vault's own hard cap is 25%).
+**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps`. The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
 </Note>
 
 ### Metadata pinning (IPFS via Pinata)
@@ -81,8 +81,9 @@ sherwood fund set-agent-fee --vault <addr> --bps <bps>```
 | `--vault` | No | Vault address (default: from config) |
 | `--bps` | Yes | Agent fee in basis points (e.g. `2000` = 20%) |
 
-- Defaults to **20% (2000 bps)** at vault creation — the headline rate.
-- Capped at **25% (2500 bps)** by the vault (`MAX_AGENT_FEE_BPS`), and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement (a factory-created vault starts that ceiling at 2000 bps).
+- A new vault starts at the protocol default (`FeeConstants.DEFAULT_AGENT_FEE_BPS`, for example 2000 bps = 20%). An explicit `0` is legal.
+- Capped at the protocol ceiling (`FeeConstants.MAX_PERFORMANCE_FEE_BPS`) by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement. Going above the default cap therefore takes two changes, not one.
+- Charged only on value above the fund's previous peak price per share. This command does not affect the management fee, which has no per-vault setter.
 - Calls `vault.setAgentFeeBps(bps)`. Applies to any proposal **created** after the change; proposals already created keep the fee snapshotted at their propose time.
 
 ---
@@ -290,7 +291,7 @@ sherwood governor info --vault <addr>```
 ```
 
 <Note>
-There is no "Registered Vaults" list any more — each governor serves exactly one vault. The protocol and guardian shares are not shown here either; they are legs of the splits on the shared `ProtocolConfig`, not per-vault governor parameters.
+There is no "Registered Vaults" list any more — each governor serves exactly one vault. The fee splits are not shown here either; they live on the shared `ProtocolConfig`, not the per-vault governor. See [Economics](/protocol/governance/economics).
 </Note>
 
 ---
@@ -310,17 +311,19 @@ sherwood governor set-cooldown         --vault <addr> --seconds <n>
 
 ### `sherwood governor set-mgmt-split` / `set-perf-split` (ProtocolConfig)
 
-There is no protocol-fee *rate*. The protocol and guardian shares are **split legs** of the management and performance fees, held on the protocol-wide `ProtocolConfig` (resolved via `factory.protocolConfig()`). Both commands take **no `--vault`** and are **protocol-owner only** (the protocol multisig). Each set of legs must sum to 10000 bps.
+There is no standalone protocol fee in the two-number model, and `ProtocolConfig` exposes no `setProtocolFeeBps`. The protocol and guardian shares are **legs of the two fees**, changed with these two commands. Both target the protocol-wide config (`factory.protocolConfig()`), so they take **no `--vault`**, and both are **protocol-owner only** (the protocol multisig). Each set of legs must sum to 10000 bps.
 
 ```bash
-# management fee split — launch values 60 / 20 / 20
+# management-fee split — default legs 60 / 20 / 20
 sherwood governor set-mgmt-split --agent 6000 --protocol 2000 --guardian 2000
 
-# performance fee split — launch values 50 / 15 / 25 / 10
+# performance-fee split — default legs 50 / 15 / 25 / 10
 sherwood governor set-perf-split --agent 5000 --protocol 1500 --guardian 2500 --owner 1000
 ```
 
-See [Economics](/protocol/governance/economics) for what each leg pays for.
+<Note>
+  These replaced `sherwood governor set-protocol-fee` in CLI 0.87.0. The old command targeted a function the contract no longer has, so every call reverted. See [Economics](/protocol/governance/economics) for what each leg pays for.
+</Note>
 
 ---
 
