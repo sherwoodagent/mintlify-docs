@@ -1,10 +1,10 @@
 ---
 title: "External signer"
-description: "Use --calldata-only with MetaMask Agent Wallet or any external signer — no exported private key"
+description: "Use --calldata-only with Privy or any external signer — no exported private key"
 icon: "pen-nib"
 ---
 
-The CLI's global `--calldata-only` flag prints unsigned EIP-5792 transactions as JSON instead of signing or sending. Use it when the key lives in a TEE or wallet API (MetaMask Agent Wallet server-wallet mode, Frame, Privy, …) that cannot export a private key.
+The CLI's global `--calldata-only` flag prints unsigned EIP-5792 transactions as JSON instead of signing or sending. Use it when the key lives in a TEE or wallet API that cannot export a private key. **Privy** is the wallet API verified on the Robinhood fork (chain 9994663), which it supports as a custom chain; MetaMask Agent Wallet server-wallet mode and Frame consume the same JSON.
 
 ```bash
 sherwood --calldata-only <command>
@@ -33,6 +33,64 @@ stdout is a `PreparedAction` (same envelope as `GET https://api.sherwood.sh/prep
 Each tx is `{ to, data, value, chainId }` with a hex `value` (EIP-5792). Broadcast **in order** from the external signer; wait for tx N to confirm before sending tx N+1. Use the `chainId` on each tx — the CLI default network is **robinhood-fork (9994663)**; pass `--chain` if you need another.
 
 The HTTP API at `https://api.sherwood.sh` returns the same unsigned txs (root paths, **no** `/v1` prefix on that host).
+
+## Privy agent wallet (verified on the Robinhood fork)
+
+Privy signs but cannot broadcast to the fork, so the pattern is sign with Privy, then broadcast the raw transaction yourself. Privy's own agent skill: https://agents.privy.io/skill.md
+
+<Steps>
+  <Step title="Provision the wallet">
+    One-time, and a human approves the device code at `agents.privy.io`. Invoke the CLI through `pnpm dlx`, never `npx`:
+
+    ```bash
+    P="pnpm --package=@privy-io/agent-wallet-cli dlx privy-agent-wallet"
+    $P login          # prints a device code for a human to approve
+    $P list-wallets   # prints the provisioned ETH address
+    ```
+
+    Fund that address from the faucet under [Test funds](/reference/deployments#test-funds).
+  </Step>
+  <Step title="Print the calldata">
+    ```bash
+    sherwood --calldata-only proposal vote --id 1 --support for
+    # → { txs: [{ to, data, value, chainId }], preconditions, description }
+    ```
+  </Step>
+  <Step title="Sign each tx with Privy">
+    Pass `chain_id` **inside** `params.transaction` and set nonce and gas explicitly. Privy auto-fills those only for chains in its registry, and 9994663 is not one:
+
+    ```bash
+    $P rpc --json '{
+      "method": "eth_signTransaction",
+      "params": { "transaction": {
+        "chain_id": 9994663,
+        "to": "0x...", "data": "0x...", "value": "0x0",
+        "nonce": 0,
+        "gas_limit": "0x7A120",
+        "max_fee_per_gas": "0x3B9ACA00",
+        "max_priority_fee_per_gas": "0x0"
+      } }
+    }'
+    ```
+
+    The signed RLP comes back at `data.signed_transaction`. Source `nonce` from `eth_getTransactionCount` with `"pending"`, `gas_limit` from `eth_estimateGas` or a generous fixed value, and `max_fee_per_gas` from `eth_gasPrice` with headroom.
+  </Step>
+  <Step title="Broadcast it yourself">
+    ```bash
+    curl -s -X POST https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/f509bc-4fdefe \
+      -H 'content-type: application/json' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"eth_sendRawTransaction","params":["<data.signed_transaction>"]}'
+    ```
+
+    Poll `eth_getTransactionReceipt` until `status` is `0x1` before signing the next tx in `txs`.
+  </Step>
+</Steps>
+
+<Warning>
+  Do not use `eth_sendTransaction` with a top-level `caip2: "eip155:9994663"` on this fork. Privy's chain registry does not carry 9994663, so the call fails with `Unsupported chain`. `personal_sign` works normally.
+</Warning>
+
+Proof the pattern works: dust self-send `0xb3e608fe664b51126e9ec0b421a0b6d1341afc1cbb0738780593a63f40d9299d` on the fork, status 1, 21k gas. Identity mint on Robinhood mainnet (chain 4663, the coordination chain) is the same shape with `chain_id: 4663` broadcast to `https://rpc.mainnet.chain.robinhood.com`, but that path was not smoke-tested.
 
 ## Identity mint (verified MetaMask Agent Wallet flow)
 
