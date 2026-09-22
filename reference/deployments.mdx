@@ -38,7 +38,7 @@ otherwise.
 | Strategy Factory (keyless deploy) | Yes |
 | Swap adapter (Uniswap-compatible, Synthra-backed) | Yes |
 | Portfolio strategy | Template deployed — but see the feed note below |
-| Morpho / concentrated-liquidity templates | No — fork only |
+| Morpho / concentrated-liquidity / launchpad templates | No — fork only |
 | Challenge game, token court, proposer bonds, exposure ledger | No — fork only |
 | Synthra DEX (swaps) | Yes |
 | Chainlink push feeds for the stock universe | No — fork only |
@@ -271,8 +271,8 @@ that escrow. Quote via `ExposureLedger.proposerBondWood` — it scales (~1% of
 extractable value at the default bps). Full write-up:
 [Proposer bond](/protocol/governance/proposer-bond).
 
-Strategy templates and the swap adapter. **Portfolio** is the strategy exposed by
-`sherwood strategy list` on this chain:
+Strategy templates and the swap adapter. `sherwood strategy list` on this chain
+shows Portfolio, Morpho Supply, Concentrated Liquidity and Launchpad (CLI ≥ 0.89.0):
 
 | Contract | Address (9994663) |
 |----------|-------------------|
@@ -280,6 +280,34 @@ Strategy templates and the swap adapter. **Portfolio** is the strategy exposed b
 | MorphoSupplyStrategy | `0x5B55E1Da361573CB0788e750038567D2569BE41d` |
 | ConcentratedLiquidityStrategy | `0xcba9C84F2d382729D1519c5F7f4a9AAaC075f8B5` |
 | UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |
+
+The Launchpad template and its launch adapters live in
+[sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies), not the core
+repo. Source of truth: sherwood-strategies `deployments/9994663.json`.
+
+| Contract | Address (9994663) |
+|----------|-------------------|
+| LaunchpadStrategy | `0x4435Aae199907f60588902Bcd7c4363a13Bb2951` |
+| SushiLaunchAdapter | `0x20348e428050031647d671F0e24752C01D4b7379` |
+| StonkLaunchAdapter | `0x0D62944862996791a9BCE992872F9Fa8E3162B49` |
+
+The `LighterPerpStrategy` template is not deployed on this chain or any other yet. It
+will deploy on Robinhood mainnet, where the Lighter venue runs. See
+[Lighter Perps](/protocol/strategies/lighter-perp).
+
+Venues the strategy templates call. These are mainnet contracts the fork replays:
+
+| Venue | Address (9994663) |
+|-------|-------------------|
+| Morpho Blue | `0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010` |
+| Uniswap V3 factory | `0x1f7d7550B1b028f7571E69A784071F0205FD2EfA` |
+| Uniswap V3 position manager | `0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3` |
+| Sushi Launchpad V2 (proxy) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` |
+| StonkBrokers lens (V2) | `0x25b5Df581f4b2Ed450203f375ad8A28b17F115B3` |
+| zkLighter proxy | `0x94bAB9693Ba2f6358507eFfcbd372b0660AFfF9d` |
+
+StonkBrokers runs one V2 pad per quote lane (WETH, STONK, USDG, GME, NVDA, AAPL, SPCX,
+USO). The CLI's `STRATEGY_VENUES()` carries the pad addresses.
 
 Tokens. Unlike Robinhood testnet, this chain has **USDG** — the mainnet stablecoin —
 alongside WETH, and WOOD here is a real Uniswap-traded token rather than a fixture:
@@ -314,7 +342,9 @@ TOKENS()             → WETH / USDG, stock tokens
 SYNTHRA()            → Router, Quoter, Factory
 UNISWAP()            → SwapRouter, QuoterV2, SwapAdapter
 SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, StrategyFactory
-STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity
+STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity, Launchpad, LighterPerp
+LAUNCH_ADAPTERS()    → Sushi, Stonk launch adapters
+STRATEGY_VENUES()    → Sushi launchpad, Stonk pads + lens, zkLighter, Morpho Blue, Uniswap V3
 CHAINLINK()          → per-token <SYM>_USD_FEED push feeds
 INFRA()              → Multicall3
 ```

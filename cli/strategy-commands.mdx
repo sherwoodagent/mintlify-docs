@@ -7,7 +7,7 @@ icon: "cubes"
 Strategy templates are ERC-1167 clonable contracts deployed once per chain. Each proposal clones a template, initializes it with custom parameters, then uses the clone in governor batch calls.
 
 <Note>
-On Robinhood testnet (chain 46630), Sherwood's current deployment target, the live strategy is **Portfolio** — a weighted basket of tokenized stocks, rebalanced through the vault's swap adapter (Uniswap-compatible, backed by Synthra).
+On the Robinhood mainnet fork (chain 9994663), the CLI default, `sherwood strategy list` shows four templates: **Portfolio**, **Morpho Supply**, **Concentrated Liquidity** and **Launchpad**. **Lighter Perp** is not deployed yet. On Robinhood testnet (chain 46630) only Portfolio is deployed. `strategy list` is the source of truth for the active chain.
 </Note>
 
 ## `strategy list`
@@ -97,6 +97,190 @@ Weighted basket of tokenized stocks with on-chain rebalancing. Built on the vaul
 
 See the [Portfolio strategy reference](/protocol/strategies/uniswap) for mechanics and risk notes.
 
+### morpho-supply
+
+Supply the vault asset to one Morpho Blue market. Settlement withdraws the whole position, interest included. Deployed on the Robinhood mainnet fork.
+
+```bash
+sherwood strategy propose morpho-supply \
+  --vault 0x... \
+  --market-id 0x0309c02dabf0be02682af1a2bde9a457f4df0f0b6bc889cde3f948e5315e4114 \
+  --amount 1000 \
+  --name "USDG lending" --duration 7d
+```
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--market-id <bytes32>` | Morpho Blue market to supply | required |
+| `--amount <n>` | Vault asset to supply | required |
+| `--morpho <address>` | Morpho Blue singleton | the network's `MORPHO_BLUE` |
+
+See [Morpho Supply](/protocol/strategies/morpho-supply).
+
+### concentrated-liquidity
+
+A Uniswap V3 range position funded by a Morpho borrow against vault-asset collateral. Deployed on the Robinhood mainnet fork. The TierRegistry must allowlist the market's collateral token and the pool's other token first; the preflight names any that are missing.
+
+```bash
+sherwood strategy propose concentrated-liquidity \
+  --vault 0x... \
+  --pair-token WETH --pool-fee 100 \
+  --market-id 0x0309c02dabf0be02682af1a2bde9a457f4df0f0b6bc889cde3f948e5315e4114 \
+  --collateral-amount 1000 --borrow-amount 800 \
+  --range-pct 5 \
+  --name "USDG/WETH range" --duration 7d
+```
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--market-id <bytes32>` | Morpho Blue borrow market | required |
+| `--collateral-amount <n>` | Vault asset pulled at execute and posted as Morpho collateral | required |
+| `--borrow-amount <n>` | Vault asset borrowed against it and deployed into the range | required |
+| `--pool <address>` | Uniswap V3 pool | or `--pair-token` + `--pool-fee` |
+| `--pair-token <token>` | The pool's non-asset token, symbol or address | with `--pool-fee` |
+| `--pool-fee <fee>` | Pool fee tier in hundredths of a bip, e.g. 100 / 500 / 3000 | with `--pair-token` |
+| `--range-pct <pct>` | Range of ±pct around the spot tick, snapped outward to tick spacing | or `--tick-lower` + `--tick-upper` |
+| `--tick-lower <tick>` / `--tick-upper <tick>` | Explicit ticks, multiples of tick spacing | — |
+| `--expected-liquidity <n>` | Override the computed expected V3 liquidity | V3 liquidity math at spot |
+| `--swap-fraction-bps <bps>` | Share of the borrow swapped to the other token before minting | the split the range needs at spot |
+| `--swap-route <spec>` | Adapter route: `v3:<fee>` \| `v4:<fee>:<ts>` \| `v4path:...` | v3 at the pool's fee |
+| `--twap-window <secs>` | TWAP window for the spot-vs-TWAP guard | 1800, min 300 |
+| `--max-twap-deviation <ticks>` | Max \|spot − TWAP\| in ticks at mint, rerange and settle | 100, max 1000 |
+| `--mint-slippage-bps <bps>` | Slippage floor on the execute-time swap | 500, max 1000 |
+| `--settle-slippage-bps <bps>` | Settle swap slippage; can only be tightened later | 500 |
+| `--settle-deadline <unix>` | Deadline stamped on settlement's position calls | 0 = the settling block |
+| `--rerange-half-width <ticks>` | Half-width of every re-centered range | half the initial range |
+| `--rerange-trigger-bps <bps>` | Travel through the half-range before a rerange is allowed | 8000 |
+| `--rerange-min-interval <secs>` | Minimum seconds between reranges | 3600 |
+| `--max-reranges <n>` | Hard cap on reranges | 3, max 20 |
+| `--rerange-slippage-bps <bps>` | Slippage floor on a rerange re-mint | 500, max 1000 |
+| `--rerange-swap-fraction-bps <bps>` | Swap fraction used by a rerange re-mint | `--swap-fraction-bps` |
+| `--morpho <address>` / `--position-manager <address>` / `--uniswap-factory <address>` | Venue overrides | the network's |
+
+See [Concentrated Liquidity](/protocol/strategies/concentrated-liquidity).
+
+### launchpad
+
+Launch a fund token on Sushi Launchpad V2 or StonkBrokers with vault capital. Holders claim a pro-rata slice of a reserve. Deployed on the Robinhood mainnet fork.
+
+<Warning>
+A launch settles as a vault-asset **loss** of about `--asset-in`, by design on v1: the reserve is a dividend in kind to holders, and v1 books no value for the launch token. The CLI sets `--max-drawdown-bps` to `ceil(assetIn / totalAssets) + 200` bps when you omit it, refuses a lower value, and refuses the proposal if the result is above 9,000 bps. See [Launchpad](/protocol/strategies/launchpad#drawdown).
+</Warning>
+
+```bash
+sherwood strategy propose launchpad \
+  --vault 0x... \
+  --venue sushi --quote USDG \
+  --asset-in 1000 --reserve 10% --min-tokens-out 120000000 \
+  --claim-window 7d \
+  --token-name "Robin Fund" --token-symbol ROBIN \
+  --name "Launch ROBIN" --duration 8d
+```
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--venue <venue>` | Launch venue, `sushi` or `stonk` | `sushi` |
+| `--asset-in <n>` | Vault-asset budget for the launch | required |
+| `--quote <token>` | Quote token the fund token pairs against, symbol or address. WOOD is not supported yet. | required |
+| `--reserve <n>` | Launch tokens held back for holders' claims, whole tokens or a percent of supply like `10%` | required, at most 20% |
+| `--min-tokens-out <n>` | Slippage floor on the dev buy, whole launch tokens | required, `>= --reserve` on Sushi |
+| `--claim-window <duration>` | How long holders may claim, e.g. `7d` | required, at most 14d, clamped to the proposal duration − 5m |
+| `--token-name <name>` / `--token-symbol <symbol>` | Launch token name and symbol | required |
+| `--max-drawdown-bps <bps>` | Declared loss allowance | derived, see above |
+| `--min-quote-out <n>` | Floor on the asset→quote swap, in quote units | adapter quote less `--settle-slippage-bps` |
+| `--deadline <ts\|duration>` | Venue deadline, unix seconds or a duration from now, 0 for none | governor collaboration + voting + execution windows + 1d |
+| `--settle-slippage-bps <bps>` | Settle-time quote conversion slippage, 1-1000 | 500 |
+| `--max-fee-in <n>` | Most the native launch fee may cost, in the token that pays it | live cost + 25%; lower than the live cost is refused |
+| `--quote-swap-route <spec>` | Asset→quote route: 0x extraData or `v3:<fee>` / `v4:<fee>:<ts>` / `v4path:…` | best v3 tier quoted by the swap adapter |
+| `--fee-swap-route <spec>` | Quote→fee-token route when the fee token is neither asset nor quote | best v3 tier |
+| `--launch-adapter <address>` | Launch adapter override | `LAUNCH_ADAPTERS()[venue]` |
+
+Sushi only:
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--liquidity <mode>` | `standard` or `moon` | `standard` |
+| `--fee-mode <mode>` | Fee disposition: `direct`, `burn` or `buyback`. `holders` is refused. | `direct` |
+
+StonkBrokers only:
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--stonk-supply <n>` | Total supply in whole tokens | 1000000000 |
+| `--start-mcap <usd>` | Starting market cap in USD | 10000 |
+| `--grad-mcap <usd>` | Graduation market cap in USD | 100000 |
+| `--start-tax-bps <bps>` | Opening trade tax | 1000 |
+| `--tax-decay-bps <bps>` | Tax decay per minute; start/decay × 60 is the curve window | 100 (600s) |
+| `--sells-disabled` | Disable sells on the curve | — |
+| `--buffer-secs <n>` | Opening anti-snipe shield in seconds | 60 |
+| `--unsold-mode <mode>` | Unsold supply at graduation, `burn` or `lp` | `burn` |
+| `--open-ended` | No closing deadline (requires sells and `--post-tax-bps` 100-500) | — |
+| `--post-tax-bps <bps>` | Tax after the decay schedule | 0, or 100 with `--open-ended` |
+| `--bond-venue <n>` | AMM `bond()` mints the locked LP on | 0 |
+| `--max-buy-ppm <n>` | Per-wallet buy cap in ppm of supply, 0 = none; a cap also caps the fund's dev buy | 0 |
+
+See [Launchpad](/protocol/strategies/launchpad).
+
+### lighter-perp
+
+<Warning>
+Not deployed yet. Lighter deploys on Robinhood mainnet only, and the CLI treats mainnet as coordination-only for now, so this template cannot be proposed today. See [Lighter Perps](/protocol/strategies/lighter-perp).
+</Warning>
+
+The vault asset must be USDG.
+
+```bash
+sherwood lighter keygen
+sherwood strategy propose lighter-perp \
+  --vault 0x... \
+  --deposit 1000 --markets 0,1 \
+  --name "Perps book" --duration 7d
+```
+
+| Flag | Description | Default |
+|------|------------|---------|
+| `--pubkey <hex>` | 40-byte Lighter L2 agent pubkey | the key `sherwood lighter keygen` saved |
+| `--key-index <n>` | Lighter API key slot 2..254 | the saved key's slot, else 2 |
+| `--markets <ids>` | Comma-separated Lighter perp market ids `initiateReturn` auto-closes, max 16 | required |
+| `--deposit <usdg>` | USDG deposit ceiling in human units (alias `--amount`). Deployed scaled by approve coverage. | required |
+
+## `launchpad` commands
+
+Operator commands for a Launchpad clone. Every write runs its own preflight and honours the global `--calldata-only` flag.
+
+| Command | What it does |
+|---------|--------------|
+| `sherwood launchpad status <strategy> [--holder <address>] [--json]` | Launch, reserve, claim window, venue. `--holder` shows that holder's claim. |
+| `sherwood launchpad claim <strategy>` | Claim your pro-rata slice of the reserve (dividend in kind; shares are not burned). With `--calldata-only`, `--holder` names the external signer for the preflight. |
+| `sherwood launchpad claim-for <strategy> <holder>` | Pay a holder their slice (permissionless; tokens go to the holder, never the caller) |
+| `sherwood launchpad collect-fees <strategy>` | Push the launch's accrued creator fees to the vault (permissionless; never pays the caller) |
+| `sherwood launchpad finalize <strategy>` | Graduate and bond a StonkBrokers launch (no-op on Sushi, which is live from the launch block) |
+
+Collect fees often when the launch is quoted in the vault asset: a large pending lump can be sniped by a deposit just before collection. See [Fees](/protocol/strategies/launchpad#fees).
+
+## `lighter` commands
+
+Operator commands for a Lighter Perp clone. They are ready for when the template deploys.
+
+| Command | What it does |
+|---------|--------------|
+| `sherwood lighter keygen [--key-index <n>] [--force] [--print-private-key] [--json]` | Generate the agent's Lighter L2 API key and save it to `~/.sherwood/config.json` (0600). Needs Lighter's Python SDK: `pip install lighter-sdk` (`LIGHTER_PYTHON` selects the interpreter). |
+| `sherwood lighter markets [--json]` | List Lighter perp markets (ids are what `--markets` takes) |
+| `sherwood lighter status <strategy> [--json]` | On-chain lifecycle plus off-chain positions and margin |
+| `sherwood lighter register-key <strategy>` | `registerAgentKey()`: register the stored agent key (after execute) |
+| `sherwood lighter guardrail cancel-all <strategy>` | Cancel every resting order |
+| `sherwood lighter guardrail close-market <strategy> <market> [--side long\|short] [--price <n>]` | Market-close one position, on any market. `--price` is a protective bound in venue ticks. |
+| `sherwood lighter guardrail rotate-key <strategy> [--pubkey <hex>] [--burn]` | Replace the agent key, or retire it to a burn key |
+| `sherwood lighter initiate-return <strategy> [--force]` | Exit step 1: cancel all and close every configured market. Queues nothing. |
+| `sherwood lighter queue-withdraw <strategy> --all` | Exit step 2: queue the true L2 balance, read from the Lighter API. Refuses with any open position. `--ticks <n>` queues an explicit amount. |
+| `sherwood lighter prepare-settle <strategy> [--pubkey <hex>] [--assume-drained] [--dry-run]` | Verify nothing is at the venue or in flight, then rotate the agent key to a burn key. Required before settle. |
+| `sherwood lighter acknowledge-shortfall <strategy> --yes` | Waive the settle guard's "everything queued came back" check after a real venue under-fill |
+| `sherwood lighter recover <strategy>` | `recoverResiduals()`: claim matured USDG onto the clone (permissionless). Does not push to the vault. |
+
+<Warning>
+Rotate the agent key before settle (`prepare-settle`): after settlement nobody can rotate it. Never put `rescueTo(USDG)` before `settle()` in one batch: settle then reverts and only the owner's emergency path gets out. Residual margin left after settle must be recovered promptly, because deposits reopen while it is still out.
+</Warning>
+
 ## How It Works
 
 1. **Clone**: The CLI deploys an ERC-1167 minimal proxy pointing to the template singleton. Cost: ~50k gas.
@@ -104,4 +288,6 @@ See the [Portfolio strategy reference](/protocol/strategies/uniswap) for mechani
 3. **Build calls**: Generates `execute.json` and `settle.json` with the correct approve + execute/settle batch calls.
 4. **Submit**: Either writes files for `proposal create` or calls `governor.propose()` directly.
 
-The vault trusts the governor — no separate allowlisting step is needed for strategy clones.
+Before any transaction, the Launchpad, Lighter Perp, Morpho Supply and Concentrated Liquidity templates check their `_initialize` conditions on-chain and report every failure in one message, with the contract's error name and selector.
+
+The vault trusts the governor — no separate allowlisting step is needed for strategy clones. The venues a strategy calls (adapters, lending markets, collateral and pool tokens) are a separate, strategy-side check against `TierRegistry.isCounterpartyAllowed`, set by the registry owner.

@@ -1,0 +1,159 @@
+---
+title: "Launchpad (fund token launch)"
+sidebarTitle: "Launchpad"
+description: "Launch a fund token on Sushi Launchpad V2 or StonkBrokers with vault capital, and let share holders claim a reserve"
+icon: "rocket"
+---
+
+The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vault capital to launch the token on a launchpad, holds back a **reserve** of the new token, and lets the fund's share holders **claim a pro-rata slice** of that reserve during a claim window. The venue plugs in through a launch adapter. Two are deployed: **Sushi Launchpad V2** and **StonkBrokers** Smart Launch V2.
+
+The template lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), not in the core protocol repo.
+
+<Warning>
+  **A launch settles as a loss, by design.** v1 measures a proposal's P&L as the vault's change in asset balance. Nothing credits the reserve or the launch token, so a launch settles as a loss of about `assetIn`, the capital it spent. The reserve is a **dividend in kind** to holders, not an asset the vault books. Size `--max-drawdown-bps` for that loss. The CLI does it for you: see [Drawdown](#drawdown).
+</Warning>
+
+## What happens
+
+1. **Execute.** The strategy pulls `assetIn` of the vault asset. It swaps it into the launch quote through the allowlisted swap adapter, pays the venue's launch fee, and launches the token with a dev buy. The reserve lands on the strategy clone in the same transaction. The vault's share supply is snapshotted at this moment.
+2. **Claim window.** Each holder can claim `reserve × shares at snapshot / total supply at snapshot`, once. Shares are not burned. `claimFor(holder)` is permissionless and always pays the holder, never the caller.
+3. **Settle.** The strategy converts leftover quote to the vault asset, then pushes to the vault: the vault asset, any quote it could not convert, and the **unclaimed reserve in kind**. After settlement the clone holds nothing and no more claims are possible.
+
+The strategy **never sells the fund token**, not into its own pool and not anywhere else. That price can be moved inside the settling transaction.
+
+### Claim window
+
+The window is set at propose (`--claim-window`, at most 14 days) and clamped at execute:
+
+```text
+windowEnd = min(executedAt + claimWindow, executedAt + strategyDuration − 5 minutes)
+```
+
+Settlement opens after `windowEnd`, or at `executedAt + strategyDuration`, whichever comes first. A claim in the execute block reverts `SnapshotNotFinal`. Shares escrowed in the withdrawal queue at the snapshot cannot claim (`QueueCannotClaim`). Their slice stays in the reserve and goes to the vault at settlement.
+
+### Fees
+
+The launch's creator fees are paid to **the fund's vault**, named at launch. A proposer cannot point them anywhere else. Fees never pass through the strategy, so settlement makes no venue call. Anyone can push accrued fees to the vault with `sherwood launchpad collect-fees`.
+
+<Warning>
+  **Fees in the vault asset can be sniped.** When the launch is quoted in the vault asset (a USDG vault launching against USDG), quote-side fees raise `totalAssets` the moment they land. With no proposal open, deposits and redemptions are instant, so someone can deposit, call `collect-fees`, and redeem with a cut of fees the long-term holders earned. Collection is permissionless by design, so the template cannot close this on v1. Collect often, for example from a keeper, so no large lump is ever pending. Closed-deposit vaults are not exposed.
+</Warning>
+
+Launch tokens, raw quote and fees delivered to the vault sit outside `totalAssets()`. A later proposal decides what to do with them. The vault owner's `rescueERC20` can move non-asset tokens while no proposal is open.
+
+## Venues
+
+| | Sushi Launchpad V2 | StonkBrokers Smart Launch V2 |
+| --- | --- | --- |
+| CLI `--venue` | `sushi` (default) | `stonk` |
+| Launch | Live from the launch block. The dev buy is the reserve source. | A bonding curve first. Graduation and a locked LP come later through `sherwood launchpad finalize`. |
+| Reserve | Bought in the dev buy, so `--min-tokens-out` must be at least `--reserve` | Kept from the minted supply before the curve is armed |
+| Quote tokens | Any quote with a registered Sushi price feed. USDG and WETH today. | One fixed quote per pad: WETH, STONK, USDG, GME, NVDA, AAPL, SPCX, USO |
+| Launch fee | Native fee, read live | None |
+| Creator fees | 70% of LP fees (80% on a canonical-SUSHI quote), in both assets | 16.5% of the per-trade tax, paid at trade time |
+| Venue hazards | Quote feed older than 3 days refuses the launch (`StalePriceFeedRound`) | Stock lanes revert `StalePrice` on oracle gaps, such as weekends |
+
+Each launch gets its own adapter clone (ERC-1167) that is the venue's creator and fee receiver. No adapter holds another fund's fee stream.
+
+**Sushi fee disposition (`--fee-mode`).** `direct` pays the vault its share of fees in both assets. `burn` pays the quote share and burns the launch-token share. `buyback` pays nothing: the quote share buys the token back and burns it. `holders` (Sushi's `DISTRIBUTE_TO_HOLDERS`) is **refused**, because nothing in this stack could collect it for the vault.
+
+**Trust in the Sushi owner.** Sushi's owner can re-point a launch's fee receiver, reprice the launch fee, change the fee split and upgrade the launchpad proxy. A fund launching on Sushi trusts that owner with its **fee stream**. It does not trust it with the reserve, which reaches the strategy inside the launch transaction, or with vault capital, which the venue never holds.
+
+<Note>
+  **WOOD is not a supported quote yet.** Sushi needs a WOOD/USD feed registered by its owner, and no StonkBrokers pad has a WOOD lane. Pair against USDG or WETH. **Pons** is out of scope: its factory only launches for whitelisted addresses.
+</Note>
+
+## Drawdown
+
+v1 refuses a settlement whose price per share falls below `ppsAtExecute × (1 − maxDrawdownBps)`, capped at 90%. A launch loses about `assetIn`, so the CLI sizes the drawdown from the vault's live `totalAssets()`:
+
+```text
+maxDrawdownBps = ceil(assetIn / totalAssets × 10_000) + 200
+```
+
+- Omit `--max-drawdown-bps` and the CLI uses that value.
+- A lower `--max-drawdown-bps` is refused. Below it, `settleProposal` reverts `SettlePriceBelowFloor` and only the vault owner's `unstick` or emergency path can finish the proposal.
+- If the required value is above 9,000 bps, the CLI refuses the proposal. Lower `--asset-in`.
+
+Example: a vault holding 10,000 USDG launching with 1,000 USDG needs 1,000 + 200 = 1,200 bps.
+
+## Launch fee cap
+
+The venue's launch fee is read live, and on some lanes it is bought with a swap. Execution is permissionless, so the proposal carries a voted cap, `maxFeeIn`: the most the fee may cost, in the token that pays for it. The CLI defaults `--max-fee-in` to the live cost plus 25% and refuses a value below the live cost. A manipulated price then costs the attacker a reverted execute, not the fund its budget.
+
+## Propose
+
+The CLI checks every `_initialize` condition on-chain before sending anything: the counterparty allowlist for both adapters, quote support, Sushi feed age, the live launch fee, the 20% reserve cap and the claim window. It reports every failure in one message.
+
+```bash
+sherwood strategy propose launchpad \
+  --vault 0x... \
+  --venue sushi \
+  --quote USDG \
+  --asset-in 1000 \
+  --reserve 10% \
+  --min-tokens-out 120000000 \
+  --claim-window 7d \
+  --token-name "Robin Fund" \
+  --token-symbol ROBIN \
+  --name "Launch ROBIN" \
+  --duration 8d
+```
+
+Size `--min-tokens-out` from a live quote of the dev buy. A floor of a few tokens makes the reserve floor meaningless. On StonkBrokers, pick the pad by its quote and quote the dev buy through the StonkBrokers lens:
+
+```bash
+sherwood strategy propose launchpad \
+  --vault 0x... \
+  --venue stonk \
+  --quote USDG \
+  --asset-in 500 \
+  --reserve 10% \
+  --min-tokens-out <quoted-floor> \
+  --claim-window 7d \
+  --token-name "Robin Fund" \
+  --token-symbol ROBIN \
+  --name "Launch ROBIN" \
+  --duration 8d
+```
+
+Required: `--asset-in`, `--quote`, `--reserve`, `--min-tokens-out`, `--claim-window`, `--token-name`, `--token-symbol`. The full flag list, with the Sushi and StonkBrokers options, is in [Strategy commands](/cli/strategy-commands#launchpad).
+
+Batch calls:
+
+```text
+Execute: [asset.approve(clone, assetIn), clone.execute()]
+Settle:  [clone.settle()]
+```
+
+`minTokensOut`, `minQuoteOut`, `settleSlippageBps` and `deadline` can change only before execute, and only in the tightening direction.
+
+## Operate
+
+```bash
+sherwood launchpad status <strategy>               # launch, reserve, claim window, venue
+sherwood launchpad claim <strategy>                # claim your slice of the reserve
+sherwood launchpad claim-for <strategy> <holder>   # pay a holder their slice (permissionless)
+sherwood launchpad collect-fees <strategy>         # push accrued fees to the vault (permissionless)
+sherwood launchpad finalize <strategy>             # graduate + bond a StonkBrokers launch
+```
+
+`status` shows balances and times only. It never prices the launch token.
+
+## Trust notes
+
+- `BaseStrategy.rescueTo(token)` is vault-only and works in any state. A vault batch could move the reserve out of a clone during the claim window. That is v1's emergency exit.
+- The registry gates both adapters with `TierRegistry.isCounterpartyAllowed` at init and execute. Settlement and claims never consult the registry, so a de-listing cannot freeze the reserve or the exit.
+- On StonkBrokers the adapter clone's fee destination is fixed at launch and cannot follow a vault migration.
+
+## Addresses
+
+| Contract | Robinhood fork (9994663) |
+| --- | --- |
+| LaunchpadStrategy template | `0x4435Aae199907f60588902Bcd7c4363a13Bb2951` |
+| SushiLaunchAdapter | `0x20348e428050031647d671F0e24752C01D4b7379` |
+| StonkLaunchAdapter | `0x0D62944862996791a9BCE992872F9Fa8E3162B49` |
+| Sushi Launchpad V2 (proxy) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` |
+| StonkBrokers lens (V2) | `0x25b5Df581f4b2Ed450203f375ad8A28b17F115B3` |
+
+Source of truth: sherwood-strategies `deployments/9994663.json`. See [Deployments](/reference/deployments#fork-addresses-9994663).
