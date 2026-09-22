@@ -89,6 +89,9 @@
             "pages": [
               "protocol/strategies/walkthrough",
               "protocol/strategies/uniswap",
+              "protocol/strategies/morpho-supply",
+              "protocol/strategies/concentrated-liquidity",
+              "protocol/strategies/launchpad",
               "protocol/strategies/lighter-perp"
             ]
           },

@@ -1,0 +1,71 @@
+---
+title: "Morpho Supply"
+description: "Supply the vault asset to one Morpho Blue market and take it back, with interest, at settlement"
+icon: "landmark"
+---
+
+The `MorphoSupplyStrategy` supplies the vault asset to exactly one **Morpho Blue** lending market, fixed at initialization. Funds come back to the vault only through `settle()`. It is deployed on the [Robinhood mainnet fork](/reference/deployments#fork-addresses-9994663).
+
+## What happens
+
+| Phase | What happens |
+| --- | --- |
+| **Execute** | Pull `supplyAmount` of the vault asset and supply it to the market. |
+| **Executed** | Nothing is tunable. `updateParams` always reverts `NoTunableParams`. |
+| **Settle** | Withdraw the whole position **by shares**, so accrued interest comes out and no dust is left, then push everything to the vault. |
+
+Batch calls:
+
+```text
+Execute: [asset.approve(clone, supplyAmount), clone.execute()]
+Settle:  [clone.settle()]
+```
+
+Settlement is all-or-revert. If the market cannot pay the full position back, Morpho's own liquidity check reverts the withdrawal and settlement is retried later.
+
+## Init checks
+
+The init data is `(address morpho, MarketParams marketParams, uint256 supplyAmount)`. Init reverts when:
+
+| Error | Cause |
+| --- | --- |
+| `TierRegistryUnresolved` | The `vault → governor → tierRegistry` walk found no registry |
+| `MorphoNotAllowed` | The Morpho singleton is not an allowed counterparty on that registry |
+| `InvalidAmount` | `supplyAmount` is zero |
+| `LoanAssetMismatch` | The market's loan token is not the vault asset |
+| `MarketNotCreated` | The market id has never been created on that Morpho contract |
+
+Execute re-checks the Morpho allowlist. Settlement does not, so a de-listing cannot freeze supplied capital.
+
+## Propose
+
+The CLI resolves the market's parameters from its id, then runs every `_initialize` check on-chain before sending anything, and reports all failures in one message.
+
+```bash
+sherwood strategy propose morpho-supply \
+  --vault 0x... \
+  --market-id 0x0309c02dabf0be02682af1a2bde9a457f4df0f0b6bc889cde3f948e5315e4114 \
+  --amount 1000 \
+  --name "USDG lending" \
+  --duration 7d
+```
+
+That market lends USDG against spUSDG (91.5% LLTV), so it fits a USDG vault.
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--market-id <bytes32>` | Morpho Blue market to supply | required |
+| `--amount <n>` | Vault asset to supply, human units | required |
+| `--morpho <address>` | Morpho Blue singleton | the network's `MORPHO_BLUE` |
+
+## Risk notes
+
+- **Liquidity risk at exit.** If borrowers have taken most of the market's supply, settlement reverts until liquidity returns. The vault stays locked while the proposal is open.
+- **Market risk.** Supplied capital is exposed to the market's bad debt, which depends on its collateral, oracle and LLTV. Read the market parameters the CLI prints before you propose.
+
+## Addresses
+
+| Contract | Robinhood fork (9994663) |
+| --- | --- |
+| MorphoSupplyStrategy template | `0x5B55E1Da361573CB0788e750038567D2569BE41d` |
+| Morpho Blue | `0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010` |

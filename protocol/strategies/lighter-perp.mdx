@@ -1,23 +1,23 @@
 ---
-title: "[SOON] Lighter Perps"
-description: "Agent-managed perpetuals on Lighter — the vault owns the account, an agent trades it, the contract keeps the kill switch"
+title: "Lighter Perps"
+description: "Agent-managed perpetuals on Lighter: the strategy owns the account, an agent trades it, the contract keeps the kill switch"
 icon: "chart-candlestick"
 ---
 
-<Note>**In development — not yet live.** The `LighterPerpStrategy` is not yet available on Sherwood's current deployment. Lighter runs on **Robinhood mainnet (chain 4663)**, collateralized in USDG; the template also accepts the [Robinhood-mainnet fork (chain 9994663)](/reference/deployments#robinhood-mainnet-fork-chain-9994663) used for pre-launch testing and refuses every other chain at deploy time.</Note>
+<Warning>
+  **Not deployed yet.** The `LighterPerpStrategy` template is written and tested, but it is not deployed on any chain Sherwood runs today. Lighter lives on **Robinhood mainnet (chain 4663)**, and the template will deploy there. The [Robinhood mainnet fork](/reference/deployments#robinhood-mainnet-fork-chain-9994663) has no Lighter sequencer, so withdrawals never mature on it. The CLI treats mainnet as coordination-only for now, so `sherwood strategy propose lighter-perp` cannot run until mainnet deploys the template and the CLI enables it. The commands on this page are ready for that.
+</Warning>
 
-The `LighterPerpStrategy` lets a fund's agent run perpetual-futures positions on **Lighter** (a zk-rollup order-book perp DEX deployed on Robinhood Chain, collateralized in **USDG**). It brings the Sherwood custody model to a venue whose trading happens off-chain: **the agent manages, the contract enforces.**
+The `LighterPerpStrategy` lets a fund's agent trade perpetual futures on **Lighter**, a zk-rollup order-book perp exchange on Robinhood Chain, collateralized in **USDG**. The template lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/lighter/`).
 
-Each strategy clone opens and **owns its own Lighter account**. USDG is pulled from the vault and deposited as margin; the agent trades that account through Lighter's API using a **trade-only key** the contract registers onchain; and the contract retains a unilateral **onchain kill switch** — it can cancel orders, force-close positions, and drain the account, all authenticated by the venue to the account owner (the contract).
+Each strategy clone opens and **owns its own Lighter account**. USDG is pulled from the vault and deposited as margin. The agent trades that account through Lighter's API with a **trade-only key** the contract registers on-chain. The contract keeps an on-chain **kill switch**: it can cancel orders, force-close positions and drain the account. The venue authenticates each of those to the account owner, which is the contract.
 
 <Info>
-  **What the custody boundary does cover.** The agent holds only an L2 API key. That key can **trade** — place and cancel orders — and nothing else. It cannot withdraw, cannot transfer, and cannot change keys: every one of those is authenticated by the venue to the account's registered owner (the strategy contract), and the contract only ever pushes USDG to its own vault. The contract can rotate or revoke the agent's key at any time, and can cancel, force-close, and drain the account without the agent's cooperation.
+  **What the custody boundary covers.** The agent holds only an L2 API key. That key can place and cancel orders and nothing else. It cannot withdraw, transfer or change keys: the venue authenticates all of those to the account owner (the strategy contract), and the contract only ever pushes USDG to its own vault.
 </Info>
 
 <Warning>
-  **What it does not cover — capital is at risk from the agent key.** Lighter matches orders off-chain, so the strategy contract never sees a trade and **cannot cap position size, leverage, or trade rate onchain.** A compromised agent key can therefore lose up to **100% of the capital deployed to that proposal**, including deliberately — for example by trading against an account the attacker controls at prices that transfer value out. Withdrawal restrictions do not prevent this, because no withdrawal is involved.
-
-  The onchain kill switch bounds **how long** capital is exposed, not **how much** can be lost. The bound on magnitude is the amount deployed to the proposal, so treat per-proposal sizing as the real risk limit — and treat the agent key as a hot credential.
+  **What it does not cover: capital is at risk from the agent key.** Lighter matches orders off-chain, so the contract never sees a trade and **cannot cap position size, leverage or trade rate on-chain.** A compromised agent key can lose up to **100% of the capital deployed to that proposal**, for example by trading against an account the attacker controls. No withdrawal is involved, so withdrawal restrictions do not help. The kill switch bounds **how long** capital is exposed, not **how much** can be lost. Treat per-proposal sizing as the real risk limit and the agent key as a hot credential.
 </Warning>
 
 ## Architecture
@@ -26,78 +26,138 @@ Each strategy clone opens and **owns its own Lighter account**. USDG is pulled f
 graph TD
     V["Vault (USDG)"] -->|"execute: pull USDG"| S["LighterPerpStrategy clone"]
     S -->|"deposit as margin (owns the account)"| L["Lighter perp account"]
-    S -.->|"registerAgentKey: onchain changePubKey"| L
+    S -.->|"registerAgentKey: on-chain changePubKey"| L
     A["Fund agent (off-chain)"] -->|"trade with the L2 key (API)"| L
     S -->|"kill switch: cancel / close / queue withdrawal"| L
     L -->|"matured withdrawal: claim USDG"| S
-    S -->|"settle: realized USDG + PnL"| V
+    S -->|"settle: all USDG"| V
 ```
 
-## Trading model
+## Requirements
 
-Lighter's order matching runs off-chain in the rollup's sequencer, so **positions are managed off-chain via the API**, signed by the agent's registered L2 key. What lives onchain is **custody and control**: the deposit that funds the account, the key registration, and the exit controls.
+- The vault asset must be **USDG**. Init reverts `AssetMismatch` otherwise.
+- The vault's `TierRegistry` must allow the zkLighter proxy as a counterparty. Init reverts `CounterpartyNotAllowed` otherwise.
+- `markets`: 1 to 16 perp market ids, no duplicates. These are the markets the automatic unwind closes.
+- `depositAmount`: at least 1 USDG. It is a **ceiling**. Execute deploys it scaled by the proposal's approve coverage, so read `deployedAmount()` after execute and size the drain against that.
 
-This split is why the strategy is **Lane-B only** — the venue exposes no onchain mark for an open perp position, so the vault never prices one mid-proposal. Deposits and redemptions during an open proposal settle through the async queue at the frozen per-proposal price, never at a value the strategy reports about itself.
+The template is priced as an uncertified tier-2 call, so the proposal's required coverage is the full notional of both legs. An under-covered proposal does not revert. It deploys less.
 
 <Warning>
-  **`markets` is not a trading whitelist.** The clone is configured with a list of up to 16 perp markets, but Lighter enforces no per-key market restriction — the agent's L2 key can trade any market on the venue. The configured list is only what the automatic unwind closes. A position the agent opens outside it is not auto-closed, and its margin stays at the venue until someone closes it with `CLOSE_MARKET`.
+  **`markets` is not a trading whitelist.** Lighter enforces no per-key market restriction, so the agent's key can trade any market. A position the agent opens outside the list is not auto-closed, and its margin stays at the venue until someone closes it with `CLOSE_MARKET`. Closing only works before settlement, so monitor open positions off-chain.
 </Warning>
 
-## Guardrails (the onchain kill switch)
+## Guardrails (the on-chain kill switch)
 
-While a proposal is `Executed`, the proposer — or the vault owner — can fire these directly on the clone. None of them depend on the agent.
+While the proposal is `Executed`, the proposer or the vault owner can fire these on the clone. None of them depend on the agent.
 
-| Action | Code | Args | Effect |
+| Action | Code | CLI | Effect |
 | --- | --- | --- | --- |
-| `CANCEL_ALL` | 1 | — | Cancel every resting order on the account. |
-| `CLOSE_MARKET` | 2 | `(uint16 market, uint32 price, uint8 isAsk)` | Force-close one side of one market with a market order at a chosen price bound. Works on any market, not only the configured ones. |
-| `ROTATE_KEY` | 3 | `(bytes newPubKey)` | Store and register a new 40-byte agent key in the same key slot, revoking the old one. |
-| `REGISTER_KEY` | 5 | — | (Re)register the stored agent key. |
+| `CANCEL_ALL` | 1 | `sherwood lighter guardrail cancel-all` | Cancel every resting order. |
+| `CLOSE_MARKET` | 2 | `sherwood lighter guardrail close-market` | Market-close one position at a price bound. Works on any market, not only the configured ones. |
+| `ROTATE_KEY` | 3 | `sherwood lighter guardrail rotate-key` | Replace the agent key, or retire it to a burn key. |
+| `REGISTER_KEY` | 5 | `sherwood lighter register-key` | (Re)register the stored agent key. |
 
-Code `4` (a former `WITHDRAW` action) is retired and reverts — draining the account is the separate `queueWithdraw(ticks)` call described below, because it has to keep working after the proposal has settled.
+Code `4`, a former `WITHDRAW`, is retired and reverts. Draining is the separate `queueWithdraw(ticks)` call, because it must keep working after settlement.
 
-The proposer reaches these through `updateParams`; the vault owner through `guardrailAction`. The second key matters: the proposer's authority is re-checked against the vault's live agent set on every call, so removing a misbehaving agent from the fund would otherwise also remove the only hand on the kill switch.
+The vault owner holds the same levers as the proposer. The proposer's authority is re-checked against the vault's live agent set on every call, so removing a misbehaving agent would otherwise remove the only hand on the kill switch.
 
-## Lifecycle & the three-step exit
+## Lifecycle and the three-step exit
+
+Lighter withdrawals are asynchronous. They mature minutes to days after they are queued, never in the same block. The exit is therefore three steps, with a key rotation before the last one.
 
 <Steps>
-  <Step title="Propose & execute">
-    A proposal deposits an exact USDG amount into a fresh clone's Lighter account. The amount is fixed in the clone's init data (at least 1 USDG) and declared as a per-call capital cap in the proposal, so the risk envelope depositors vote on is the amount that actually leaves the vault.
+  <Step title="Propose and execute">
+    Execute pulls the coverage-scaled USDG amount into a fresh clone's Lighter account. The first deposit registers the account.
   </Step>
   <Step title="Register the agent key">
-    After execution the proposer (or vault owner) calls `registerAgentKey()`, which registers the trade-only L2 key onchain. From here the agent opens, adjusts, and closes positions off-chain with that key. The contract's controls remain available the whole time.
+    `sherwood lighter register-key` registers the trade-only L2 key on-chain. From here the agent trades off-chain with that key.
   </Step>
-  <Step title="Initiate return">
-    `initiateReturn()` cancels all orders and fires a both-side market close on every configured market. It queues **nothing** — the amount to withdraw is only knowable once those closes have filled. The proposer or vault owner can call it at any time; anyone can call it once the strategy's duration has elapsed, so the unwind never depends on the agent staying online.
+  <Step title="Exit step 1: initiate return">
+    `sherwood lighter initiate-return` cancels all orders and fires a both-side market close on every configured market. It queues **nothing**: the amount to withdraw is only known once the closes fill. The proposer or vault owner can call it any time. Anyone can call it once the strategy duration has elapsed.
   </Step>
-  <Step title="Queue the withdrawal">
-    With positions flat, the proposer reads the account's L2 balance from the Lighter API and calls `queueWithdraw(ticks)`. Lighter's secure (contract-path) withdrawal is asynchronous and matures later — minutes to days. The call is repeatable and still works after settlement, so an under-withdrawal is never stranded.
+  <Step title="Exit step 2: queue the withdrawal">
+    After the closes fill, `sherwood lighter queue-withdraw --all` reads the account's true L2 balance from the Lighter API and queues it. It **refuses while any position is open**. The call is repeatable and still works after settlement.
   </Step>
-  <Step title="Settle">
-    Once everything queued has matured, settlement **claims the USDG and pushes it to the vault**, and the fund realizes its PnL. Settling before the queued amount has arrived reverts (`WithdrawalInFlight`), and so does settling with nothing queued — so a settle can never stamp a phantom loss. Settlement has no deadline; it waits out the venue.
+  <Step title="Wait, then rotate the key">
+    Wait for the withdrawal to mature. Then `sherwood lighter prepare-settle` checks that nothing is left at the venue or in flight, and rotates the agent key to a burn key. After settlement nobody can rotate the key, cancel orders or close a market, so a live key could keep trading residual margin.
+  </Step>
+  <Step title="Exit step 3: settle">
+    Settlement claims the matured USDG and pushes all of it to the vault. Settling before the queued amount arrived reverts `WithdrawalInFlight`. Settling with nothing queued reverts `NothingQueued`. A settle cannot book a phantom loss.
   </Step>
 </Steps>
 
 <Warning>
-  **The unwind carries no slippage protection.** `initiateReturn` closes at the widest legal price bound so the close is guaranteed to fill — a close that silently no-fills would leave the margin at the venue, which is strictly worse than a bad fill. That makes the automatic unwind an adverse-fill surface. A careful proposer closes positions first with `CLOSE_MARKET` at an explicit price, and uses `initiateReturn` as the backstop.
+  **The automatic unwind has no slippage protection.** `initiateReturn` closes at the widest legal price bound so the close always fills. A close that fails to fill would leave the margin at the venue, which is worse than a bad fill. For tighter bounds, close positions first with `CLOSE_MARKET` at an explicit price, and use `initiate-return` as the backstop.
 </Warning>
 
-### What the settle gate does and does not prove
+### What the settle gate proves
 
-The settle guard checks that everything the proposer **asked for** has come back. It is a liveness and anti-phantom-loss check, not a completeness check: `queueWithdraw` with a tiny amount satisfies it with the rest of the margin still at Lighter. It cannot be made complete onchain — the account's balance and positions live with the off-chain sequencer, and the venue contract exposes nothing but matured withdrawals.
+The settle guard checks that everything the proposer **asked for** came back. It does not check that the account is empty: queueing 1 tick satisfies it with the rest of the margin still at Lighter. It cannot be made complete on-chain, because balances and positions live with Lighter's off-chain sequencer.
 
-Completeness is therefore an **off-chain** guarantee, in the same trust bucket as the agent key itself: the Sherwood CLI's `queue-withdraw --all` reads the true L2 balance and refuses to proceed while any position still has size. A proposer who sidesteps that and settles short does not steal anything — the residue is still recoverable — but the settlement price is stamped before it lands, which shifts value from depositors who exited at that price to those who stayed.
+Completeness is an off-chain guarantee. `queue-withdraw --all` reads the true L2 balance and refuses with an open position. A proposer who skips it and settles short does not steal anything, but the settlement price is stamped before the rest lands. That moves value from holders who exited at that price to those who stayed.
 
 ### Shortfalls
 
-If the venue returns less than was queued — a partial fill, a write-off — settlement would otherwise wait forever. `acknowledgeShortfall()` is the escape hatch, and it is deliberately narrow: it can only be armed by the proposer or vault owner **after** the return has been initiated, **after** a withdrawal has been queued, and only while a shortfall is actually observable. Once armed, the clone reports the part of its value it cannot price as *unvalued*, which pauses new deposits into the fund for a bounded window rather than letting them mint against an understated NAV.
+If the venue returns less than was queued, for example after a partial fill or a liquidation, the settle guard would hold settlement shut. `sherwood lighter acknowledge-shortfall --yes` waives that check. It works only after the return was initiated, after a withdrawal was queued, and while a shortfall is observable now. It cannot redirect funds. A slow withdrawal will still mature, so wait instead of waiving.
 
-## After settlement: residue
+The waiver does not waive the governor. `settleProposal` still refuses a price per share below the proposal's `maxDrawdownBps` floor (capped at 90%). Declare `maxDrawdownBps` for a leveraged perp venue with that in mind.
 
-Anything that arrives at the clone after the settlement stamp — a late-maturing withdrawal, a second `queueWithdraw` that drains what the first one missed — is **residue**. The clone reports it to the vault through a delivery interface (`hasUndeliveredValue`, `undeliveredValue`, `hasUnvaluedResidue`) and the vault collects it through a single measured door, `collectResidue`, so that depositors who exited in the meantime still receive their share. Anyone can claim a matured withdrawal into the clone (`recoverResiduals`), but only the vault can move USDG from the clone into the vault.
+### Never rescue before settle
 
-<Note>That vault-side delivery and residue surface is **not in the v1 vault** — `collectResidue` and the `IStrategyDelivery` hooks ship with this strategy, not ahead of it. It is part of what is still in development here.</Note>
+`rescueTo(USDG)` must **never** come before `settle()` in the same batch. Inside that batch the rescued USDG reads as missing and settle reverts `WithdrawalInFlight`. Outside it nothing is missing, so the waiver reverts `NoShortfall`. Only the vault owner's emergency settle gets out. A pre-settle rescue is never needed, because settlement claims matured USDG itself. A proposal's settle calls are `[settle()]`.
+
+## After settlement: late arrivals
+
+Anything still at Lighter after settlement, such as a late tranche or an under-queued remainder, is recovered in three steps:
+
+1. `sherwood lighter queue-withdraw` queues the remainder. It works in the `Settled` state.
+2. `sherwood lighter recover` calls `recoverResiduals()`, which claims matured USDG **onto the clone**. It is permissionless and does not push to the vault.
+3. A vault batch calls `clone.rescueTo(USDG)` to bring it home, typically in a later proposal's settle calls or an owner emergency batch. `recover` prints this batch, for use after `settle()` only.
 
 <Warning>
-  Because the secure withdrawal is asynchronous, a fund's exit is slow by construction: close, queue, wait for maturity, settle. While the fund is waiting, deposits and redemptions sit in the async (Lane-B) queue and are paid out once settlement stamps the final price — a lock window worth communicating to depositors of a fund that runs Lighter positions.
+  **Recover residual margin promptly.** v1 has no deposit lock for value a settled clone still holds. Between settlement and the next proposal, deposits are open while the unrecovered margin is public on-chain. Anyone who deposits in that window takes a share of it when it lands. Queue the true balance before settling so nothing is left. If something is left, propose the recovery right away.
 </Warning>
+
+A tranche rescued inside a later proposal is booked as that proposal's profit and pays its performance fee.
+
+## Vault liquidity
+
+While a Lighter proposal is open, instant deposits and redemptions are closed. Queued redemptions are paid at the per-proposal price after settlement, which cannot happen until Lighter matures the withdrawal. The exit is slow by construction: close, queue, wait, settle. Tell depositors of a fund that runs Lighter positions about that lock window.
+
+## CLI
+
+Propose, once the template is deployed and enabled:
+
+```bash
+sherwood lighter keygen        # needs Lighter's Python SDK: pip install lighter-sdk
+sherwood lighter markets       # market ids for --markets
+sherwood strategy propose lighter-perp \
+  --vault 0x... \
+  --deposit 1000 \
+  --markets 0,1 \
+  --name "Perps book" \
+  --duration 7d
+```
+
+`--pubkey` and `--key-index` default to the key `keygen` saved. Take `--markets` ids from `sherwood lighter markets`. Operator commands:
+
+| Command | What it does |
+| --- | --- |
+| `sherwood lighter status <strategy>` | On-chain lifecycle plus off-chain positions and margin |
+| `sherwood lighter register-key <strategy>` | Register the stored agent key (after execute) |
+| `sherwood lighter guardrail cancel-all\|close-market\|rotate-key` | The kill switch |
+| `sherwood lighter initiate-return <strategy>` | Exit step 1: cancel and close every configured market |
+| `sherwood lighter queue-withdraw <strategy> --all` | Exit step 2: queue the true L2 balance; refuses with open positions |
+| `sherwood lighter prepare-settle <strategy>` | Verify nothing is in flight, then rotate the key to a burn key |
+| `sherwood lighter acknowledge-shortfall <strategy> --yes` | Waive the settle guard after a real under-fill |
+| `sherwood lighter recover <strategy>` | Claim matured USDG onto the clone after settlement |
+
+Full flags: [Strategy commands](/cli/strategy-commands#lighter-perp).
+
+## Venue addresses
+
+| Contract | Robinhood mainnet (4663) |
+| --- | --- |
+| zkLighter proxy | `0x94bAB9693Ba2f6358507eFfcbd372b0660AFfF9d` |
+| USDG | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` |
+| LighterPerpStrategy template | Not deployed |

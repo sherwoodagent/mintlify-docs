@@ -1,0 +1,86 @@
+---
+title: "Concentrated Liquidity"
+description: "A Uniswap V3 range position funded by a Morpho borrow against vault-asset collateral"
+icon: "chart-area"
+---
+
+The `ConcentratedLiquidityStrategy` deploys vault capital as one Uniswap V3 liquidity position over a bounded tick range. The position is funded by **borrowing** the vault asset from Morpho Blue against collateral, not by selling into the volatile leg. It is deployed on the [Robinhood mainnet fork](/reference/deployments#fork-addresses-9994663).
+
+<Note>
+  **Every counterparty must be allowlisted.** Init checks every counterparty against the vault's `TierRegistry`, including the Morpho collateral token and the pool's other token. On the fork, spUSDG (`0xde770c84FE66E063336b31737cFE9790f18c4087`) and WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`) are allowlisted, so the USDG/WETH pool with the spUSDG market works. A different pool or market may need the TierRegistry owner to call `setCounterpartyAllowed` first; the CLI preflight names each missing address and refuses with `CounterpartyNotAllowed`.
+</Note>
+
+## What happens
+
+| Phase | What happens | Who calls |
+| --- | --- | --- |
+| **Execute** | Pull `collateralAmount` of the vault asset and post it (or its ERC-4626 wrapper) as Morpho collateral. Borrow `borrowAmount` of the vault asset. Swap the declared fraction into the pool's other token. Mint one position over the fixed range. | Governor |
+| **Rerange** | Burn, collect and re-mint the approved half-width centered on the current TWAP tick. Never touches the borrow or the collateral. | Anyone, within the approved policy |
+| **Settle** | Remove all liquidity, collect, convert the other token back, repay the borrow, withdraw collateral, push everything to the vault. | Governor |
+
+Batch calls:
+
+```text
+Execute: [asset.approve(clone, collateralAmount), clone.execute()]
+Settle:  [clone.settle()]
+```
+
+Settlement is all-or-revert. Every step is typed, and a failed settlement is retried. If the proceeds cannot cover the debt, settlement reverts `ProceedsBelowDebt` and nothing moves.
+
+## What the contract enforces
+
+The agent picks the band, the size, the target LTV and the swap split off-chain. The contract enforces only what it can check from live venue state. Each check fails the proposal at init, not the batch at execute.
+
+| Check | Error |
+| --- | --- |
+| The vault's registry resolves and allows the swap adapter, position manager, Morpho, the collateral token, the Uniswap factory and the pool's other token | `TierRegistryUnresolved`, `CounterpartyNotAllowed` |
+| The factory names the pool as canonical for its own token pair and fee | `PoolNotFromFactory` |
+| The pool quotes the vault asset | `PoolAssetMismatch` |
+| The market lends the vault asset, against the vault asset or an ERC-4626 wrapper of it | `LoanAssetMismatch`, `CollateralAssetMismatch` |
+| The market exists and can fund the borrow | `MarketNotCreated`, `BorrowExceedsLiquidity` |
+| LTV sits at least 5 percentage points below the market's LLTV | `LtvInsideLiquidationBuffer` |
+| The minted liquidity is at most 10% of the pool's active liquidity | `PositionExceedsPoolShareCap` |
+| The ticks are ordered and aligned to the pool's tick spacing | `InvalidTickRange` |
+| Spot is within the configured bound of the TWAP at every mint, rerange and settle | `SpotOutsideTwapBound` |
+
+A bad but in-bounds proposal is still possible. Voter and guardian review exists for that.
+
+## Reranging
+
+The rerange policy is fixed at init. Voters approve the policy, not each resulting range. A rerange is permissionless once price has travelled the trigger fraction through the half-range, the minimum interval has passed and the count is below the cap. Each rerange costs a swap and realized divergence loss, so the cap (at most 20) is the binding control. At the cap the position stays in its last range and remains settleable.
+
+## Tunable after execute
+
+Two values: the settle slippage, which can only be tightened (loosening reverts `ImmutableParam`), and the settle deadline. The range policy, the swap route and the sizes are fixed.
+
+## Propose
+
+```bash
+sherwood strategy propose concentrated-liquidity \
+  --vault 0x... \
+  --pair-token WETH --pool-fee 100 \
+  --market-id 0x0309c02dabf0be02682af1a2bde9a457f4df0f0b6bc889cde3f948e5315e4114 \
+  --collateral-amount 1000 \
+  --borrow-amount 800 \
+  --range-pct 5 \
+  --name "USDG/WETH range" \
+  --duration 7d
+```
+
+The CLI runs every `_initialize` check before sending anything, including `CounterpartyNotAllowed` and `CollateralAssetMismatch`. It computes the expected liquidity from V3 liquidity math at spot and the swap split the range needs. Required: `--market-id`, `--collateral-amount`, `--borrow-amount`, a pool (`--pool`, or `--pair-token` with `--pool-fee`) and a range (`--range-pct`, or `--tick-lower` with `--tick-upper`). The full flag list is in [Strategy commands](/cli/strategy-commands#concentrated-liquidity).
+
+## Risk notes
+
+- **Liquidation.** Nothing relieves LTV between execute and settle. Reranging moves the LP band, never the borrow. The 5-point LLTV buffer is the only on-chain control.
+- **Divergence loss.** The position loses against holding when price moves, and each rerange realizes that loss.
+- **Pool depth.** The 10% pool-share cap is measured against liquidity at the current tick, not the whole pool.
+
+## Addresses
+
+| Contract | Robinhood fork (9994663) |
+| --- | --- |
+| ConcentratedLiquidityStrategy template | `0xcba9C84F2d382729D1519c5F7f4a9AAaC075f8B5` |
+| Morpho Blue | `0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010` |
+| Uniswap V3 factory | `0x1f7d7550B1b028f7571E69A784071F0205FD2EfA` |
+| Uniswap V3 position manager | `0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3` |
+| UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |

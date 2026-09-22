@@ -44,11 +44,15 @@ List available templates and their deployed addresses:
 sherwood strategy list
 ```
 
-One template is available to propose today:
+Templates the CLI can propose (CLI ≥ 0.89.0). Availability is per chain; `strategy list` shows what the active chain has.
 
-| Template | What it does | CLI |
+| Template | What it does | Where |
 |----------|-------------|-----|
-| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights | Available today |
+| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights | Fork and testnet |
+| `morpho-supply` | Supply the vault asset to one Morpho Blue market ([details](/protocol/strategies/morpho-supply)) | Fork |
+| `concentrated-liquidity` | Uniswap V3 range funded by a Morpho borrow ([details](/protocol/strategies/concentrated-liquidity)) | Fork |
+| `launchpad` | Launch a fund token on Sushi or StonkBrokers; holders claim a reserve ([details](/protocol/strategies/launchpad)) | Fork |
+| `lighter-perp` | Agent-traded perps on Lighter ([details](/protocol/strategies/lighter-perp)) | Not deployed yet |
 
 Each fund picks its own deposit asset at creation; on the current deployment (Robinhood testnet) the live funds use **WETH**, and the tokenized-stock universe is **TSLA / AMZN / PLTR / NFLX / AMD**.
 
