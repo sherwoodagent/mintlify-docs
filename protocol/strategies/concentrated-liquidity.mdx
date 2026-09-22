@@ -6,9 +6,9 @@ icon: "chart-area"
 
 The `ConcentratedLiquidityStrategy` deploys vault capital as one Uniswap V3 liquidity position over a bounded tick range. The position is funded by **borrowing** the vault asset from Morpho Blue against collateral, not by selling into the volatile leg. It is deployed on the [Robinhood mainnet fork](/reference/deployments#fork-addresses-9994663).
 
-<Warning>
-  **On the fork, the registry must allowlist the tokens first.** Init checks every counterparty against the vault's `TierRegistry`, including the Morpho collateral token and the pool's other token. On the fork today, spUSDG (`0xde770c84FE66E063336b31737cFE9790f18c4087`) and WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`) are not allowlisted, so a USDG/WETH proposal is refused with `CounterpartyNotAllowed`. The TierRegistry owner must call `setCounterpartyAllowed` for both. The CLI preflight names each missing address.
-</Warning>
+<Note>
+  **Every counterparty must be allowlisted.** Init checks every counterparty against the vault's `TierRegistry`, including the Morpho collateral token and the pool's other token. On the fork, spUSDG (`0xde770c84FE66E063336b31737cFE9790f18c4087`) and WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`) are allowlisted, so the USDG/WETH pool with the spUSDG market works. A different pool or market may need the TierRegistry owner to call `setCounterpartyAllowed` first; the CLI preflight names each missing address and refuses with `CounterpartyNotAllowed`.
+</Note>
 
 ## What happens
 
