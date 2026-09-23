@@ -4,10 +4,10 @@ description: "Go from zero to a running fund in minutes"
 icon: "rocket"
 ---
 
-This guide walks you through installing the CLI, creating a fund, depositing capital, and submitting your first proposal. The live deployment is the **Robinhood mainnet fork (chain 9994663)** — the CLI targets it by default (since 0.83.0), so there is no chain to select. It runs the latest, in-audit protocol build: test capital only.
+This guide takes you from a fresh install to a live strategy proposal: fund a wallet, bond the owner stake, create a vault, deposit, and propose a stock basket. The live deployment is the **Robinhood mainnet fork (chain 9994663)**. The CLI targets it by default (since 0.83.0), so there is no chain to select. It runs the latest, in-audit protocol build.
 
 <Note>
-  You need a funded Robinhood testnet wallet to follow along. Bring testnet ETH for gas and WETH for deposits. WETH is the default vault asset — no USDC is deployed on this chain — and you can deposit ETH directly, since it is wrapped to WETH for you.
+  Everything on the fork is test capital. Its ETH, WOOD, USDG and stock tokens have no real value and cannot be withdrawn or redeemed for anything. The vault asset is **USDG** (6 decimals); there is no USDC on this chain.
 </Note>
 
 <Steps>
@@ -15,7 +15,7 @@ This guide walks you through installing the CLI, creating a fund, depositing cap
     Install globally from npm:
 
     ```bash
-    npm install -g @sherwoodagent/cli@0.89.2
+    npm install -g @sherwoodagent/cli@0.89.3
     ```
 
     Verify the installation:
@@ -26,55 +26,139 @@ This guide walks you through installing the CLI, creating a fund, depositing cap
   </Step>
 
   <Step title="Configure your wallet">
-    Set the private key for the wallet you will use to create funds and sign transactions:
+    Save the private key for the wallet that will create the vault and sign transactions:
 
     ```bash
-    sherwood config set --private-key <your-private-key>
+    sherwood config set --private-key 0x<your-private-key>
     ```
 
-    This stores the key locally at `~/.sherwood/config.json`. The wallet needs testnet ETH for gas and WETH for deposits.
+    The key is stored locally at `~/.sherwood/config.json`, and the command prints the wallet address. Use a fresh key made for the fork, not one that holds real funds.
 
-    No exportable key? Use the Privy sign-then-broadcast path in [External signer](/cli/external-signer), the wallet API verified on the Robinhood fork.
+    No exportable key? Use the Privy sign-then-broadcast path in [External signer](/cli/external-signer). It is the wallet API verified on the Robinhood fork.
   </Step>
 
-  <Step title="Create a fund">
-    Deploy a new fund with a vault and its governor:
+  <Step title="Get test funds">
+    Claim from the fork faucet, replacing the address with the one `config set` printed:
 
     ```bash
-    sherwood fund create \
-      --subdomain my-fund \
-      --name "My Fund"
+    curl -s -X POST https://app.sherwood.sh/api/v1/faucet \
+      -H 'content-type: application/json' \
+      -d '{"address":"0xYourAddress"}'
     ```
 
-    This deploys an ERC-4626 vault (denominated in the deposit asset you chose — WETH here) together with its own governor (a `BeaconProxy` deployed per vault) and its withdrawal queue. Fund metadata is pinned to IPFS, and the output shows the deployed vault address. (ERC-8004 identity and ENS registration are not live on Robinhood testnet, so those checks are skipped.)
+    One claim adds **1 ETH + 15,000 WOOD + 1,000 USDG** to the address. That covers gas, the 10,000 WOOD owner stake in the next step, a proposer bond, and the deposit below. You get one claim per address and one per IP every 24 hours; a repeat answers `429` with `retryAfter` in seconds. See [Test funds](/reference/deployments#test-funds).
+  </Step>
+
+  <Step title="Bond the owner stake">
+    The factory will not deploy a vault until its creator has bonded WOOD. Bond the minimum, 10,000 WOOD:
+
+    ```bash
+    sherwood guardian prepare-owner-stake 10000
+    ```
+
+    This approves WOOD and calls `prepareOwnerStake` in one go. Run it once per creator wallet. If you skip it, `vault create` reverts with `PreparedStakeNotFound`.
+  </Step>
+
+  <Step title="Create a vault">
+    Deploy the vault, its governor and its withdrawal queue:
+
+    ```bash
+    sherwood vault create \
+      --name "My Fund" \
+      --subdomain my-fund \
+      --description "Weighted stock baskets on the Robinhood fork" \
+      --agent-id 0 \
+      --asset USDG \
+      --open-deposits
+    ```
+
+    | Flag | What it sets |
+    |------|--------------|
+    | `--name` | Display name. |
+    | `--subdomain` | Fund identifier, lowercase, at least 3 characters. ENS registration is skipped on the Robinhood chains. |
+    | `--description` | Short strategy summary, pinned to IPFS with the rest of the metadata. |
+    | `--agent-id` | ERC-8004 identity token ID. `0` works on this deployment, so you can skip minting an identity for now. |
+    | `--asset` | Vault asset. Use `USDG` on the fork. |
+    | `--open-deposits` | Anyone can deposit. Leave it off for a whitelist-only vault, then approve every depositor (yourself included) with `sherwood vault approve-depositor --depositor <address>`. |
+
+    The CLI shows a review screen and asks you to confirm; add `-y` to skip it. Any flag you leave out is asked for interactively. The output prints the **vault address**, and the CLI saves it to `~/.sherwood/config.json` as your primary vault. Keep it handy, since the proposal commands take it explicitly:
+
+    ```bash
+    export VAULT=0xYourVaultAddress
+    ```
+
+    The command registers you as an agent on the vault and creates the fund's XMTP group chat. `sherwood fund create` still works as an alias for `sherwood vault create`.
   </Step>
 
   <Step title="Deposit capital">
-    Deposit WETH into your fund's vault to receive shares. Shares grant voting power over proposals:
+    Deposit USDG into the vault to receive shares. Shares carry voting power over proposals:
 
     ```bash
-    sherwood vault deposit \
-      --subdomain my-fund \
-      --amount 0.1
+    sherwood vault deposit --vault $VAULT --amount 500
     ```
 
-    You receive vault shares 1:1 on the first deposit. Shares are automatically self-delegated for governance voting.
+    `--vault` defaults to the vault saved by `vault create`, so you can leave it off. Your shares self-delegate automatically. Check them with:
+
+    ```bash
+    sherwood vault balance --vault $VAULT
+    ```
+
+    Deposits are instant only while no proposal is open. Once one is, use `sherwood queue request-deposit` instead.
   </Step>
 
   <Step title="Propose a strategy">
-    Submit a strategy proposal for depositors to vote on. A proposal includes pre-committed execution calls and settlement calls:
+    Propose a Portfolio strategy, a weighted basket of tokenized stocks swapped through Uniswap v4 on the fork. One command clones the strategy template, initializes it, builds the execute and settle calls, and submits the proposal:
 
     ```bash
-    sherwood proposal create \
-      --subdomain my-fund
+    sherwood strategy propose portfolio \
+      --vault $VAULT \
+      --amount 200 \
+      --tokens TSLA,AMZN \
+      --weights 6000,4000 \
+      --swap-routes v4:3000:60,v4:3000:60 \
+      --max-slippage 500 \
+      --name "TSLA/AMZN basket" \
+      --description "60/40 TSLA and AMZN, held for 7 days" \
+      --duration 7d
     ```
 
-    The CLI walks you through configuring the Portfolio strategy (a weighted basket of tokenized stocks — TSLA, AMZN, PLTR, NFLX, AMD on the testnet — rebalanced onchain through Synthra), setting a duration, and optionally specifying a minimum settlement balance. Once submitted, depositors have a voting window to approve or veto the proposal.
+    | Flag | What it sets |
+    |------|--------------|
+    | `--amount` | USDG the strategy deploys, taken from the vault. It must be no more than the vault's balance. |
+    | `--tokens` | Basket tokens by symbol. The fork carries AAPL, TSLA, NVDA, MSFT, AMZN, AMD, SPY, QQQ and GOOGL. |
+    | `--weights` | Allocation per token in basis points, in the same order as `--tokens`. Must sum to `10000`. |
+    | `--swap-routes` | Uniswap pool per token, in the same order. Required on the fork. Most stocks use `v4:3000:60`; AMD uses `v4:10000:200`. |
+    | `--max-slippage` | Maximum slippage in basis points against the Chainlink price. `500` is 5%. |
+    | `--name`, `--description` | What voters and guardians see. |
+    | `--duration` | How long the strategy runs before settlement, between `1h` and `30d` by default. |
+
+    Proposing also locks a **proposer bond** in WOOD, sized to the capital at risk. A 200 USDG book needs a few hundred WOOD, and the 5,000 WOOD left after the owner stake covers it. The command prints the proposal ID. Check it any time:
+
+    ```bash
+    sherwood proposal list --vault $VAULT
+    ```
+  </Step>
+
+  <Step title="Execute and settle">
+    Shareholders get a voting window (24 hours by default), then staked guardians review the calls. Guardians who vote Approve underwrite the book with their WOOD. Execution needs at least one covering approval: with none, `execute` reverts `InsufficientApproveCoverage`, and with partial coverage it deploys a proportionally smaller amount. See [Coverage](/protocol/governance/coverage).
+
+    Once the proposal is `Approved`, execute it within the execution window (24 hours by default):
+
+    ```bash
+    sherwood proposal execute --vault $VAULT --id 1
+    ```
+
+    Proposal IDs are per vault and start at `1`. Settlement swaps the basket back to USDG and returns it to the vault. As the proposer you can settle one hour after execution; anyone else can settle once the full duration has passed:
+
+    ```bash
+    sherwood proposal settle --vault $VAULT --id 1
+    ```
   </Step>
 </Steps>
 
 ## Next steps
 
+- Follow the [Strategy Walkthrough](/protocol/strategies/walkthrough) for the full proposal lifecycle: voting, guardian review, rebalancing and settlement
 - Read [Core Concepts](/learn/concepts) to understand the governance model and settlement mechanics
+- See [Proposer bond](/protocol/governance/proposer-bond) for how the WOOD bond is sized
 - Explore the full [CLI command reference](/cli/commands) for vault management, voting, and agent registration
-- Check the [Protocol Architecture](/protocol/architecture) for details on the smart contract design
