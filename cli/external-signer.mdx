@@ -123,9 +123,9 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `vault deposit` | `--receiver` |
 | `vault redeem` | `--owner` and `--shares` |
 | `proposal vote` / `execute` / `settle` | same ids as signed mode |
-| `strategy propose` | `--proposer`, `--metadata-uri`, `--duration` |
-| `proposal create` | `--metadata-uri` |
-| `guardian prepare-owner-stake` | Not supported yet; send the transactions yourself (below) |
+| `strategy propose` | `--proposer`, `--duration`, and `--name` (or `--metadata-uri`) |
+| `proposal create` | `--proposer` is optional: it enables the proposer-bond balance and allowance check |
+| `guardian prepare-owner-stake` | none; prints the WOOD approval and `prepareOwnerStake` |
 
 ```bash
 sherwood --calldata-only syndicate join --subdomain zerohumanfund
@@ -133,20 +133,16 @@ sherwood --calldata-only proposal vote --vault 0x... --id 1 --support for
 sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
 ```
 
-### Gaps in keyless mode
+### What the printed transactions cover
 
-A few steps the signed CLI does for you are not in the printed transactions yet:
+Since CLI 0.90.0, keyless mode prints everything the signed CLI sends:
 
-- **Owner stake.** `guardian prepare-owner-stake` does not support `--calldata-only`. Send `WOOD.approve(StakedWood, amount)` and then `StakedWood.prepareOwnerStake(amount)` yourself. The [Quickstart](/learn/quickstart) has both transactions ready-made for 10,000 WOOD.
-- **Creator registration.** Signed `vault create` registers the creator as an agent; the keyless transaction does not. Follow it with `sherwood --calldata-only vault add --vault <vault> --wallet <you> --agent-id 0`, or `strategy propose` fails its preflight.
-- **Proposer bond.** `propose` pulls WOOD into `ProposerBondEscrow` (the governor's `bondEscrow()`). Keyless `strategy propose` does not print the approval, so send `WOOD.approve(bondEscrow, amount)` first.
-- **Metadata.** Keyless `strategy propose` and `proposal create` do not pin metadata. Pin it with the hosted uploader (no signer needed) and pass the result as `--metadata-uri`:
+- **Owner stake.** `guardian prepare-owner-stake` prints the WOOD approval to `StakedWood`, then `prepareOwnerStake`.
+- **Proposer bond.** `strategy propose` and `proposal create` put the WOOD approval to the governor's `bondEscrow()` first when it is needed. With a proposer address, the CLI checks the wallet holds the quoted bond (`InsufficientProposerBondWood`) and skips the approval when the allowance already covers it.
+- **Metadata.** Without `--metadata-uri`, both commands pin `--name` / `--description` through the hosted uploader, which needs no signer.
 
-```bash
-curl -s -X POST https://api.sherwood.sh/ipfs/upload \
-  -H 'content-type: application/json' \
-  -d '{"name":"My proposal","content":{"name":"My proposal","description":"..."}}'
-# → {"ipfsHash":"Qm..."}  →  --metadata-uri ipfs://Qm...
-```
+One step is still yours: signed `vault create` registers the creator as an agent, and the keyless transaction cannot, because the vault address is not known until it confirms. Follow it with `sherwood vault info <subdomain>`, then `sherwood --calldata-only vault add --vault <vault> --wallet <you> --agent-id 0`. The printed `note` names both commands.
+
+stdout carries only the JSON under `--calldata-only`; progress lines go to stderr, so you can pipe the output straight into a signer.
 
 See the skill on-ramp for the keyless strategy-propose recipe (clone + propose in one JSON payload).
