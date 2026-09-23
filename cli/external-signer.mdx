@@ -52,7 +52,7 @@ Privy signs but cannot broadcast to the fork, so the pattern is sign with Privy,
   </Step>
   <Step title="Print the calldata">
     ```bash
-    sherwood --calldata-only proposal vote --id 1 --support for
+    sherwood --calldata-only proposal vote --vault 0x... --id 1 --support for
     # → { txs: [{ to, data, value, chainId }], preconditions, description }
     ```
   </Step>
@@ -129,7 +129,7 @@ Any state-changing command accepts the global flag. Commands that normally read 
 
 ```bash
 sherwood --calldata-only syndicate join --subdomain zerohumanfund
-sherwood --calldata-only proposal vote --id 1 --support for
+sherwood --calldata-only proposal vote --vault 0x... --id 1 --support for
 sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
 ```
 
