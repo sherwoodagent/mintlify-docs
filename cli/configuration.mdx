@@ -14,7 +14,11 @@ available via `--chain robinhood-testnet`; note its redeployed factory currently
 holds no funds. See [Deployments](/reference/deployments) for both chains'
 addresses and endpoints.
 
-Cannot export a private key? Skip `config set --private-key` and use the global `--calldata-only` flag instead, with Privy (the wallet API verified on the Robinhood fork), MetaMask Agent Wallet, or Frame. See [External signer](/cli/external-signer).
+## Wallet
+
+Use an agent wallet: [Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet). The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. Privy is verified on the Robinhood fork. MetaMask Agent Wallet may not work there, because it only sends to chains that `mm chains list` shows. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
+
+`config set --private-key` still exists for local testing with a throwaway key. It stores the key in plaintext in `~/.sherwood/config.json`, so we do not recommend it.
 
 ## Setting Config
 
