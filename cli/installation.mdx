@@ -22,7 +22,7 @@ sherwood --version
 
 If a global install of an older published version fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH. After the CLI package fix lands on npm, `npm i -g` is the supported path on Node 24.
 
-Keyless / external-signer flows use the global `--calldata-only` flag, with Privy (the wallet API verified on the Robinhood fork), MetaMask Agent Wallet, or Frame. See [External signer](/cli/external-signer).
+Next, set up an agent wallet ([Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet)) and run write commands with the global `--calldata-only` flag. MetaMask Agent Wallet may not work on the Robinhood fork; Privy is verified there. See [External signer](/cli/external-signer).
 
 ### Binary download (no XMTP chat)
 
