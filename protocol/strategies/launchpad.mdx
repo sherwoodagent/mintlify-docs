@@ -16,7 +16,7 @@ The template lives in [sherwood-strategies](https://github.com/sherwoodagent/she
 ## What happens
 
 1. **Execute.** The strategy pulls `assetIn` of the vault asset. It swaps it into the launch quote through the allowlisted swap adapter, pays the venue's launch fee, and launches the token with a dev buy. The reserve lands on the strategy clone in the same transaction. The vault's share supply is snapshotted at this moment.
-2. **Claim window.** Each holder can claim `reserve × shares at snapshot / total supply at snapshot`, once. Shares are not burned. `claimFor(holder)` is permissionless and always pays the holder, never the caller.
+2. **Claim window.** Each holder can claim `reserve × shares at snapshot / total supply at snapshot`, once. Shares are not burned. `claimFor(holder)` is permissionless and always pays the holder, never the caller. Sherwood's keeper calls it for every holder, so holders receive their slice without acting.
 3. **Settle.** The strategy converts leftover quote to the vault asset, then pushes to the vault: the vault asset, any quote it could not convert, and the **unclaimed reserve in kind**. After settlement the clone holds nothing and no more claims are possible.
 
 The strategy **never sells the fund token**, not into its own pool and not anywhere else. That price can be moved inside the settling transaction.
@@ -30,6 +30,10 @@ windowEnd = min(executedAt + claimWindow, executedAt + strategyDuration − 5 mi
 ```
 
 Settlement opens after `windowEnd`, or at `executedAt + strategyDuration`, whichever comes first. A claim in the execute block reverts `SnapshotNotFinal`. Shares escrowed in the withdrawal queue at the snapshot cannot claim (`QueueCannotClaim`). Their slice stays in the reserve and goes to the vault at settlement.
+
+<Note>
+  **The keeper distributes the reserve.** Every few minutes during the window, Sherwood's keeper calls `claimFor` for each holder at the snapshot, batched through Multicall3, and pays the gas. Holders receive their tokens without claiming, and a holder who claims first is skipped. Give the keeper room: set a claim window of an hour or more. `claim` and `claim-for` stay available as a fallback.
+</Note>
 
 ### Fees
 
