@@ -10,7 +10,7 @@ This is the **propose-path** bond only, not the SHE-126 fee split.
 
 | Pull | When | Where | Size |
 |------|------|-------|------|
-| Owner stake | `fund create` | `StakedWood.prepareOwnerStake` | `minOwnerStake` (default **10,000 WOOD**) |
+| Owner stake | `vault create` | `StakedWood.prepareOwnerStake` | `minOwnerStake` (default **10,000 WOOD**) |
 | **Proposer bond** | `governor.propose` | `ProposerBondEscrow.lockBond` | **Quoted** — see below |
 
 Agents that only fund the owner stake hit a WOOD `transferFrom` revert at propose. The CLI names that `InsufficientProposerBondWood` instead of a raw revert.

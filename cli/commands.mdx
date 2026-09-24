@@ -65,9 +65,9 @@ Show your agent identity status -- agent ID, owner address, verification. For a 
 
 ---
 
-## Fund
+## Vault
 
-### `sherwood fund create`
+### `sherwood vault create`
 
 Create a new fund. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat. Fund metadata is pinned to IPFS via Pinata.
 
@@ -87,7 +87,7 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 | `--public-chat` | Enable public chat -- adds dashboard spectator to XMTP group |
 | `-y, --yes` | Skip confirmation prompt (non-interactive mode for agent use) |
 
-### `sherwood fund list`
+### `sherwood vault list`
 
 List active funds. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls back to onchain reads.
 
@@ -95,18 +95,18 @@ List active funds. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls ba
 |--------|-------------|
 | `--creator <address>` | Filter by creator address |
 
-### `sherwood fund info <id|subdomain>`
+### `sherwood vault info <id|subdomain>`
 
 Display full fund details -- ENS name, creator, vault stats (total assets, agent count, redemption-lock status, management fee), metadata, and XMTP group ID (if cached).
 
 Accepts either a numeric fund ID or a subdomain name:
 
 ```bash
-sherwood fund info 1
-sherwood fund info alpha-fund
+sherwood vault info 1
+sherwood vault info alpha-fund
 ```
 
-### `sherwood fund add`
+### `sherwood vault add`
 
 Register an agent on a fund vault. Creator only.
 
@@ -118,7 +118,7 @@ When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-800
 | `--wallet <address>` | Yes | Agent wallet address |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood fund approve-depositor`
+### `sherwood vault approve-depositor`
 
 Approve an address to deposit into the vault. Owner only.
 
@@ -127,7 +127,7 @@ Approve an address to deposit into the vault. Owner only.
 | `--depositor <address>` | Yes | Address to approve |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood fund remove-depositor`
+### `sherwood vault remove-depositor`
 
 Remove an address from the depositor whitelist. Owner only.
 
@@ -136,7 +136,7 @@ Remove an address from the depositor whitelist. Owner only.
 | `--depositor <address>` | Yes | Address to remove |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood fund update-metadata`
+### `sherwood vault update-metadata`
 
 Update fund metadata. Creator only. Uploads to IPFS.
 
@@ -147,7 +147,7 @@ Update fund metadata. Creator only. Uploads to IPFS.
 | `--description <text>` | No | New description |
 | `--uri <uri>` | No | Direct metadata URI (skips IPFS upload) |
 
-### `sherwood fund join`
+### `sherwood vault join`
 
 Request to join a fund. Creates an EAS (Ethereum Attestation Service) attestation directed at the fund creator. Requires an ERC-8004 agent identity.
 
@@ -156,7 +156,7 @@ Request to join a fund. Creates an EAS (Ethereum Attestation Service) attestatio
 | `--subdomain <name>` | Yes | Fund subdomain to join |
 | `--message <text>` | No | Message to the creator. Default: "Requesting to join your fund" |
 
-### `sherwood fund requests`
+### `sherwood vault requests`
 
 View pending join requests for a fund you created. Queries the EAS GraphQL API for non-revoked `SYNDICATE_JOIN_REQUEST` attestations.
 
@@ -165,9 +165,9 @@ View pending join requests for a fund you created. Queries the EAS GraphQL API f
 | `--subdomain <name>` | Fund subdomain (alternative to --vault) |
 | `--vault <address>` | Vault address (default: from config) |
 
-### `sherwood fund approve`
+### `sherwood vault approve`
 
-Approve a join request. Registers the agent on the vault (same as `fund add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
+Approve a join request. Registers the agent on the vault (same as `vault add`), creates an `AGENT_APPROVED` EAS attestation, and adds the agent to the XMTP chat group.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -176,7 +176,7 @@ Approve a join request. Registers the agent on the vault (same as `fund add`), c
 | `--vault <address>` | No | Vault address (default: from config) |
 | `--subdomain <name>` | No | Fund subdomain (alternative to --vault) |
 
-### `sherwood fund reject`
+### `sherwood vault reject`
 
 Reject a join request by revoking its EAS attestation.
 
@@ -186,7 +186,7 @@ Reject a join request by revoking its EAS attestation.
 
 ---
 
-## Vault
+## Deposits and redemptions
 
 ### `sherwood vault deposit`
 
@@ -283,7 +283,7 @@ List your requests for a vault: id, kind (Deposit/Redeem), amount, proposal id, 
 
 ### `sherwood guardian prepare-owner-stake`
 
-Bond WOOD as a prospective vault owner — required before `fund create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
+Bond WOOD as a prospective vault owner — required before `vault create` (V2 factory gate). Approves WOOD to sWOOD and calls `prepareOwnerStake`.
 
 | Argument | Required | Description |
 |--------|----------|-------------|
@@ -309,7 +309,7 @@ Swap a portion of vault profits and distribute the proceeds to all agent operato
 | `--amount <amount>` | Yes | Profit amount to convert and distribute |
 | `--fee <tier>` | No | Fee tier for the profit swap. Default: 3000 |
 | `--slippage <bps>` | No | Slippage tolerance in bps. Default: 100 |
-| `--execute` | No | Submit onchain (default: simulate only) |
+| `--execute` | No | Refused: vault funds move only through governor proposals, so disburse always simulates |
 
 ### `sherwood allowance status`
 
@@ -401,7 +401,7 @@ Add a member to the chat. Creator only.
 
 ### `sherwood chat <name> init`
 
-Create an XMTP group for the fund and write the group ID to ENS. Creator only. The group is created automatically during `fund create` when using `--public-chat`, but can be created or recreated separately with this command.
+Create an XMTP group for the fund and write the group ID to ENS. Creator only. The group is created automatically during `vault create` when using `--public-chat`, but can be created or recreated separately with this command.
 
 | Option | Description |
 |--------|-------------|

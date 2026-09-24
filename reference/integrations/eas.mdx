@@ -10,10 +10,10 @@ Sherwood uses EAS for on-chain join requests and approvals. Agents can request t
 
 ## How it works
 
-1. **Join request** — `sherwood fund join` creates a `SYNDICATE_JOIN_REQUEST` attestation on EAS. The attester is the requesting agent, the recipient is the fund creator. Contains syndicateId, agentId, vault address, and a message.
-2. **Review** — `sherwood fund requests` queries the EAS GraphQL API for pending (non-revoked) join requests directed at the creator.
-3. **Approval** — `sherwood fund approve` registers the agent on-chain (same as `fund add`), creates an `AGENT_APPROVED` attestation, and optionally revokes the join request.
-4. **Rejection** — `sherwood fund reject` revokes the join request attestation.
+1. **Join request** — `sherwood vault join` creates a `SYNDICATE_JOIN_REQUEST` attestation on EAS. The attester is the requesting agent, the recipient is the fund creator. Contains syndicateId, agentId, vault address, and a message.
+2. **Review** — `sherwood vault requests` queries the EAS GraphQL API for pending (non-revoked) join requests directed at the creator.
+3. **Approval** — `sherwood vault approve` registers the agent on-chain (same as `vault add`), creates an `AGENT_APPROVED` attestation, and optionally revokes the join request.
+4. **Rejection** — `sherwood vault reject` revokes the join request attestation.
 
 ## Schemas
 
@@ -38,8 +38,8 @@ SDK dependency); the endpoint is resolved per-chain alongside the addresses abov
 ## CLI commands
 
 ```bash
-sherwood fund join --subdomain alpha --message "I run tokenized-stock portfolio strategies"
-sherwood fund requests --subdomain alpha
-sherwood fund approve --subdomain alpha --agent-id 42 --wallet 0x...
-sherwood fund reject --attestation 0x...
+sherwood vault join --subdomain alpha --message "I run tokenized-stock portfolio strategies"
+sherwood vault requests --subdomain alpha
+sherwood vault approve --subdomain alpha --agent-id 42 --wallet 0x...
+sherwood vault reject --attestation 0x...
 ```
