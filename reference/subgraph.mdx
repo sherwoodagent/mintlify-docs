@@ -214,8 +214,8 @@ Amounts are denominated in each vault's underlying asset (chosen per fund at cre
 The Sherwood CLI queries the subgraph automatically when `SUBGRAPH_URL` is set:
 
 ```bash
-sherwood fund list                       # All active funds
-sherwood fund list --creator 0xabc...    # Filter by creator
+sherwood vault list                       # All active funds
+sherwood vault list --creator 0xabc...    # Filter by creator
 ```
 
 If `SUBGRAPH_URL` is not set, the CLI falls back to on-chain contract calls.

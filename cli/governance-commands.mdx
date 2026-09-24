@@ -34,12 +34,12 @@ sherwood proposal create \
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
 <Note>
-**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood fund set-agent-fee`](#sherwood-fund-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps`. The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
+**No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood vault set-agent-fee`](#sherwood-vault-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps`. The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
 </Note>
 
 ### Metadata pinning (IPFS via Pinata)
 
-When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--name` and `--description`, pins it to IPFS via the Pinata API, and uses the resulting `ipfs://` URI. This follows the same pattern as `fund create`.
+When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--name` and `--description`, pins it to IPFS via the Pinata API, and uses the resulting `ipfs://` URI. This follows the same pattern as `vault create`.
 
 - **Pin:** `POST https://api.pinata.cloud/pinning/pinJSONToIPFS` with `PINATA_API_KEY` from env
 - **Resolve:** Metadata displayed in the dashboard via `PINATA_GATEWAY` (default: `sherwood.mypinata.cloud`)
@@ -69,12 +69,13 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 
 ---
 
-## `sherwood fund set-agent-fee`
+## `sherwood vault set-agent-fee`
 
 Set the vault's agent performance fee. **Vault owner only.** This is a vault property — the governor snapshots it onto each proposal at propose time (immutable for that proposal), then clamps the snapshot to `maxPerformanceFeeBps` at settlement.
 
 ```bash
-sherwood fund set-agent-fee --vault <addr> --bps <bps>```
+sherwood vault set-agent-fee --vault <addr> --bps <bps>
+```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -93,7 +94,8 @@ sherwood fund set-agent-fee --vault <addr> --bps <bps>```
 List proposals for a vault.
 
 ```bash
-sherwood proposal list --vault <addr> [--state <filter>]```
+sherwood proposal list --vault <addr> [--state <filter>]
+```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -117,7 +119,8 @@ ID  Agent     State     Against votes        Fee    Duration  Created
 Full detail view of a single proposal.
 
 ```bash
-sherwood proposal show <id> --vault <addr>```
+sherwood proposal show <id> --vault <addr>
+```
 
 Displays:
 
@@ -135,7 +138,8 @@ Displays:
 Cast a vote on a pending proposal.
 
 ```bash
-sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|abstain>```
+sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|abstain>
+```
 
 ### Flow
 
@@ -157,7 +161,8 @@ Cast a **guardian** review vote on a proposal already in `GuardianReview`. Disti
 
 ```bash
 sherwood proposal review-vote --id <proposalId> --vault <addr> \
-  --support <approve|block> --lock-wood <wood>```
+  --support <approve|block> --lock-wood <wood>
+```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -181,7 +186,8 @@ An Approve whose lock is worth less than the floor reverts `ApproveLockBelowFloo
 Execute an approved proposal (anyone can call).
 
 ```bash
-sherwood proposal execute --id <proposalId> --vault <addr>```
+sherwood proposal execute --id <proposalId> --vault <addr>
+```
 
 ### Flow
 
@@ -198,7 +204,8 @@ sherwood proposal execute --id <proposalId> --vault <addr>```
 Settle an executed proposal. Routes to the appropriate settlement path.
 
 ```bash
-sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json>]```
+sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json>]
+```
 
 ### Routing logic
 
@@ -215,7 +222,8 @@ sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json
 Cancel a proposal before execution.
 
 ```bash
-sherwood proposal cancel --id <proposalId> --vault <addr> [--emergency]```
+sherwood proposal cancel --id <proposalId> --vault <addr> [--emergency]
+```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -270,7 +278,8 @@ sherwood proposal unstick --id <proposalId> --vault <addr> [--dry-run] [--yes]
 Display a vault's governor address and parameters. Resolves the governor via `factory.governorOf(vault)`.
 
 ```bash
-sherwood governor info --vault <addr>```
+sherwood governor info --vault <addr>
+```
 
 | Flag | Required | Description |
 |------|----------|-------------|
@@ -331,6 +340,6 @@ sherwood governor set-perf-split --agent 5000 --protocol 1500 --guardian 2500 --
 
 - **Duration format:** Accept human-readable durations (`7d`, `24h`, `1h`) in addition to raw seconds
 - **Call encoding:** For common actions (swaps through the vault's swap adapter, ERC-20 approvals), the CLI provides built-in call builders so agents don't need to manually encode calldata
-- **Metadata via Pinata:** `proposal create` pins metadata to IPFS using `PINATA_API_KEY` (same env var used by `fund create`). Dashboard resolves metadata via `PINATA_GATEWAY` (`sherwood.mypinata.cloud`). If the agent provides `--metadata-uri` directly, pinning is skipped
+- **Metadata via Pinata:** `proposal create` pins metadata to IPFS using `PINATA_API_KEY` (same env var used by `vault create`). Dashboard resolves metadata via `PINATA_GATEWAY` (`sherwood.mypinata.cloud`). If the agent provides `--metadata-uri` directly, pinning is skipped
 - **Vote weight display:** Shows the user's voting power before they vote, so they understand their influence
 - **Settlement routing:** Auto-detects the correct settlement path based on caller identity and timing

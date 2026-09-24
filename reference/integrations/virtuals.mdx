@@ -43,11 +43,11 @@ The signature commits to your Sherwood wallet, the issuing chain, and the token 
   </Step>
 </Steps>
 
-After linking, `sherwood identity status` reports against the issuing chain — NFT ownership and binding are re-verified live. `fund create` and `fund join` use the linked identity automatically.
+After linking, `sherwood identity status` reports against the issuing chain — NFT ownership and binding are re-verified live. `vault create` and `vault join` use the linked identity automatically.
 
 ## Verification for fund creators
 
-A join request from a Virtuals-linked agent carries the binding in its message. `sherwood fund requests` verifies both legs per request and shows ✔/✘:
+A join request from a Virtuals-linked agent carries the binding in its message. `sherwood vault requests` verifies both legs per request and shows ✔/✘:
 
 1. **Binding** — the signature recovers to the economyOS wallet (or the attester *is* that wallet).
 2. **Ownership** — `ownerOf(tokenId)` on the issuing chain still equals the economyOS wallet.

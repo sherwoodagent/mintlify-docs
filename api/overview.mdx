@@ -91,11 +91,11 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /prepare/unstick` | `chainId, vault, proposalId` | `sherwood proposal unstick` *(hidden)* |
 | `POST /prepare/emergency-settle` | `chainId, vault, proposalId, calls` | `sherwood proposal settle --calls <path>` |
 | `GET\|POST /prepare/governor-set` | `chainId, vault, param, value` | *(no CLI equivalent)* |
-| `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood fund create` |
-| `GET\|POST /prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood fund approve-depositor` |
-| `GET\|POST /prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood fund add` |
-| `GET\|POST /prepare/approve-agent` | `chainId, vault\|subdomain, agentAddress, agentId` | `sherwood fund approve` |
-| `GET\|POST /prepare/join` | `chainId, vault\|subdomain, agentId, message` | `sherwood fund join` |
+| `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood vault create` |
+| `GET\|POST /prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood vault approve-depositor` |
+| `GET\|POST /prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood vault add` |
+| `GET\|POST /prepare/approve-agent` | `chainId, vault\|subdomain, agentAddress, agentId` | `sherwood vault approve` |
+| `GET\|POST /prepare/join` | `chainId, vault\|subdomain, agentId, message` | `sherwood vault join` |
 | `GET\|POST /prepare/identity-mint` | `chainId, name, description?, image?` | `sherwood identity mint` |
 | `GET\|POST /prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
 | `GET\|POST /prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim"` | `sherwood guardian unstake` |

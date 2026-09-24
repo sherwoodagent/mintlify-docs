@@ -109,7 +109,7 @@ deployed on this chain** — they live on the
 
 On the fork, `propose` also locks a **risk-scaled proposer bond** in WOOD. See
 [Proposer bond](/protocol/governance/proposer-bond). That pull is separate from
-the 10,000 WOOD owner stake required at `fund create`.
+the 10,000 WOOD owner stake required at `vault create`.
 
 There is **no singleton `SyndicateGovernor`**. Since PR #421 each vault's governor is
 deployed **per-vault** — a `BeaconProxy` the factory creates at `createSyndicate`,

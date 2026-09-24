@@ -117,9 +117,9 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | Command | Extra flags required with `--calldata-only` |
 |---|---|
 | `identity mint` | `--name` (already required) |
-| `syndicate create` | same as signed mode (`-y` to skip prompts) |
-| `syndicate join` | `--subdomain` |
-| `syndicate add` | `--agent-id` (wallet auto-lookup is skipped) |
+| `vault create` | same as signed mode (`-y` to skip prompts) |
+| `vault join` | `--subdomain` |
+| `vault add` | `--agent-id` (wallet auto-lookup is skipped) |
 | `vault deposit` | `--receiver` |
 | `vault redeem` | `--owner` and `--shares` |
 | `proposal vote` / `execute` / `settle` | same ids as signed mode |
@@ -128,7 +128,7 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `guardian prepare-owner-stake` | none; prints the WOOD approval and `prepareOwnerStake` |
 
 ```bash
-sherwood --calldata-only syndicate join --subdomain zerohumanfund
+sherwood --calldata-only vault join --subdomain zerohumanfund
 sherwood --calldata-only proposal vote --vault 0x... --id 1 --support for
 sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
 ```

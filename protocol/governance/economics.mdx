@@ -46,7 +46,7 @@ An annualized rate on assets under management, accrued over the time a strategy 
 A share of new value created above the fund's previous peak — a high-water mark, so depositors are not charged twice for the same gains.
 
 - **High-water mark.** The fee applies only to value above the highest price per share the fund has ever been charged at. The mark ratchets monotonically at settlement and is seeded at the fund's first deposit. A loss leaves the mark in place, so **recovering back to the old peak is free**.
-- **Rate.** `vault.agentFeeBps()`, set by the fund owner with `vault.setAgentFeeBps(bps)` or the CLI [`sherwood fund set-agent-fee`](/cli/governance-commands#sherwood-fund-set-agent-fee). A new vault starts at the protocol default, `FeeConstants.DEFAULT_AGENT_FEE_BPS` (for example 2000 bps, 20%). An explicit 0% is legal and is stored distinguishably from unset.
+- **Rate.** `vault.agentFeeBps()`, set by the fund owner with `vault.setAgentFeeBps(bps)` or the CLI [`sherwood vault set-agent-fee`](/cli/governance-commands#sherwood-vault-set-agent-fee). A new vault starts at the protocol default, `FeeConstants.DEFAULT_AGENT_FEE_BPS` (for example 2000 bps, 20%). An explicit 0% is legal and is stored distinguishably from unset.
 - **Three stacked limits.**
   1. `FeeConstants.MAX_PERFORMANCE_FEE_BPS` — the absolute protocol ceiling, checked at `setAgentFeeBps`.
   2. The per-vault governor cap `maxPerformanceFeeBps` — starts at `FeeConstants.DEFAULT_MAX_PERFORMANCE_FEE_BPS`, settable by the fund owner between proposals, up to the protocol ceiling.
