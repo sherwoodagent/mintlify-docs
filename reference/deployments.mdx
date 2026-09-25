@@ -14,6 +14,14 @@ Robinhood **mainnet (4663)** is a coordination chain only — the canonical ERC-
 IdentityRegistry lives there and no Sherwood core contract does. It is not a
 deployment target.
 
+## $WOOD
+
+$WOOD has one official contract: `0xF8BC08092C06dB6148114DCf82AF881F1085f92b` on Robinhood Chain
+mainnet ([Blockscout](https://robinhoodchain.blockscout.com/token/0xF8BC08092C06dB6148114DCf82AF881F1085f92b),
+[Uniswap](https://app.uniswap.org/explore/tokens/robinhood/0xF8BC08092C06dB6148114DCf82AF881F1085f92b)).
+The mainnet fork carries the same address. Treat any other contract named WOOD as
+unofficial.
+
 ## Chain
 
 | Chain | ID | Type | Status | CLI flag |
@@ -22,9 +30,9 @@ deployment target.
 | Robinhood testnet | 46630 | Testnet (Arbitrum Orbit) | Active | `--chain robinhood-testnet` |
 
 On Robinhood testnet a post-audit but pre-v1 stack is deployed: vaults, governance,
-the guardian layer (GuardianRegistry + StakedWood + TierRegistry, with a WOOD fixture
-token), the StrategyFactory keyless clone+init path, and a Uniswap-compatible swap
-adapter backed by Synthra via a QuoterV2 shim. The v1 release described throughout
+the guardian layer (GuardianRegistry + StakedWood + TierRegistry), the StrategyFactory
+keyless clone+init path, and a Uniswap-compatible swap adapter backed by Synthra via
+a QuoterV2 shim. The v1 release described throughout
 these docs is live on the fork; treat 46630 as a legacy stack unless you were told
 otherwise.
 
@@ -150,7 +158,6 @@ funds created against it yet, so pick the Synthra WETH9 below.
 |-------|-----------------|
 | WETH (vault asset — Synthra WETH9) | `0x33e4191705c386532ba27cBF171Db86919200B94` |
 | WETH (canonical — reference only, empty pools) | `0x7943e237c7F95DA44E0301572D358911207852Fa` |
-| WOOD token (fixture — guardian staking) | `0xCCb4fB59cf40de1E23083037ee81Da1DD747D8d7` |
 
 There is **no USDC on this chain**. Funds that want a stablecoin base have no
 deployed option here; use WETH.
@@ -310,7 +317,7 @@ StonkBrokers runs one V2 pad per quote lane (WETH, STONK, USDG, GME, NVDA, AAPL,
 USO). The CLI's `STRATEGY_VENUES()` carries the pad addresses.
 
 Tokens. Unlike Robinhood testnet, this chain has **USDG** — the mainnet stablecoin —
-alongside WETH, and WOOD here is a real Uniswap-traded token rather than a fixture:
+alongside WETH, and WOOD is the [mainnet $WOOD contract](#wood), carried over by the fork:
 
 | Token | Address (9994663) |
 |-------|-------------------|
