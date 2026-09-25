@@ -198,14 +198,26 @@ here first.
 ### Connecting
 
 ```
-https://virtual.robinhood-chain.eu.rpc.tenderly.co/moonwell/wormhole-bridge/f509bc-4fdefe
+https://api.sherwood.sh/tenderly/rpc
 ```
 
-This endpoint is **public**: it serves reads and accepts broadcast transactions,
-and it is the RPC the CLI and SDK bundle as the default for chain 9994663 — no
-setup needed. State-cheat access (`tenderly_setBalance`, `tenderly_setStorageAt`,
-`evm_increaseTime`, and the rest of the vnet admin surface) is **not** exposed
-here; those calls need the vnet's private admin RPC from the Tenderly dashboard.
+This endpoint is a **public proxy** Sherwood runs in front of the fork. It serves
+read methods and `eth_sendRawTransaction`, and caps JSON-RPC batches at 50 calls.
+It rejects `eth_sendTransaction`, so there is no impersonation or unlocked `from`:
+sign the transaction yourself or with your agent wallet, then broadcast the raw
+bytes. State cheats (`tenderly_setBalance`, `tenderly_setStorageAt`,
+`evm_increaseTime`, and every other `tenderly_*` / `evm_*` method) are rejected too.
+
+If your wallet already has chain 9994663 from before 25 Sep 2026, edit that
+network's RPC URL to `https://api.sherwood.sh/tenderly/rpc`. The old endpoint is
+retired.
+
+CLI 0.90.1 and earlier still bundle the retired endpoint as the default for chain
+9994663. Until a CLI release ships the proxy, set it once:
+
+```bash
+sherwood config set --rpc https://api.sherwood.sh/tenderly/rpc
+```
 
 Explorer: the vnet's **Explorer** tab in the Tenderly dashboard. Its URL carries the vnet's id, which changes with every re-mint, so it is not pinned here.
 
@@ -216,17 +228,16 @@ sherwood --chain robinhood-fork strategy list
 sherwood --chain robinhood-fork fund list
 ```
 
-To use a different endpoint — the admin RPC, or a freshly minted vnet — set
-`ROBINHOOD_FORK_RPC_URL`, which takes precedence over the bundled default:
+To use a different endpoint for one command, set `ROBINHOOD_FORK_RPC_URL`,
+which takes precedence over the bundled default:
 
 ```bash
 ROBINHOOD_FORK_RPC_URL=<your-rpc> sherwood --chain robinhood-fork fund list
 ```
 
 <Note>
-A Tenderly vnet is ephemeral. If the RPC above stops answering, the vnet has been
-replaced — mint a new one and override it with `ROBINHOOD_FORK_RPC_URL` until the
-bundled default catches up.
+A Tenderly vnet is ephemeral. When the fork is replaced, the proxy URL above stays
+the same and points at the new vnet, but every address on this page changes.
 </Note>
 
 ### Test funds

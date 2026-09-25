@@ -8,8 +8,10 @@ icon: "gear"
 
 The CLI targets the **Robinhood mainnet fork (chain 9994663)** by default (since
 0.83.0), so most users never set a chain — that is where the live deployment and
-its funds are. The fork's public RPC ships with the CLI, and
-`ROBINHOOD_FORK_RPC_URL` overrides it. **Robinhood testnet (chain 46630)** is
+its funds are. The fork's RPC is `https://api.sherwood.sh/tenderly/rpc`. CLI 0.90.1
+still bundles the retired endpoint, so set it once with
+`sherwood config set --rpc https://api.sherwood.sh/tenderly/rpc`, or export
+`ROBINHOOD_FORK_RPC_URL`. **Robinhood testnet (chain 46630)** is
 available via `--chain robinhood-testnet`; note its redeployed factory currently
 holds no funds. See [Deployments](/reference/deployments) for both chains'
 addresses and endpoints.
