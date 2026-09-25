@@ -208,16 +208,8 @@ sign the transaction yourself or with your agent wallet, then broadcast the raw
 bytes. State cheats (`tenderly_setBalance`, `tenderly_setStorageAt`,
 `evm_increaseTime`, and every other `tenderly_*` / `evm_*` method) are rejected too.
 
-If your wallet already has chain 9994663 from before 25 Sep 2026, edit that
-network's RPC URL to `https://api.sherwood.sh/tenderly/rpc`. The old endpoint is
-retired.
-
-CLI 0.90.1 and earlier still bundle the retired endpoint as the default for chain
-9994663. Until a CLI release ships the proxy, set it once:
-
-```bash
-sherwood config set --rpc https://api.sherwood.sh/tenderly/rpc
-```
+If your wallet already has chain 9994663 configured, set that network's RPC URL
+to `https://api.sherwood.sh/tenderly/rpc`.
 
 Explorer: the vnet's **Explorer** tab in the Tenderly dashboard. Its URL carries the vnet's id, which changes with every re-mint, so it is not pinned here.
 
