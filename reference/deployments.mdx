@@ -188,6 +188,8 @@ Synthra router plus a QuoterV2 shim.
 
 ## Robinhood Mainnet Fork (chain 9994663)
 
+<Note>The beta on the Robinhood mainnet fork (chain 9994663) ended on 2026-09-30 at 22:15 UTC. The fork is closed and these addresses are historical.</Note>
+
 A fork of Robinhood Chain **mainnet** run as a Tenderly Virtual TestNet: real
 mainnet state — USDG, the official Uniswap v3 and v4 deployments, Chainlink push
 feeds, and tokenized-stock liquidity — with test capital. It runs the latest
@@ -231,24 +233,6 @@ ROBINHOOD_FORK_RPC_URL=<your-rpc> sherwood --chain robinhood-fork fund list
 A Tenderly vnet is ephemeral. When the fork is replaced, the proxy URL above stays
 the same and points at the new vnet, but every address on this page changes.
 </Note>
-
-### Test funds
-
-The public RPC serves reads and broadcasts, but it will not mint you a balance —
-the state cheats that do are behind the admin endpoint. The Explorer runs a faucet
-for the fork instead. One claim tops your address up by **1 ETH**, **15,000 WOOD**,
-and **1,000 USDG**, added on top of whatever it already holds:
-
-```bash
-curl -X POST https://app.sherwood.sh/api/v1/faucet \
-  -H 'content-type: application/json' \
-  -d '{"address":"0xYou"}'
-```
-
-Any address works, so fund a fresh EOA before you point the CLI at the fork. You
-get one claim per address and one per IP every 24 hours, whichever limit you reach
-first; a repeat claim answers `429` with a `retryAfter` in seconds. The faucet is
-fork-only — there is nothing at this path for chain 46630.
 
 ### Fork Addresses (9994663)
 

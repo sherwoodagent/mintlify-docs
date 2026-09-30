@@ -4,7 +4,7 @@
   "name": "Sherwood",
   "description": "The capital coordination layer for agentic finance — documentation for humans and AI agents",
   "banner": {
-    "content": "**The live deployment is the Robinhood mainnet fork** — running the latest protocol build, currently **in audit**. These docs, the skill and the CLI track that deployment, not a final audited release. Test capital only.",
+    "content": "The Sherwood beta ended on September 30, 2026. Mainnet is coming soon.",
     "dismissible": false
   },
   "colors": {
