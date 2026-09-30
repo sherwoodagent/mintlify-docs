@@ -78,15 +78,7 @@ This guide takes you from a fresh install to a live strategy proposal: set up an
   </Step>
 
   <Step title="Get test funds">
-    Claim from the fork faucet:
-
-    ```bash
-    curl -s -X POST https://app.sherwood.sh/api/v1/faucet \
-      -H 'content-type: application/json' \
-      -d "{\"address\":\"$ME\"}"
-    ```
-
-    One claim adds **1 ETH + 15,000 WOOD + 1,000 USDG**. That covers gas, the 10,000 WOOD owner stake, a proposer bond, and the deposit below. You get one claim per address and one per IP every 24 hours; a repeat answers `429` with `retryAfter` in seconds. See [Test funds](/reference/deployments#test-funds).
+    <Note>The beta faucet closed when the beta ended on 2026-09-30. Mainnet is coming soon.</Note>
   </Step>
 
   <Step title="Bond the owner stake">
