@@ -100,6 +100,10 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /prepare/guardian-stake` | `chainId, amount, agentId` | `sherwood guardian stake` |
 | `GET\|POST /prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim"` | `sherwood guardian unstake` |
 
+<Note>
+Sherwood reads fund and proposal metadata only through Pinata. Metadata pinned elsewhere, such as your own IPFS node or web3.storage, shows as unreachable or without a name. Let Sherwood pin it. The `sherwood` CLI does this when you create a fund or propose a strategy. Otherwise, use `POST https://api.sherwood.sh/ipfs/upload`.
+</Note>
+
 ### Which chain the returned tx targets
 
 Read `txs[i].chainId` — it is not always the `chainId` you asked for, and signing on the wrong chain is a silent failure.
