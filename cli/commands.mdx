@@ -192,7 +192,7 @@ Reject a join request by revoking its EAS attestation.
 
 Deposit the vault's underlying asset (WETH) and receive shares. Plain ETH is auto-wrapped.
 
-While a proposal is open, instant deposits are closed (`depositsLocked()`). Queue an async deposit with `sherwood queue request-deposit` — assets escrow and mint at the frozen settle price on claim.
+While a proposal is open, instant deposits are closed (`depositsLocked()`). Queue an async deposit with `sherwood queue request-deposit` — assets escrow and mint at the live share price when claimed, once deposits reopen.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -231,11 +231,11 @@ Display vault state -- address, total assets, agent count, redemption-lock statu
 
 ## Queue (async deposits & redeems)
 
-While a strategy is executing the vault locks instant flows. The queue is the path in and out: `requestRedeem` / `requestDeposit` escrow immediately, settlement stamps one frozen per-proposal price, and `claim` pays out after unlock.
+While a strategy is executing the vault locks instant flows. The queue is the path in and out: `requestRedeem` / `requestDeposit` escrow immediately, settlement stamps one frozen per-proposal price for redeems, and `claim` pays out after unlock. Deposits take no stamp: they mint at the live share price at claim time.
 
 ### `sherwood queue request-deposit`
 
-Escrow the vault's deposit asset (WETH on today's funds) for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
+Escrow the vault's deposit asset (WETH on today's funds) for an async deposit tagged to the active proposal. Shares mint at the live share price on claim, which is allowed once `depositsLocked()` is false (no open proposal).
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -253,7 +253,7 @@ Escrow shares for an async redeem tagged to the active proposal. Pays out at the
 
 ### `sherwood queue claim`
 
-Claim a settled request (deposit → shares, redeem → asset) once its proposal's price is stamped and the vault is unlocked.
+Claim a request. A redeem pays out once its proposal's price is stamped and redemptions are unlocked; a deposit mints once deposits are unlocked. Before sending, the CLI checks the request and refuses a claim that would revert — for a [stranded redeem](#stranded-redeems) it prints the `queue cancel` command instead.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -262,7 +262,7 @@ Claim a settled request (deposit → shares, redeem → asset) once its proposal
 
 ### `sherwood queue cancel`
 
-Cancel a pending request **before** its proposal settles. Reverts after the settle price is stamped (no free look-back option).
+Cancel an open request and get the escrow back (shares for a redeem, assets for a deposit). A redeem can be cancelled only until its proposal's settle price is stamped (no free look-back option); a deposit can be cancelled at any time. Only the request owner can cancel.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -271,11 +271,23 @@ Cancel a pending request **before** its proposal settles. Reverts after the sett
 
 ### `sherwood queue list`
 
-List your requests for a vault: id, kind (Deposit/Redeem), amount, proposal id, claimed/cancelled state.
+List your requests for a vault: id, kind (Deposit/Redeem), amount, proposal id, claimed/cancelled state, and a `status` column (last, so scripts reading columns 1–6 are unaffected): `claimable`, `waiting for pid N to settle`, `stranded (pid N ended …)`, `waiting for vault to unlock`, `claimed`, `cancelled`.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--vault <address>` | Yes | Vault address |
+
+### Stranded redeems
+
+A queued redeem is tagged to the proposal that was open when it was made, and only that proposal **settling** stamps its price. If the proposal ends **Rejected**, **Expired** or **Cancelled** instead, no price is ever stamped and `claim` reverts `NotSettled` forever. `queue list` shows such a request as `stranded`.
+
+Your shares are not lost. Cancel the request — allowed because nothing was stamped — and the escrowed shares come back to your wallet:
+
+```bash
+sherwood queue cancel --vault <vault> --id <requestId>
+```
+
+Then redeem directly with `sherwood vault redeem` once `redemptionsLocked()` is false (no open proposal), or queue a new request against the next proposal. Queued **deposits** are never stranded: they don't depend on a stamp and claim as soon as deposits unlock. The vault page in the app lists your open requests with the same statuses and Claim / Cancel buttons.
 
 ---
 
