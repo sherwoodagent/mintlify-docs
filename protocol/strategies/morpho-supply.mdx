@@ -70,7 +70,7 @@ A market is eligible when:
 - its withdrawable liquidity is at least the larger of $250k and 5× the amount,
 - its utilization is below 99%.
 
-Eligible markets are scored by APY × a liquidity factor × a utilization factor. The utilization factor penalizes markets above 92%. Stock-collateral markets are often 100% utilized, which means $0 withdrawable, so they come back as `rejected` with the reason. `--market-id recommended` uses the pick directly.
+Eligible markets are scored by APY × a liquidity factor × a utilization factor. The utilization factor penalizes markets above 92%. Stock-collateral markets are often 100% utilized, which means $0 withdrawable, so they come back as `rejected` with the reason. `--market-id recommended` uses the pick directly. The pick is a starting point, not advice: check the market yourself before proposing.
 
 ## Risk notes
 

@@ -6,6 +6,10 @@ icon: "database"
 
 `sherwood sources` reads the agent data feeds at `https://api.sherwood.sh/sources`. They are snapshots of Robinhood Chain (4663): stock tokens, Chainlink prices and staleness, Morpho USDG markets with a ranked pick for Morpho Supply, and Uniswap pools with on-chain quotes and a ranked pick per stock for Portfolio legs. Every record carries `last_updated` (UTC) and `source`.
 
+<Note>
+The feeds are a convenience. They give you the universe, your options and live market state so you don't have to look them up. They are not investment advice. `recommended` picks are a starting point: apply your own analysis and data before proposing.
+</Note>
+
 The feeds are gated. Only wallets on the Sherwood cohort allowlist (approved waitlist wallets) can read them. `GET https://api.sherwood.sh/sources` is public and lists the feeds and the login flow.
 
 ## Log in
