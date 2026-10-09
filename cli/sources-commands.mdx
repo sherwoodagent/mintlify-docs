@@ -1,0 +1,75 @@
+---
+title: "Data feeds (sources)"
+description: "Cohort-gated market data for Robinhood Chain agents: stock universe, oracle prices, Morpho yields, pool liquidity"
+icon: "database"
+---
+
+`sherwood sources` reads the agent data feeds at `https://api.sherwood.sh/sources`. They are snapshots of Robinhood Chain (4663): stock tokens, Chainlink prices and staleness, Morpho USDG markets with a ranked pick for Morpho Supply, and Uniswap pools with on-chain quotes and a ranked pick per stock for Portfolio legs. Every record carries `last_updated` (UTC) and `source`.
+
+The feeds are gated. Only wallets on the Sherwood cohort allowlist (approved waitlist wallets) can read them. `GET https://api.sherwood.sh/sources` is public and lists the feeds and the login flow.
+
+## Log in
+
+With a configured key (`PRIVATE_KEY` or `sherwood config set --private-key`):
+
+```bash
+sherwood sources login
+# → Logged in as 0x… (token valid until …)
+```
+
+With an external signer such as Privy, use two steps:
+
+```bash
+sherwood sources login --address 0xYourAgentWallet --json
+# → { "message": "api.sherwood.sh wants you to sign in with your Ethereum account: …", … }
+# personal_sign that exact message with the agent wallet, then:
+sherwood sources login --signature 0x…
+```
+
+The token lasts 1 hour and is cached in `~/.sherwood/config.json`. With a configured key, `sources get` logs in again by itself when the token expires. External signers repeat the two steps. A wallet that isn't on the allowlist gets `403`.
+
+## Read a feed
+
+```bash
+sherwood sources get <feed> [--amount <usd>]
+```
+
+| Feed | Cadence | What it gives you |
+|---|---|---|
+| `universe` | 1h | Every Robinhood stock token on 4663: address, decimals, UI multiplier, pending multiplier, Chainlink feed, supply |
+| `prices` | 15m | Chainlink price, age, `stale`, `portfolio_price_ok` (PortfolioStrategy's 26h feed-age gate), feed decimals |
+| `chain` | 15m | Latest block and gas |
+| `morpho` (alias of `yield/morpho`) | 30m | `recommended` USDG Morpho Blue market for Morpho Supply with reasons; vaults with caps and headroom; all USDG markets with `market_params` |
+| `liquidity` | 30m | `recommended.by_symbol`: best USDG pool per stock that the swap adapter can route, slippage vs oracle, suggested `maxSlippageBps`; all pools with quotes at $1k/$10k/$50k |
+| `catalysts` | 24h | Robinhood multiplier changes |
+| `calendar` | 24h | US equities session, weekend gap, the window when Portfolio actions revert `StalePrice()` |
+
+`get` prints JSON to stdout, so you can pipe it:
+
+```bash
+sherwood sources get morpho --amount 10000 | jq '.recommended.pick'
+sherwood sources get liquidity | jq '.recommended.by_symbol.NVDA'
+sherwood sources get prices | jq '.records[] | select(.symbol=="AAPL")'
+```
+
+`--amount` re-ranks the Morpho pick so the market's withdrawable liquidity covers 5× your supply. Settlement withdraws everything by shares and reverts if the market can't pay.
+
+## Other commands
+
+| Command | Description |
+|---|---|
+| `sherwood sources status` | Cached login: address, expiry, valid |
+| `sherwood sources logout` | Forget the token |
+
+`--api <url>` or `SHERWOOD_SOURCES_API` overrides the API base.
+
+## Raw HTTP
+
+```bash
+curl "https://api.sherwood.sh/sources/auth/challenge?address=0x…"
+# sign data.message (personal_sign), then:
+curl -X POST https://api.sherwood.sh/sources/auth/verify \
+  -H 'content-type: application/json' \
+  -d '{"message":"…","challenge":"…","signature":"0x…"}'
+curl -H "Authorization: Bearer <token>" https://api.sherwood.sh/sources/prices
+```

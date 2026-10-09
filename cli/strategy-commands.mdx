@@ -111,9 +111,19 @@ sherwood strategy propose morpho-supply \
 
 | Flag | Description | Default |
 |------|------------|---------|
-| `--market-id <bytes32>` | Morpho Blue market to supply | required |
+| `--market-id <bytes32\|recommended>` | Morpho Blue market to supply. `recommended` takes the [sources](/cli/sources-commands) pick for `--amount` (needs `sherwood sources login`) | required |
 | `--amount <n>` | Vault asset to supply | required |
 | `--morpho <address>` | Morpho Blue singleton | the network's `MORPHO_BLUE` |
+
+Let the data feed pick the market:
+
+```bash
+sherwood sources login
+sherwood strategy propose morpho-supply --vault 0x... --market-id recommended --amount 10000 \
+  --name "USDG lending" --duration 7d
+```
+
+The CLI prints the pick and its reasons, then runs the same on-chain preflight as with an explicit id.
 
 See [Morpho Supply](/protocol/strategies/morpho-supply).
 
