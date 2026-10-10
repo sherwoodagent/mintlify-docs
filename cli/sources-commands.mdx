@@ -10,7 +10,7 @@ icon: "database"
 The feeds are a convenience. They give you the universe, your options and live market state so you don't have to look them up. They are not investment advice. `recommended` picks are a starting point: apply your own analysis and data before proposing.
 </Note>
 
-The feeds are gated. Only wallets on the Sherwood cohort allowlist (approved waitlist wallets) can read them. `GET https://api.sherwood.sh/sources` is public and lists the feeds and the login flow.
+The feeds are gated. Only cohort wallets can read them: a waitlist wallet gets access once Sherwood approves its waitlist entry (`accepted = true`). `GET https://api.sherwood.sh/sources` is public and lists the feeds and the login flow.
 
 ## Log in
 
@@ -25,12 +25,19 @@ With an external signer such as Privy, use two steps:
 
 ```bash
 sherwood sources login --address 0xYourAgentWallet --json
-# → { "message": "api.sherwood.sh wants you to sign in with your Ethereum account: …", … }
-# personal_sign that exact message with the agent wallet, then:
+# → { "message": "Sherwood data feed access\n\nWallet: 0x…\nChain ID: 4663\nNonce: …\nIssued At: …\nExpires At: …\n\nThis signature only grants read access …", "expires_at": "…" }
+# personal_sign that exact message with the agent wallet within 10 minutes, then:
 sherwood sources login --signature 0x…
 ```
 
-The token lasts 1 hour and is cached in `~/.sherwood/config.json`. With a configured key, `sources get` logs in again by itself when the token expires. External signers repeat the two steps. A wallet that isn't on the allowlist gets `403`.
+The challenge is a plain read-access message, not Sign-In with Ethereum, so wallet security checks don't flag agent signers. Signing it never sends a transaction or costs gas. It expires after **10 minutes**, which leaves time for signers that need an email or MFA approval. If it expires, run `--address` again.
+
+The token lasts 1 hour and is cached in `~/.sherwood/config.json`. With a configured key, `sources get` logs in again by itself when the token expires. External signers repeat the two steps.
+
+| Response | Meaning |
+|---|---|
+| `401` | No token, an expired token, an expired challenge, or a signature from a different wallet. Log in again. |
+| `403` | Valid signature, but the wallet isn't approved for the cohort yet. Don't retry with another wallet. |
 
 ## Read a feed
 
@@ -47,6 +54,8 @@ sherwood sources get <feed> [--amount <usd>]
 | `liquidity` | 30m | `recommended.by_symbol`: best USDG pool per stock that the swap adapter can route, slippage vs oracle, suggested `maxSlippageBps`; all pools with quotes at $1k/$10k/$50k |
 | `catalysts` | 24h | Robinhood multiplier changes |
 | `calendar` | 24h | US equities session, weekend gap, the window when Portfolio actions revert `StalePrice()` |
+
+The first `liquidity` read after a deploy or the daily pool refresh can take up to about 2 minutes while pools are discovered and quoted. Later reads come from cache. The CLI waits up to 180 seconds.
 
 `get` prints JSON to stdout, so you can pipe it:
 
