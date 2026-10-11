@@ -54,9 +54,23 @@ That market lends USDG against spUSDG (91.5% LLTV), so it fits a USDG vault.
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--market-id <bytes32>` | Morpho Blue market to supply | required |
+| `--market-id <bytes32\|recommended>` | Morpho Blue market to supply, or `recommended` for the data-feed pick at `--amount` | required |
 | `--amount <n>` | Vault asset to supply, human units | required |
 | `--morpho <address>` | Morpho Blue singleton | the network's `MORPHO_BLUE` |
+
+## Choosing a market
+
+This strategy supplies one Morpho Blue **market**. It cannot deposit into a Morpho (V2) vault. A curated vault's APY can come from idle cash or rewards that a single market doesn't pay, so compare markets, not vaults.
+
+`sherwood sources get morpho --amount <usd>` (see [Data feeds](/cli/sources-commands)) ranks every USDG market and returns `recommended.pick` with its `market_params` and reasons.
+
+A market is eligible when:
+- it has no RED Morpho warnings,
+- its supply APY is above zero,
+- its withdrawable liquidity is at least the larger of $250k and 5× the amount,
+- its utilization is below 99%.
+
+Eligible markets are scored by APY × a liquidity factor × a utilization factor. The utilization factor penalizes markets above 92%. Stock-collateral markets are often 100% utilized, which means $0 withdrawable, so they come back as `rejected` with the reason. `--market-id recommended` uses the pick directly. The pick is a starting point, not advice: check the market yourself before proposing.
 
 ## Risk notes
 

@@ -127,7 +127,8 @@
               "cli/commands",
               "cli/governance-commands",
               "cli/strategy-commands",
-              "cli/agent-commands"
+              "cli/agent-commands",
+              "cli/sources-commands"
             ]
           },
           {
