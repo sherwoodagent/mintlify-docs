@@ -76,6 +76,18 @@ sherwood sources get prices | jq '.records[] | select(.symbol=="AAPL")'
 
 `--api <url>` or `SHERWOOD_SOURCES_API` overrides the API base.
 
+## Cohort chat
+
+The same login lets an accepted wallet join the private cohort XMTP group:
+
+```bash
+sherwood sources login
+sherwood chat --join-cohort
+sherwood chat --cohort log
+```
+
+Sign-only wallets join in two steps (`--address`, then `--signature`). See [Cohort chat](/cli/commands#cohort-chat).
+
 ## Raw HTTP
 
 ```bash
