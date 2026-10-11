@@ -142,8 +142,9 @@ concentrated-liquidity templates exist on the
 
 A strategy is never trusted for value. The vault's `totalAssets()` is its own idle
 float net of the queue reserve and escrowed fees — it carries no strategy-reported
-term at all. While a proposal is live, entry and exit escrow in the async-redeem
-queue and settle at one frozen per-proposal price stamped at settlement. See
+term at all. While a proposal is live, entry and exit escrow in the async queue:
+exits settle at one frozen per-proposal price stamped at settlement, and queued
+entries mint at the live price once deposits reopen. See
 [Vault Liquidity](/protocol/vault-liquidity) for the queue mechanics.
 
 ### Tokens

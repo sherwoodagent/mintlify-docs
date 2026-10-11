@@ -41,11 +41,15 @@ The queue is the only path out while a strategy is executing.
 
 1. **`requestRedeem(shares, owner)`** — shares move into the `VaultWithdrawalQueue`. They are not burned yet. Redemption value is unknown until settlement. Requires `redemptionsLocked() == true`.
 2. **Settlement stamps one price.** The vault records a frozen `num/den` for that proposal — realized assets-per-share after fees, using the same virtual offsets as ERC-4626 so queue claims round like the vault.
-3. **`claim(requestId)`** — after the price is stamped and redemptions unlock, anyone can claim. A redeem claim burns the escrowed shares and pays the vault asset. A deposit claim mints shares at the frozen price.
+3. **`claim(requestId)`** — after the price is stamped and redemptions unlock, anyone can claim. A redeem claim burns the escrowed shares and pays the vault asset at the stamped price. A deposit claim needs no stamp: it mints shares at the live price (`previewDeposit`) once `depositsLocked()` is false.
 
-`requestDeposit(assets, receiver)` is the symmetric entry: assets escrow in the queue (off-vault, so they never inflate `totalAssets` or get swept into the live strategy) and mint at the stamped price on claim. Instant deposit is already closed for the whole open-proposal window, so this is the path in from Pending through Executed.
+`requestDeposit(assets, receiver)` is the symmetric entry: assets escrow in the queue (off-vault, so they never inflate `totalAssets` or get swept into the live strategy) and mint at the live share price on claim. Instant deposit is already closed for the whole open-proposal window, so this is the path in from Pending through Executed.
 
-A request can be `cancel`led only before its price is stamped, and only by the request owner — a post-stamp cancel would be a free look-back option.
+A redeem can be `cancel`led only before its price is stamped, and only by the request owner — a post-stamp cancel would be a free look-back option. A deposit carries no frozen price, so its owner can cancel it at any time.
+
+### When the proposal does not settle
+
+Only settlement stamps a price. A redeem tagged to a proposal that ends **Rejected**, **Expired** or **Cancelled** is never stamped, so its `claim` reverts `NotSettled` for good. The exit is `cancel`: it is allowed because nothing was stamped, it has no lock gate, and it returns the escrowed shares to the owner, who can then redeem directly once redemptions unlock. See [stranded redeems](/cli/commands#stranded-redeems) for the CLI steps.
 
 ### Reserve invariant
 
