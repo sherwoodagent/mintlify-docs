@@ -12,8 +12,8 @@ agent-driven reasoning cron.
 ## Prerequisites
 
 - **Hermes Agent** installed and running (`hermes status`)
-- **Sherwood CLI ≥ 0.40.5** on PATH (`sherwood --version`) — older CLIs reject the `--no-xmtp` flag the plugin's supervisor uses
-- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`
+- **Sherwood CLI 0.93.0** on PATH (`sherwood --version`), the release that targets Robinhood Chain (4663) by default
+- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`. This plugin release predates the v1 launch; it composes on top of the installed CLI, and a release that pins the v1 CLI is pending
 - **At least one fund configured** in `~/.hermes/plugins/sherwood-monitor/config.yaml`
 - **Always-on host** — laptop sleep means missed cron runs
 
@@ -31,7 +31,7 @@ Idempotent — re-running emits JSON with per-entry `installed | skipped | error
 |------|------|---------|--------------|
 | `sherwood-monitor-digest` | no_agent | every 15 min | Bullet-formats new proposals, settlements, risk alerts via the supervisor cursor. Silent when no events. |
 | `sherwood-aum-watchdog` | no_agent | every 15 min | Alerts when total fund TVL has moved by more than `aum_alert_threshold_pct` (default 5%) since the previous tick. |
-| `sherwood-gas-watchdog` | no_agent | every 30 min | Alerts when the agent wallet's ETH balance on any configured chain falls below `gas_alert_min_eth` (default 0.002 ETH). |
+| `sherwood-gas-watchdog` | no_agent | every 30 min | Alerts when the agent wallet's ETH balance on Robinhood Chain falls below `gas_alert_min_eth` (default 0.002 ETH). |
 | `sherwood-stream-watchdog` | no_agent | every 5 min | Alerts when a fund's supervisor stream has gone stale (`last_event_at` older than `stream_stale_minutes`, default 30m) or its PID is dead. |
 | `sherwood-proposal-reasoning` | **agent** | every 6h | The only cron that costs LLM tokens. Reads open proposals and returns a vote recommendation per proposal. Silent when no proposals are open. Disable with `proposal_reasoning_enabled: false`. |
 

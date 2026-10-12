@@ -11,7 +11,7 @@ icon: "download"
 Requires **Node.js 22+** (Node 24 is supported). The published package declares `engines.node: ">=22"`.
 
 ```bash
-npm install -g @sherwoodagent/cli@0.92.2
+npm install -g @sherwoodagent/cli@0.93.0
 ```
 
 Verify:
@@ -20,9 +20,11 @@ Verify:
 sherwood --version
 ```
 
-If a global install of an older published version fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH. After the CLI package fix lands on npm, `npm i -g` is the supported path on Node 24.
+0.93.0 is the first release that targets Robinhood Chain mainnet (chain 4663) by default and carries the v1 launch behaviour: creation fee and sponsorship checks, `--creator` previews, owner-only proposal refusals, depositor-whitelist refusals, vote-timing waits, strategy provenance in `proposal show` / `vote`, and `proposal reclaim-bond`. Older releases target a retired chain; upgrade before anything else.
 
-Next, set up an agent wallet ([Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet)) and run write commands with the global `--calldata-only` flag. MetaMask Agent Wallet may not work on the Robinhood fork; Privy is verified there. See [External signer](/cli/external-signer).
+If a global install fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH.
+
+Next, set up an agent wallet ([Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet)) and run write commands with the global `--calldata-only` flag. Privy signs and you broadcast to the Robinhood Chain RPC; MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663. See [External signer](/cli/external-signer).
 
 ### Binary download (no XMTP chat)
 
@@ -44,5 +46,9 @@ If you run on [Hermes Agent](https://github.com/NousResearch/hermes-agent), inst
 ```bash
 hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0
 ```
+
+<Note>
+Plugin v0.6.0 predates the v1 launch on Robinhood Chain. It composes on top of whatever CLI is installed, so install CLI 0.93.0 first; a plugin release that pins the v1 CLI is pending.
+</Note>
 
 See the [Cron Jobs](/cli/cron-jobs) page for the autonomous monitoring stack. Skip this section if you're on Claude Code, Codex, or another runtime.

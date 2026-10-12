@@ -4,16 +4,18 @@ description: "On-chain join requests and approvals via Ethereum Attestation Serv
 icon: "certificate"
 ---
 
-<Note>EAS attestations are not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with EAS deployed.</Note>
+<Note>EAS runs on **Robinhood Chain (chain 4663)**, deployed by Sherwood (it is not a predeploy on an Arbitrum Orbit chain). Join requests and approvals land there, on the same chain as the vaults.</Note>
 
 Sherwood uses EAS for on-chain join requests and approvals. Agents can request to join any fund by creating an attestation. Creators review and approve/reject requests.
 
 ## How it works
 
-1. **Join request** — `sherwood vault join` creates a `SYNDICATE_JOIN_REQUEST` attestation on EAS. The attester is the requesting agent, the recipient is the fund creator. Contains syndicateId, agentId, vault address, and a message.
-2. **Review** — `sherwood vault requests` queries the EAS GraphQL API for pending (non-revoked) join requests directed at the creator.
-3. **Approval** — `sherwood vault approve` registers the agent on-chain (same as `vault add`), creates an `AGENT_APPROVED` attestation, and optionally revokes the join request.
+1. **Join request** — `sherwood vault join` creates a `SYNDICATE_JOIN_REQUEST` attestation on EAS. The attester is the requesting agent, the recipient is the fund creator. Contains syndicateId, agentId, vault address, and a message. Requires an [ERC-8004](/reference/integrations/erc-8004) identity.
+2. **Review** — `sherwood vault requests` queries the EAS GraphQL indexer for pending (non-revoked) join requests directed at the creator.
+3. **Approval** — `sherwood vault approve` registers the agent on-chain (same as `vault add`), creates an `AGENT_APPROVED` attestation, and adds the agent to the XMTP group.
 4. **Rejection** — `sherwood vault reject` revokes the join request attestation.
+
+During the private beta a registered agent that is not the vault owner cannot propose (`ownerOnlyProposals`); `vault join` warns about this, and `vault approve` prints the single-operator note.
 
 ## Schemas
 
@@ -22,18 +24,20 @@ Sherwood uses EAS for on-chain join requests and approvals. Agents can request t
 | SYNDICATE_JOIN_REQUEST | `uint256 syndicateId, uint256 agentId, address vault, string message` | Yes |
 | AGENT_APPROVED | `uint256 syndicateId, uint256 agentId, address vault` | Yes |
 
-Schemas are registered one-time via `cli/scripts/register-eas-schemas.ts`. UIDs are stored in `cli/src/lib/addresses.ts`.
+Schemas are registered one-time via `cli/scripts/register-eas-schemas.ts`. Schema UIDs are chain-independent (`keccak256(schema, resolver, revocable)`), and are stored in `cli/src/lib/addresses.ts`.
 
 ## Addresses
 
-EAS is not deployed on the current chain. When Sherwood expands to a chain that ships
-EAS, the CLI resolves the EAS and SchemaRegistry addresses at runtime in
-`cli/src/lib/addresses.ts`, keyed by chain.
+| Contract | Robinhood Chain (4663) |
+|----------|------------------------|
+| EAS | `0x7d70441Bb10AcE5d9771dc0b6205D89ddf63205B` |
+| SchemaRegistry | `0xdd7521Ba10773e556Defa6D6c133cB2F663b5c26` |
+
+Resolved at runtime in `cli/src/lib/addresses.ts`, keyed by chain.
 
 ## GraphQL API
 
-Join request queries use the EAS GraphQL API for the chain where EAS is deployed (no
-SDK dependency); the endpoint is resolved per-chain alongside the addresses above.
+Join request queries go to Sherwood's self-hosted EAS indexer for Robinhood Chain (easscan does not index 4663); the endpoint is configured per chain in `cli/src/lib/network.ts` (`easGraphqlUrl`). No EAS SDK dependency: attestations are encoded with viem.
 
 ## CLI commands
 

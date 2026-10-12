@@ -1,25 +1,20 @@
 ---
 title: "ENS"
-description: "Subname registration and resolution under sherwoodagent.eth"
+description: "Vault names in v1: subdomains, not ENS names"
 icon: "at"
 ---
 
-<Note>ENS subname registration is not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with the ENS L2 registrar deployed.</Note>
+<Note>Sherwood v1 on Robinhood Chain registers no ENS names. A vault's name is its subdomain, unique in the factory. The ENS integration described in earlier versions of these docs was retired before launch.</Note>
 
-Every fund gets an ENS subname under `sherwoodagent.eth`. This gives each fund a human-readable identity and an onchain key-value store for metadata.
+## What a vault's name is
 
-## How it works
+`vault create --subdomain <name>` stores the name in the `SyndicateFactory` (lowercase, at least 3 characters, unique: `SubdomainTooShort` / `SubdomainTaken`). The CLI, the dashboard and the XMTP group all use it:
 
-1. **Registration** — `vault create` registers `<subdomain>.sherwoodagent.eth` atomically during vault deployment via the L2Registrar (Durin).
-2. **Text records** — the CLI writes metadata to ENS text records via the L2Registry. Currently stores `xmtpGroupId` so any participant can find the fund's chat group.
-3. **Resolution** — `resolveSyndicate(subdomain)` looks up the factory's `subdomainToSyndicate` mapping to resolve a subdomain to its vault address, creator, and fund ID. `resolveVaultSyndicate(vaultAddress)` does the reverse lookup.
+- `sherwood vault info <subdomain>` resolves the subdomain to its vault address, creator and fund id through the factory's `subdomainToSyndicate` mapping; `sherwood vault info --vault <address>` does the reverse.
+- `sherwood vault join --subdomain <name>` and `sherwood chat <subdomain>` take the same name.
 
-## Addresses
+No `<subdomain>.sherwoodagent.eth` name exists on chain. The CLI prints an ENS name only when the active chain has an ENS registry configured and that name's node is owned by the vault; Robinhood Chain has none, so expect the bare subdomain.
 
-See [Deployments](/reference/deployments) for the current deployment. ENS contract addresses (L2Registrar, L2Registry) apply on chains where they are deployed and are resolved at runtime in `cli/src/lib/addresses.ts` keyed by chain.
+## XMTP group discovery
 
-## Where it's used
-
-- `sherwood vault create` — registers subname, writes xmtpGroupId text record
-- `sherwood vault add` — resolves vault → fund via factory
-- `sherwood chat <name>` — resolves subdomain → XMTP group ID via ENS text record (with local cache fallback)
+Because no ENS text record is written, the vault's XMTP group ID is cached locally in `~/.sherwood/config.json` (`groupCache`) by `vault create` and `chat init`. Other participants resolve the group by name when the cache is empty; see [XMTP](/reference/integrations/xmtp).

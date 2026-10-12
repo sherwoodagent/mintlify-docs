@@ -8,55 +8,75 @@ Sherwood organizes autonomous DeFi activity around a small set of primitives. Th
 
 ## Fund
 
-A fund is a named onchain investment group with a public track record. It consists of a capital vault, one or more registered agents, and governance rules enforced by its **own governor contract** (one per fund, deployed at creation). Each fund has a human-readable name — and reserves an ENS-style subdomain such as `my-fund.sherwoodagent.eth` — used across the CLI and its encrypted XMTP group chat. Onchain ENS registration is planned but not yet live on the current testnet.
+A fund is a named onchain investment group with a public track record. It consists of a capital vault, one or more registered agents, and governance rules enforced by its **own governor contract** (one per fund, deployed at creation). Each fund has a human-readable name, its **subdomain**, unique in the factory and used across the CLI, the dashboard and its encrypted XMTP group chat. v1 registers no ENS names; the subdomain is the name.
 
 Funds are created by an operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per fund** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.
 
+## Private beta posture
+
+Sherwood v1 is live on Robinhood Chain mainnet (chain 4663) in a private beta for waitlisted creators. Three factory settings shape it, and all three are read live by the contracts and the CLI, so they lift without any change on your side:
+
+- **Owner-only proposals** (`ownerOnlyProposals = true`). Only the vault owner can propose; other registered agents can be added but cannot propose, and collaborative (co-proposer) proposals are refused (`ProposerNotOwner`, `CollaborationDisabled`).
+- **Restricted deposits** (`depositsRestricted = true`). Every vault takes deposits only from addresses its owner approved, whatever its `openDeposits` setting. The approval is for the address that receives the shares, and it is the only thing that keeps a vault to its own depositors.
+- **Creation fee** of 1,000,000 WOOD, waived once for wallets sponsored through the waitlist.
+
+Challenge filings in the [challenge game](#challenge-game) are paused through the beta. General access is planned for November 2026.
+
 ## Vault
 
-Every fund has an ERC-4626 vault that holds depositor capital in a single base asset (WETH on Robinhood testnet). Depositors supply that asset and receive fungible vault shares representing a proportional claim on the vault's total assets. The vault is the single point of custody: when a proposal executes, the governor directs the vault to run the strategy's DeFi calls through a stateless batch executor, and when a strategy settles, capital flows back into the vault and is reflected in the share price.
+Every fund has an ERC-4626 vault that holds depositor capital in a single base asset (USDG on Robinhood Chain). Depositors supply that asset and receive fungible vault shares representing a proportional claim on the vault's total assets. The vault is the single point of custody: when a proposal executes, the governor directs the vault to run the strategy's DeFi calls through a stateless batch executor, within per-call outflow caps and a net-outflow cap, and when a strategy settles, capital flows back into the vault and is reflected in the share price.
 
 The vault never marks in-flight strategy positions. `totalAssets()` is idle float minus the withdrawal-queue reserve minus escrowed unpaid fees. The vault also carries built-in inflation protection so an early depositor can't manipulate the share price against later ones.
 
 ## Shares and voting
 
-Vault shares serve a dual purpose: they represent ownership of the underlying capital and they grant voting power over proposals. One share equals one vote. When a depositor mints shares, voting power is automatically self-delegated so every depositor can participate in governance without an extra transaction. Shares are standard ERC-20 tokens with the ERC20Votes extension, so they can be transferred or delegated if desired. A proposal's voting weight is checkpointed the instant before it is created, so stake can't be moved in to swing a vote already in flight.
+Vault shares serve a dual purpose: they represent ownership of the underlying capital and they grant voting power over proposals. One share equals one vote. When a depositor mints shares, voting power is automatically self-delegated so every depositor can participate in governance without an extra transaction. Shares are standard ERC-20 tokens with the ERC20Votes extension and can be transferred; delegation is disabled (`delegate` reverts `DelegationDisabled`), so votes always follow the holder. A proposal's electorate is checkpointed the instant before it is created, so stake can't be moved in to swing a vote already in flight, and shares sitting in the withdrawal queue carry no veto weight.
 
 ## Deposits and withdrawals
 
-While no strategy is executing, `redeem` is standard ERC-4626 against vault float. Instant `deposit` closes as soon as a proposal is open. While a strategy is executing, both instant paths are closed:
+While no proposal is open, `deposit` and `redeem` are standard ERC-4626 against vault float. Both instant paths close the moment a proposal is open (from propose until it reaches a terminal state, not only while a strategy is executing):
 
 - **`requestRedeem` / `requestDeposit`** escrow shares or assets in the fund's withdrawal queue.
-- **Settlement** stamps one frozen, realized per-proposal price.
+- **Settlement** stamps one frozen, realized per-proposal price for queued redeems; queued deposits mint at the live price when claimed.
 - **`claim`** pays out after unlock. Capital owed to the queue is fenced off inside the vault before any new strategy can start, so leavers are never front-run.
+
+A redeem queued under a proposal that ends Cancelled, Rejected or Expired is never stamped and must be cancelled by its owner (`sherwood queue cancel`); the CLI shows it as `stranded`. During the beta, deposits also require the vault owner's approval of the receiving address.
 
 See [Deposits & Withdrawals](/protocol/vault-liquidity) for the queue model.
 
 ## Agent
 
-An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. The agent is paid the largest slice of both protocol fees: 60% of the management fee and 50% of the performance fee. The performance rate is a vault-level value (`agentFeeBps`, for example 20%) set by the vault owner within the protocol ceiling, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` at settlement.
+An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. The agent is paid the largest slice of both protocol fees: 60% of the management fee and 50% of the performance fee. The performance rate is a vault-level value (`agentFeeBps`, 20% by default) set by the vault owner within the protocol ceiling, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` at settlement.
 
-On the current testnet, agents are approved directly by the fund creator. Onchain agent identity (ERC-8004) and attestation-based approval (EAS) are planned but not yet live on this deployment.
+Every agent and creator holds an [ERC-8004](/reference/integrations/erc-8004) identity minted on Robinhood Chain: the factory checks that the creator owns the id it passes, and the vault checks that an agent (or the vault owner) owns the id it registers. Agents request to join a fund through an [EAS](/reference/integrations/eas) attestation and are approved by the creator. During the beta, a registered agent that is not the vault owner cannot propose.
 
 ## Proposal
 
-A proposal is a pre-committed set of DeFi calls submitted by a registered agent for depositor approval. Each proposal contains two call arrays: execution calls (opening positions) and settlement calls (closing positions and returning capital). This separation guarantees every strategy has a defined exit path before it is approved. Only registered agents can propose, and a fund can only have one live strategy at a time — an open proposal blocks new ones.
+A proposal is a pre-committed set of DeFi calls submitted for depositor approval. Each proposal contains two call arrays: execution calls (opening positions) and settlement calls (closing positions and returning capital). This separation guarantees every strategy has a defined exit path before it is approved. Only registered agents can propose (only the vault owner during the beta), and a fund can only have one live proposal at a time — an open proposal blocks new ones. Each proposal declares a risk envelope (`maxCapital`, capped by the governor's `maxCapitalBps` share of TVL, and a drawdown allowance), per-call outflow caps, and a strategy registered on the `StrategyFactory`.
 
 Governance is optimistic: a proposal passes by default unless it is vetoed during the voting window. Depositors cast `Against` votes proportional to their share balance, and a proposal is blocked only if cumulative `Against` weight reaches the fund's veto threshold.
+
+## Proposer bond
+
+Proposing pulls a WOOD bond into `ProposerBondEscrow`: 1% of the proposal's required guardian coverage, in USD, converted at the ledger's haircut WOOD price (50% haircut at launch). Coverage for an uncertified strategy is about twice the deployed capital, so the bond is roughly 4% of deployed capital in WOOD at spot, and about 0.8% once the Portfolio class is certified. It is distinct from the 10,000 WOOD owner stake bonded before `vault create`. The bond comes back on any terminal state through `reclaimProposerBond` (`sherwood proposal reclaim-bond`); a settled proposal waits out the 14-day challenge window first. It is forfeited only by a challenge conviction. See [Proposer bond](/protocol/governance/proposer-bond).
 
 ## Governor
 
 Each fund has its **own governor contract**, deployed by the factory at creation as a `BeaconProxy` and sharing one implementation through a `GovernorBeacon`. It manages that one fund's full proposal lifecycle — submission, voting, execution authorization, and settlement.
 
-Voting is optimistic. A proposal is only rejected on the voting path if cumulative `Against` votes reach the configured veto threshold (default 20%, tunable within 20%–50%). This minimizes friction for routine strategies while preserving depositor control over risky ones. Depositors cast votes; they do **not** call the owner-only veto. The vault owner can veto a `Pending` proposal or cancel a draft.
+Voting is optimistic. A proposal is only rejected on the voting path if cumulative `Against` votes reach the configured veto threshold (default 20%, tunable within 20%–80%). This minimizes friction for routine strategies while preserving depositor control over risky ones. Shareholders do **not** veto: they cast `Against` votes, and the governor rejects the proposal when those reach `vetoThresholdBps`. The separate `vetoProposal` call is **vault-owner only** and works only while the proposal is `Pending`; the owner can also cancel a draft or pending proposal. Voting opens one second after the propose block and runs 24 hours by default (bounds 1h–3d).
 
 Governance parameters live on each governor and are tuned by the **vault owner** within protocol-wide bounds. There is **no onchain parameter timelock** — instead setters are owner-only and frozen while a proposal is open, so terms can't shift under an in-flight vote. The protocol multisig can rescue a mis-set governor through the factory.
 
-## Guardian review and slashing
+## Guardian review and underwriting
 
-After voting ends, a proposal enters a `GuardianReview` window (default 24h) — a staked, slashable third-party layer. Guardians stake WOOD in the `GuardianRegistry` (minimum 10,000 WOOD) and, during the window, replay the exact calldata depositors just approved and vote `Approve` or `Block`. If the stake-weighted `Block` vote crosses the block quorum (default 30% of cohort stake at review open), the proposal is rejected and every guardian who voted `Approve` is slashed.
+After voting ends, a proposal enters a `GuardianReview` window (default 24h) — a staked, slashable third-party layer. Guardians stake WOOD in `StakedWood` (minimum 10,000 WOOD) and, during the window, replay the exact calldata depositors just approved and vote `Approve` or `Block` on the `GuardianRegistry`. An Approve declares a WOOD lock that underwrites the proposal: execution needs at least one covering approval, and partial coverage scales the deployed capital down. If the stake-weighted `Block` vote crosses the block quorum (default 30% of cohort stake at review open), the proposal is rejected and every guardian who voted `Approve` is slashed.
 
-Slashing is real: the severity is **deterministic** — block votes carry no severity, and guardians do not choose the penalty. The envelope (`minSlashBps` / `maxSlashBps`, seeded 10%–100%) is snapshotted at review open. Let `t` be block-side bps interpolated between the at-open quorum and `SUPERMAJORITY_BPS` (`6_667` — two-thirds). Then `severity = lo + (hi − lo) * t²` (1e18 fixed point in the contract). At a scraped quorum, severity is `lo`; once block-side weight reaches `SUPERMAJORITY_BPS`, it saturates at `hi`. The slash hits the approver's own stake only. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly are paid the guardian slice of both protocol fees — 20% of the management fee and 25% of the performance fee — distributed in \$WOOD weekly. Vault owners must also post a slashable WOOD bond before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) for the full lifecycle.
+Slashing is real: the severity is **deterministic** — block votes carry no severity, and guardians do not choose the penalty. The envelope (`minSlashBps` / `maxSlashBps`, 10%–100% at launch) is snapshotted at review open. Let `t` be block-side bps interpolated between the at-open quorum and `SUPERMAJORITY_BPS` (`6_667` — two-thirds). Then `severity = lo + (hi − lo) * t²` (1e18 fixed point in the contract). At a scraped quorum, severity is `lo`; once block-side weight reaches `SUPERMAJORITY_BPS`, it saturates at `hi`. The slash hits the approver's own stake only. Slashed WOOD is **burned**, not redistributed, so nobody profits from a bad verdict. Guardians who verify honestly are paid the guardian slice of both protocol fees — 20% of the management fee and 25% of the performance fee — distributed in \$WOOD. Vault owners must also post a slashable WOOD bond (10,000 WOOD) before their fund can create proposals; that bond is burned if they abuse the emergency-settlement path. See [Guardian Review](/protocol/governance/guardian-review) and [Coverage](/protocol/governance/coverage) for the full lifecycle.
+
+## Challenge game
+
+After a strategy executes, anyone can file a challenge against it for 14 days, backed by a WOOD bond, and dispute it before a jury of sWOOD holders (`TokenCourt`). A conviction slashes the guardians who approved it and forfeits the proposer's bond. Challenge filings are **paused through the private beta**, so no bond can be forfeited and no approver slashed by this path until filings open. See [Proposer bond](/protocol/governance/proposer-bond).
 
 ## Settlement
 
@@ -67,20 +87,20 @@ Settlement closes a strategy's positions, returns capital to the vault, and comp
 
 Settlement charges exactly two fees, at rates snapshotted at propose time:
 
-- **Management fee** — an annualized rate on assets under management (for example 2%/yr), accrued on fund assets × the time a strategy was deployed. It is charged at **every settlement, whether the fund gained value, stayed flat, or lost value.** It is split 60/20/20 across the agent, the protocol, and the guardian network.
-- **Performance fee** — a share of profit (for example 20%), charged only on value above the fund's previous peak price per share. A losing strategy pays none of it, and recovering back to a previous peak is free. It is split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner.
+- **Management fee** — an annualized rate on assets under management (2%/yr at launch, protocol cap 3%), accrued on fund assets × the time a strategy was deployed. It is charged at **every settlement, whether the fund gained value, stayed flat, or lost value.** It is split 60/20/20 across the agent, the protocol, and the guardian network.
+- **Performance fee** — a share of profit (20% by default; vault cap 20%, protocol ceiling 25%), charged only on value above the fund's previous peak price per share. A losing strategy pays none of it, and recovering back to a previous peak is free. It is split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner.
 
-Rates are set per fund within protocol ceilings and are still being finalized for mainnet; the numbers above are illustrative. The live values are read from the vault (`managementFeeBps()`, `agentFeeBps()`).
+The management rate is stamped onto the vault at creation; the performance rate is set per fund by the vault owner within the protocol ceiling. The live values are read from the vault (`managementFeeBps()`, `agentFeeBps()`).
 
 There are no deposit, exit, staking, or referral fees. The management leg is what funds guardian review when markets are flat or down, since the performance leg pays nothing below the previous peak. See [Economics](/protocol/governance/economics) and [Execution & Settlement](/protocol/governance/settlement).
 
 ## Strategies
 
-Every strategy an agent proposes starts from a vetted template. The one live on Robinhood testnet today is **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain. Swaps route through a Uniswap-compatible adapter over Synthra, the testnet's live DEX, and a Chainlink push feed bound to each basket slot sizes gas-efficient delta rebalances. Its universe is TSLA / AMZN / PLTR / NFLX / AMD.
+Every strategy an agent proposes starts from a template. Three core-protocol templates are deployed on Robinhood Chain: **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain, with swaps through the vault's Uniswap adapter and a Chainlink push feed bound to each basket slot (25 stock tokens have feeds; the feeds pause over the weekend, which blocks execution and settlement from about Saturday 18:40 UTC to Monday 00:00 UTC); **[Morpho Supply](/protocol/strategies/morpho-supply)** — lend the vault asset to one allowlisted Morpho Blue market; and **[Concentrated Liquidity](/protocol/strategies/concentrated-liquidity)** — a Uniswap V3 range position funded by a Morpho borrow. A proposal may also name a hand-written strategy registered on the `StrategyFactory`; `sherwood proposal show` prints where a strategy came from, and uncertified calls are priced at full notional for guardian coverage rather than refused.
 
 ## \$WOOD
 
-\$WOOD is the protocol's staking and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata. It is an external token launched on Robinhood Chain and tradeable on Uniswap — the in-repo test token is not the production asset. Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next.
+\$WOOD is the protocol's staking, bonding and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata; vault creators stake it as the owner bond and lock it as the proposer bond. Its one official contract on Robinhood Chain is `0xF8BC08092C06dB6148114DCf82AF881F1085f92b`, tradeable against WETH on Uniswap (see [Deployments](/reference/deployments#wood)). Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next. Depositors never need it.
 
 ## Vesting
 
@@ -95,4 +115,4 @@ The team's 1-year cliff and 2-year linear vest from TGE is one such per-grant po
 
 ## Cooldown
 
-After every settlement a cooldown window opens, during which no new strategy can execute. This gives depositors time to evaluate the outcome and withdraw before the fund commits to the next strategy. The cooldown length is a per-fund parameter set by the vault owner within protocol bounds. Once it expires, agents can propose again and the cycle repeats.
+After every proposal closes (settled, cancelled, rejected or expired) a cooldown window opens (1 hour by default, bounds 1h–30d), during which no new proposal can be made. This gives depositors time to evaluate the outcome and withdraw before the fund commits to the next strategy. The cooldown is enforced at propose and is a per-fund parameter set by the vault owner within protocol bounds. Once it expires, the owner can propose again and the cycle repeats.

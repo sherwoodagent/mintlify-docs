@@ -5,12 +5,16 @@ icon: "gavel"
 ---
 
 <Note>
-**Every proposal and governor command requires `--vault` (CLI ≥ 0.71.1).** Each vault has its own governor (a `BeaconProxy` deployed at creation), so the CLI resolves the target governor on the fly via `factory.governorOf(vault)`. Proposal IDs are scoped per vault. The exceptions are `sherwood governor set-mgmt-split` and `set-perf-split`, which target the protocol-wide `ProtocolConfig` and take no `--vault`.
+**Every proposal and governor command requires `--vault`.** Each vault has its own governor (a `BeaconProxy` deployed at creation), so the CLI resolves the target governor on the fly via `factory.governorOf(vault)`. Proposal IDs are scoped per vault. The exceptions are `sherwood governor set-mgmt-split` and `set-perf-split`, which target the protocol-wide `ProtocolConfig` and take no `--vault`.
 </Note>
+
+<Info>
+**Owner-only proposals.** While the factory's `ownerOnlyProposals` launch flag is on (the private-beta setting), only the vault owner can propose, and collaborative proposals are refused. The owner must also be a registered agent on the vault. `proposal create` and `strategy propose` read the flag live and refuse any other proposer before pinning metadata or locking the bond: `This vault is single-operator: … <proposer> is not the owner (<owner>); propose from the owner wallet.` On chain the reverts are `ProposerNotOwner` and `CollaborationDisabled`. Keyless `proposal create` refuses only when given `--proposer`; without it, it warns and still prints the calldata.
+</Info>
 
 ## `sherwood proposal create`
 
-Agent submits a strategy proposal with pre-committed execute + settle calls.
+The vault owner submits a strategy proposal with pre-committed execute + settle calls. Most proposals are built by [`sherwood strategy propose`](/cli/strategy-commands) instead, which writes these files for you.
 
 ```bash
 sherwood proposal create \
@@ -18,9 +22,10 @@ sherwood proposal create \
   --name "Tech Stock Basket" \
   --description "Weighted basket of tokenized stocks for 7 days" \
   --duration <seconds|7d|24h> \
+  --max-capital <amount> \
   --execute-calls <path-to-json> \
   --settle-calls <path-to-json> \
-  [--metadata-uri <ipfs://...>]
+  [--strategy <clone>] [--metadata-uri <ipfs://...>]
 ```
 
 | Flag | Required | Description |
@@ -28,10 +33,17 @@ sherwood proposal create \
 | `--vault` | Yes | Vault address the proposal targets |
 | `--name` | Yes | Strategy name (used in metadata JSON; ignored for pinning if `--metadata-uri` provided) |
 | `--description` | Yes | Strategy rationale and risk summary (ignored for pinning if `--metadata-uri` provided) |
-| `--duration` | Yes | Strategy duration. Accepts seconds or human format (`7d`, `24h`, `1h`) |
+| `--duration` | Yes | Strategy duration, `1h` to `30d`. Accepts seconds or human format (`7d`, `24h`, `1h`) |
+| `--max-capital` | Yes | Ceiling on what the execute batch may deploy, in vault-asset units. The proposal's risk envelope; must be within the governor's `maxCapitalBps` share of `totalAssets` |
+| `--max-drawdown-bps` | No | Declared loss allowance in bps of `--max-capital` (0–10000, default 2000) |
 | `--execute-calls` | Yes | Path to JSON file with execute Call[] array (open positions) |
 | `--settle-calls` | Yes | Path to JSON file with settlement Call[] array (close positions) |
+| `--execute-caps` / `--settle-caps` | No | Per-call gross-outflow caps in asset units, one per call; each list must sum to at most `--max-capital`. Default: the whole allowance on the last execute call, 0 on settlement calls |
+| `--strategy` | No | The registered strategy clone the calls target (default: none, queue-only) |
+| `--proposer` | With `--calldata-only` | The wallet that will send `propose`; enables the proposer-bond balance and allowance preflight and the owner check |
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
+
+Proposing pulls the **proposer bond** in WOOD into `ProposerBondEscrow`. The CLI quotes it from `ExposureLedger.proposerBondWood`, refuses with `InsufficientProposerBondWood` when the wallet does not hold it, and prints the WOOD approval to the governor's `bondEscrow()` first when the allowance is short. See [Proposer bond](/protocol/governance/proposer-bond) and [`proposal reclaim-bond`](#sherwood-proposal-reclaim-bond).
 
 <Note>
 **No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood vault set-agent-fee`](#sherwood-vault-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps`. The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
@@ -60,7 +72,7 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 
 ### Flow
 
-1. Validate caller is a registered agent on the vault
+1. Validate the caller is a registered agent on the vault and, while `ownerOnlyProposals` is on, the vault owner
 2. Parse and validate calls JSON
 3. If no `--metadata-uri`: build metadata JSON, pin to IPFS via Pinata, get `ipfs://Qm...` URI
 4. Display proposal summary for review (name, duration, call count, metadata URI)
@@ -82,8 +94,8 @@ sherwood vault set-agent-fee --vault <addr> --bps <bps>
 | `--vault` | No | Vault address (default: from config) |
 | `--bps` | Yes | Agent fee in basis points (e.g. `2000` = 20%) |
 
-- A new vault starts at the protocol default (`FeeConstants.DEFAULT_AGENT_FEE_BPS`, for example 2000 bps = 20%). An explicit `0` is legal.
-- Capped at the protocol ceiling (`FeeConstants.MAX_PERFORMANCE_FEE_BPS`) by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` at settlement. Going above the default cap therefore takes two changes, not one.
+- A new vault starts at the protocol default (`FeeConstants.DEFAULT_AGENT_FEE_BPS`, 2000 bps = 20%). An explicit `0` is legal.
+- Capped at the protocol ceiling (`FeeConstants.MAX_PERFORMANCE_FEE_BPS`, 2500 bps = 25%) by the vault, and additionally clamped to the governor's `maxPerformanceFeeBps` (2000 bps on a factory-created vault) at settlement. Going above 20% therefore takes two changes, not one.
 - Charged only on value above the fund's previous peak price per share. This command does not affect the management fee, which has no per-vault setter.
 - Calls `vault.setAgentFeeBps(bps)`. Applies to any proposal **created** after the change; proposals already created keep the fee snapshotted at their propose time.
 
@@ -100,7 +112,7 @@ sherwood proposal list --vault <addr> [--state <filter>]
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--vault` | Yes | Vault whose proposals to list (per-vault governor) |
-| `--state` | No | Filter by state: `pending`, `approved`, `executed`, `settled`, `all` (default: `all`) |
+| `--state` | No | Filter by state: `draft`, `pending`, `approved`, `executed`, `settled`, `all` (default: `all`) |
 
 Queries subgraph for `Proposal` entities filtered by vault/state. Falls back to on-chain iteration via `governor.proposalCount()` + `governor.getProposal(id)`.
 
@@ -127,6 +139,7 @@ Displays:
 - Proposal metadata (from IPFS if available)
 - State, timestamps (created, vote end, execution deadline, executed, settled)
 - Vote breakdown — voting is optimistic, so only AGAINST weight is tallied, against `votableSupply × vetoThresholdBps`. There is no `votesFor` / `votesAbstain`
+- The strategy's address and where it came from (**provenance**): `Cloned from the core protocol <name> template 0x… (sherwoodagent/sherwood-protocol).` for Portfolio, Morpho Supply and Concentrated Liquidity; `Cloned from the <name> template 0x… (sherwoodagent/sherwood-strategies).` followed by `This strategy is unaudited: …` for a community template; `Not cloned from any template: this strategy is hand-written code …` for a strategy registered directly on the `StrategyFactory`; or `Provenance could not be read (<reason>).` Signed `proposal vote` prints the same lines before it sends the vote
 - Decoded calls (show target names for known targets like the vault's swap adapter and ERC-20 approvals)
 - Capital snapshot (if executed)
 - P&L and fees (if settled)
@@ -135,7 +148,7 @@ Displays:
 
 ## `sherwood proposal vote`
 
-Cast a vote on a pending proposal.
+Cast a shareholder vote on a pending proposal. Voting is optimistic: only `Against` weight is tallied, and the proposal is rejected when it reaches `votableSupply × vetoThresholdBps` (20% by default). `For` and `Abstain` are recorded but carry no weight.
 
 ```bash
 sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|abstain>
@@ -143,11 +156,19 @@ sherwood proposal vote --id <proposalId> --vault <addr> --support <for|against|a
 
 ### Flow
 
-1. Load proposal, verify state is Pending and within voting period
-2. Check caller has voting power (vault shares at snapshot)
-3. Display proposal summary + vote weight
+1. Load proposal, verify state is Pending
+2. Wait for voting to open (see below), then check the caller has voting power (vault shares at the snapshot; queued shares carry none)
+3. Display the proposal summary, the strategy's provenance lines and the vote weight
 4. Confirm with user
 5. Call `governor.vote(proposalId, support)` -- support is the VoteType: `For` (0), `Against` (1), or `Abstain` (2), set via `--support for|against|abstain`
+
+### Vote timing
+
+**Voting opens one second after the propose block.** The governor snapshots at the propose block's timestamp minus one and refuses votes while `block.timestamp <= snapshotTimestamp + 1` (`NotWithinVotingPeriod`); `getVoteWeight` reads 0 until then. Signed `proposal vote` waits this out on the chain's clock, showing `Voting opens in <n> s — waiting...`, then votes. If no later block has landed after the wait it stops with `No block has been produced since this proposal …`; rerun once the chain has produced a block.
+
+With `--calldata-only` the CLI does not wait. Broadcast the vote only after a block whose timestamp is at least the propose block's timestamp + 1. A vote sent earlier reverts `NotWithinVotingPeriod`; send it again.
+
+Delegation is disabled on the vault (`delegate` reverts `DelegationDisabled`); every holder is self-delegated.
 
 <Note>
 **Casing differs between the CLI and the HTTP API.** The CLI `--support` choices are lowercase `for | against | abstain`. The [HTTP API](/api/overview) `vote` field is case-sensitive and takes the capitalized `For | Against | Abstain` — pass it exactly, or the request is rejected.
@@ -186,16 +207,17 @@ An Approve whose lock is worth less than the floor reverts `ApproveLockBelowFloo
 Execute an approved proposal (anyone can call).
 
 ```bash
-sherwood proposal execute --id <proposalId> --vault <addr>
+sherwood proposal execute --id <proposalId> --vault <addr> [--dry-run]
 ```
 
 ### Flow
 
-1. Verify proposal is Approved and within execution window
-2. Verify no other strategy is active on the vault
-3. Verify cooldown has elapsed
-4. Call `governor.executeProposal(proposalId)`
-5. Print capital snapshot and redemption lock status
+1. Verify proposal is Approved and within the execution window (24 hours by default; an unexecuted proposal becomes `Expired`)
+2. Verify no other strategy is active on the vault and the owner bond is live (`OwnerBondNotLive` otherwise)
+3. Call `governor.executeProposal(proposalId)`. The governor re-checks tier, coverage and the `maxCapitalBps` ceiling, requires at least one covering guardian approval (`InsufficientApproveCoverage`), and scales the deployed amount down when coverage is partial
+4. Print capital snapshot and redemption lock status
+
+The cooldown is checked at propose, not at execute. A Portfolio proposal holding stock tokens reverts `StalePrice` during the weekend feed gap (about Saturday 18:40 UTC to Monday 00:00 UTC); see [Strategy Commands](/cli/strategy-commands#portfolio).
 
 ---
 
@@ -209,11 +231,11 @@ sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json
 
 ### Routing logic
 
-- If caller is the proposer: `settleProposal(proposalId)` -- proposer can call anytime
+- If caller is the proposer: `settleProposal(proposalId)` -- allowed one hour after execution (`StrategyDurationNotElapsed` before that)
 - If strategy duration has elapsed: `settleProposal(proposalId)` -- permissionless, anyone can call
-- If caller is vault owner and duration elapsed: `emergencySettle(proposalId, calls)` -- tries pre-committed settlement calls first, falls back to custom calls if provided
+- If caller is vault owner, duration elapsed and `--calls` given: `emergencySettleWithCalls(proposalId, calls)` -- opens a bonded, guardian-reviewed emergency settle; the calls run only at `finalizeEmergencySettle`
 
-**Output:** P&L, fees distributed, redemptions unlocked confirmation.
+**Output:** P&L, fees distributed, redemptions unlocked confirmation. Settlement stamps the frozen price that queued redeems claim at; a proposal that ends any other way never stamps (see [Stranded redeems](/cli/commands#stranded-redeems)).
 
 ---
 
@@ -231,8 +253,35 @@ sherwood proposal cancel --id <proposalId> --vault <addr> [--emergency]
 | `--vault` | Yes | Vault the proposal belongs to (per-vault governor) |
 | `--emergency` | No | Use the vault-owner `emergencyCancel` path (Draft / Pending only) instead of the proposer `cancelProposal` path |
 
-- **Proposer** (default): can cancel from `Draft`, `Pending`, `GuardianReview`, or `Approved`. A cancel during `GuardianReview` also drives `registry.cancelReview` so approvers can't be slashed by a stale resolution.
+- **Proposer** (default): can cancel from `Draft`, `Pending` (while the voting window is open), `GuardianReview`, or `Approved`. A cancel during `GuardianReview` also drives `registry.cancelReview` so approvers can't be slashed by a stale resolution.
 - **Vault owner** (`--emergency`): can `emergencyCancel` only from `Draft` or `Pending`. Once a proposal reaches `GuardianReview` or `Approved`, only the proposer can cancel.
+
+A cancel releases the proposer bond; reclaim it with [`proposal reclaim-bond`](#sherwood-proposal-reclaim-bond).
+
+---
+
+## `sherwood proposal reclaim-bond`
+
+Release a terminal proposal's WOOD bond from `ProposerBondEscrow` back to the proposer. Permissionless: any wallet may broadcast it, and the WOOD always goes to the recorded proposer.
+
+```bash
+sherwood proposal reclaim-bond --id <proposalId> --vault <addr>
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--id` | Yes | Proposal ID |
+| `--vault` | Yes | Vault the proposal belongs to (per-vault governor) |
+
+- The proposal must be `Rejected`, `Expired`, `Cancelled` or `Settled`. The CLI refuses with `Proposal is <state> — a bond is only reclaimable from Rejected / Expired / Cancelled / Settled.`; on chain the revert is `ProposalNotTerminal`.
+- A Rejected, Expired or Cancelled proposal releases immediately. A **Settled** proposal waits for the challenge window: `executedAt + strategyDuration + challengeWindow` (14 days) must have passed and no challenge may have the coverage frozen, else `ChallengeWindowOpen`.
+- `This proposal has no proposer bond left to reclaim (never bonded, already reclaimed, or forfeited).` means the bond is 0 (`NoBondToReclaim`). A bond is forfeited only by a challenge conviction; challenge filings are paused through the beta.
+
+---
+
+## Veto (vault owner, no CLI command)
+
+The vault owner can veto a proposal while it is `Pending` by calling `vetoProposal(proposalId)` on the vault's governor directly (`sherwood governor info --vault <addr>` prints the governor address; the HTTP API's [`/prepare/veto`](/api/overview) encodes the call). The call reverts `ProposalNotCancellable` once the proposal enters `GuardianReview`. Shareholders do not veto: they cast `Against` votes, and the proposal is rejected when those reach the veto threshold. Blocking after the vote is the guardians' block quorum.
 
 ---
 
@@ -249,11 +298,11 @@ sherwood proposal unstick --id <proposalId> --vault <addr> [--dry-run] [--yes]
 **Preconditions (all checked before broadcasting):**
 
 1. Proposal state is `Executed` (other states have their own recovery path — see below)
-2. Strategy duration has elapsed (`emergencySettle` requires it)
+2. Strategy duration has elapsed (`unstick` requires it)
 3. The proposal is currently the vault's active proposal
 4. Caller is the vault owner
 
-**What it does:** calls `governor.emergencySettle(id, fallbackCalls)` with a single no-op `asset.balanceOf(vault)` fallback. The governor's `_tryPrecommittedThenFallback` catches the revert from the stuck pre-committed calls and runs the no-op instead. No funds move. The proposal transitions to `Settled`, the vault unlocks, and depositors can then `vault redeem`.
+**What it does:** calls `governor.unstick(id)`, which replays the voted settlement calls under the rescue price floor. If the strategy still reports `executed()` afterwards the governor refuses (`StrategyNotSettled`), and the only exit is the owner's bonded, guardian-reviewed `emergencySettleWithCalls` → `finalizeEmergencySettle` path (`sherwood proposal settle --calls <path>`). On success the proposal transitions to `Settled`, the vault unlocks, and depositors can then `vault redeem`.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -289,15 +338,20 @@ sherwood governor info --vault <addr>
 
 ```
   ◆ Governor Parameters
-  Vault:                0xabc… (sherwood)
+  Vault:                0xabc…
   Governor:             0xG0v…
   Voting Period:        1 day
   Execution Window:     1 day
-  Veto Threshold:       20%   (bounds 20–50%)
+  Veto Threshold:       20%
   Max Performance Fee:  20%
   Max Strategy Duration: 30 days
   Cooldown Period:      1 hour
+  Max Capital:          100%  (default, inert)
+  Tier-2 Call Cap:      100%  (default, inert)
+  Min Buffer (vault):   0%    (default, inert)
 ```
+
+The factory defaults are a 24h voting period (bounds 1h–3d), 24h execution window (1h–7d), 20% veto threshold (20–80%), 20% max performance fee (ceiling 25%), 30d max strategy duration (1h–30d) and 1h cooldown (1h–30d). The last three lines are the per-vault caps to seed before the first proposal.
 
 <Note>
 There is no "Registered Vaults" list any more — each governor serves exactly one vault. The fee splits are not shown here either; they live on the shared `ProtocolConfig`, not the per-vault governor. See [Economics](/protocol/governance/economics).
@@ -307,7 +361,7 @@ There is no "Registered Vaults" list any more — each governor serves exactly o
 
 ## `sherwood governor set-*`
 
-**Vault-owner** parameter setters, one governor per vault — each requires `--vault` and validates against protocol-wide bounds before submitting. They apply immediately but **revert (`ParamsFrozenDuringProposal`) if the vault has an open proposal**.
+**Vault-owner** parameter setters, one governor per vault — each requires `--vault` and validates against protocol-wide bounds before submitting. They apply immediately (there is no timelock) but **revert (`ParamsFrozenDuringProposal`) if the vault has an open proposal**, Drafts included. All of them honour `--calldata-only`.
 
 ```bash
 sherwood governor set-voting-period    --vault <addr> --seconds <n>
@@ -316,7 +370,11 @@ sherwood governor set-veto-threshold   --vault <addr> --bps <n>
 sherwood governor set-max-fee          --vault <addr> --bps <n>
 sherwood governor set-max-duration     --vault <addr> --seconds <n>
 sherwood governor set-cooldown         --vault <addr> --seconds <n>
+sherwood governor set-max-capital-bps     --vault <addr> --bps <n>   # 1–10000; seed 8000 after create
+sherwood governor set-tier2-call-cap-bps  --vault <addr> --bps <n>   # 1–10000; seed 200 after create
 ```
+
+`set-max-capital-bps` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap-bps` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault. The matching vault-side cap is [`sherwood vault set-min-buffer-bps`](/cli/commands#sherwood-vault-set-min-buffer-bps).
 
 ### `sherwood governor set-mgmt-split` / `set-perf-split` (ProtocolConfig)
 
@@ -333,6 +391,17 @@ sherwood governor set-perf-split --agent 5000 --protocol 1500 --guardian 2500 --
 <Note>
   These replaced `sherwood governor set-protocol-fee` in CLI 0.87.0. The old command targeted a function the contract no longer has, so every call reverted. See [Economics](/protocol/governance/economics) for what each leg pays for.
 </Note>
+
+---
+
+## Keeper commands: `open-reviews` and `resolve-reviews`
+
+```bash
+sherwood proposal open-reviews    --vault <addr> [--dry-run]
+sherwood proposal resolve-reviews --vault <addr> [--dry-run]
+```
+
+Guardian reviews are opened and resolved permissionlessly. `open-reviews` opens every review whose shareholder vote has ended (window `[voteEnd, reviewEnd)`); a review nobody opens resolves not blocked. `resolve-reviews` resolves every review whose window has elapsed. `--dry-run` lists what would be sent.
 
 ---
 
