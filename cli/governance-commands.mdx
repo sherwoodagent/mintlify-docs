@@ -112,7 +112,7 @@ sherwood proposal list --vault <addr> [--state <filter>]
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--vault` | Yes | Vault whose proposals to list (per-vault governor) |
-| `--state` | No | Filter by state: `draft`, `pending`, `approved`, `executed`, `settled`, `all` (default: `all`) |
+| `--state` | No | Filter by state, case-insensitive: `draft`, `pending`, `guardianreview`, `approved`, `rejected`, `expired`, `executed`, `settled`, `cancelled`, `all` (default: `all`) |
 
 Queries subgraph for `Proposal` entities filtered by vault/state. Falls back to on-chain iteration via `governor.proposalCount()` + `governor.getProposal(id)`.
 

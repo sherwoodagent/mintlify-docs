@@ -1,10 +1,10 @@
 ---
 title: "External signer"
-description: "Use --calldata-only with Privy or any external signer — no exported private key"
+description: "Run Sherwood from a sign-only agent wallet — MetaMask Agent Wallet or Privy — with --calldata-only, no exported private key"
 icon: "pen-nib"
 ---
 
-The CLI's global `--calldata-only` flag prints unsigned EIP-5792 transactions as JSON instead of signing or sending. Use it when the key lives in a TEE or wallet API that cannot export a private key. Use an agent wallet: **[Privy](https://agents.privy.io/)** or **[MetaMask Agent Wallet](https://metamask.io/agent-wallet)**. With Privy you sign each transaction and broadcast it yourself to a Robinhood Chain (4663) RPC. MetaMask Agent Wallet sends transactions itself, but `mm wallet send-transaction` only reaches chains that `mm chains list` shows, so check that 4663 is listed. Frame and any other signer consume the same JSON.
+Sherwood agents run on a **sign-only agent wallet**: the CLI never holds the key. The global `--calldata-only` flag prints unsigned EIP-5792 transactions as JSON instead of signing or sending; the wallet signs and broadcasts them. Use the **[MetaMask Agent Wallet](https://metamask.io/agent-wallet)** (`mm`) first, which sends transactions itself once `mm chains list` shows 4663; **[Privy](https://agents.privy.io/)** is the second option, where you sign each transaction and broadcast it yourself to a Robinhood Chain (4663) RPC. Frame, a TEE, or any other signer consumes the same JSON.
 
 ```bash
 sherwood --calldata-only <command>
@@ -34,7 +34,39 @@ Each tx is `{ to, data, value, chainId }` with a hex `value` (EIP-5792). Broadca
 
 The HTTP API at `https://api.sherwood.sh` returns the same unsigned txs (root paths, **no** `/v1` prefix on that host).
 
-## Privy agent wallet
+## Sign-then-broadcast loop
+
+For each entry of `txs`, in order: show the user what it does (any tx that pays, approves, stakes or deposits needs their yes), send it from the wallet with that entry's `chainId` (4663), wait for the receipt with `status: 1`, then move to the next. If one reverts, stop: do not send the rest.
+
+```bash
+OUT=$(sherwood --calldata-only guardian prepare-owner-stake 10000)
+echo "$OUT" | jq -c '.txs[]' | while read -r tx; do
+  # MetaMask (below) or Privy (below); wait for the receipt before the next tx
+  mm wallet send-transaction --chain-id "$(echo "$tx" | jq -r .chainId)" \
+    --payload "$(echo "$tx" | jq -c '{to,data,value}')" \
+    --intent "$(echo "$OUT" | jq -r .description)" --wait || break
+done
+```
+
+## MetaMask Agent Wallet (first choice)
+
+```bash
+npm i -g @metamask/agent-wallet@latest
+mm login                 # prints a device code; a human approves it once
+mm chains list           # needs mm login; check that it shows 4663 (Robinhood Chain); if it does not, use Privy below
+mm wallet send-transaction --chain-id 4663 \
+  --payload '{"to":"<txs[i].to>","data":"<txs[i].data>","value":"<txs[i].value>"}' \
+  --intent '<what this tx does>' --wait
+```
+
+`--chain-id`, `--payload`, `--intent` and `--wait` are `mm` flags, not Sherwood flags.
+
+Signing without a transaction (the CLI's [two-step commands](#two-step-commands-sign-then-complete)):
+
+- **personal_sign (EIP-191)** for `sources login` and `chat --join-cohort`: `mm wallet sign-message --message '<text>' --chain-id 4663`. Sign the exact text the CLI printed.
+- **EIP-712 typed data** for `research` (x402): `mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'`. Pass the `typed_data` object the CLI printed, unchanged; `--chain-id 8453` because the payment is USDC on Base.
+
+## Privy agent wallet (second choice)
 
 Sign with Privy, then broadcast the raw transaction yourself. This path does not depend on whether Privy's chain registry lists 4663. Privy's own agent skill: https://agents.privy.io/skill.md
 
@@ -88,26 +120,74 @@ Sign with Privy, then broadcast the raw transaction yourself. This path does not
 </Steps>
 
 <Note>
-  `eth_sendTransaction` with a top-level `caip2: "eip155:4663"` works only if Privy's chain registry carries Robinhood Chain; if it returns `Unsupported chain`, use the sign-then-broadcast recipe above. `personal_sign` (used by `sherwood sources login --address` and `sherwood chat --join-cohort --address`) works normally.
+  `eth_sendTransaction` with a top-level `caip2: "eip155:4663"` (`$P rpc --json '{"method":"eth_sendTransaction","caip2":"eip155:4663","params":{"transaction":{...}}}'`) works only if Privy's chain registry carries Robinhood Chain; if it returns `Unsupported chain`, use the sign-then-broadcast recipe above. Try it with a harmless tx (a 0-value self-send) before you rely on it.
 </Note>
 
-## Identity mint (MetaMask Agent Wallet flow)
+Signing without a transaction goes through `$P rpc` as well: `personal_sign` for `sources login` and `chat --join-cohort`, `eth_signTypedData_v4` for `research` (x402):
+
+```bash
+$P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
+$P rpc --json '{"method":"eth_signTypedData_v4","params":{"typed_data":<typed_data>}}'
+```
+
+## Identity mint
 
 ```bash
 sherwood --calldata-only identity mint --name "Hermes Agent"
 ```
 
-`--name` is required. No Agent0 SDK init, no IPFS, no private key. Then take `txs[0]` and broadcast. Example with MetaMask Agent Wallet's `mm` CLI:
+`--name` is required. No Agent0 SDK init, no IPFS, no private key. Then take `txs[0]` and broadcast it with the loop above (`mm wallet send-transaction --chain-id 4663 … --intent 'Mint ERC-8004 identity' --wait`, or Privy). The mint lands on Robinhood Chain (4663), where the canonical IdentityRegistry lives. Read the token id from the receipt's `Transfer` event and pass it as `--agent-id` from then on (`sherwood identity load` needs a configured key, so it does not apply to a keyless setup).
+
+## Two-step commands (sign, then complete)
+
+Three commands need a signature that is not a transaction. Each prints what to sign, and a second call with `--signature` completes it.
+
+### Data feeds: `sources login`
 
 ```bash
-mm wallet send-transaction \
-  --chain-id <txs[0].chainId> \
-  --payload '{"to":"<txs[0].to>","data":"<txs[0].data>","value":"<txs[0].value>"}' \
-  --intent 'Mint ERC-8004 identity' \
-  --wait
+sherwood sources login --address <agent wallet> --json   # → message
+#   personal_sign the exact message within 10 min:
+#     MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663
+#     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
+sherwood sources login --signature 0x…
 ```
 
-`--chain-id`, `--payload`, `--intent`, and `--wait` are `mm` flags, not Sherwood flags. The mint lands on Robinhood Chain (4663), where the canonical IdentityRegistry lives. Read the token id from the receipt's `Transfer` event and pass it as `--agent-id` from then on (`sherwood identity load` needs a configured key, so it does not apply to a keyless setup).
+The token lasts 1 hour; repeat both steps when it expires. `401` = log in again; `403` = the wallet is not on the cohort allowlist, tell the vault owner and never retry with another wallet. See [Data feeds](/cli/sources-commands).
+
+### Cohort chat: `chat --join-cohort`
+
+```bash
+sherwood chat --join-cohort --address <agent wallet> --json > /tmp/join.log 2>&1 &   # step 1 stays running and waits (default 600s, --timeout <s>)
+jq -r .xmtp_signature_request.message /tmp/join.log
+#   personal_sign (EIP-191) that exact multi-line text ("XMTP : Authenticate to inbox …") with the agent wallet
+#   (MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663; Privy: $P rpc personal_sign), then:
+sherwood chat --join-cohort --signature 0x…   # step 2: hands it to step 1, prints the join result (status: pending)
+```
+
+See [Cohort chat](/cli/commands#cohort-chat) and [XMTP](/reference/integrations/xmtp).
+
+### Research: x402 payment
+
+Messari and Nansen are paid per call via **x402** in **USDC on Base (chain 8453)**, from the agent wallet, not from the vault and not on 4663. x402 signs EIP-712 typed data (EIP-3009 `TransferWithAuthorization` on Base USDC), so the wallet must support `eth_signTypedData_v4`: Privy does through `$P rpc`, the MetaMask Agent Wallet through `mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'`. Ask the owner before every spend.
+
+```bash
+# Step 1: confirms the cost, sends the request, catches the 402, prints the typed data, then waits (default 600s)
+sherwood research token TSLA --provider messari --address <agent wallet> --yes --json > /tmp/x402.log 2>&1 &
+jq '.x402_signature_request' /tmp/x402.log
+#   { wallet, provider, cost_usdc, chain_id: 8453, typed_data: {domain,types,primaryType,message}, deadline }
+#   also written to ~/.sherwood/x402-signing/<wallet, lowercase>.request.json
+#   Sign typed_data unchanged, before deadline:
+#     MetaMask: mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'
+#     Privy:    $P rpc --json '{"method":"eth_signTypedData_v4","params":{"typed_data":<typed_data>}}'
+# Step 2: hands the signature to step 1, which pays, retries and prints the result
+sherwood research complete --signature 0x… [--address <agent wallet>]
+```
+
+Run step 1 with `--yes` only after the owner said yes to that cost. Step 2 exits 1 with the reason when no step 1 is waiting or the deadline has passed: nothing was paid, start step 1 again.
+
+**Deadlines.** The provider sets the payment window (`maxTimeoutSeconds` in its 402; `deadline` is `typed_data.message.validBefore`): Messari 60 s, Nansen 300 s. With Messari that leaves about 57 s to sign and run step 2, so have the signer ready first. Nansen is the safer provider for a human-approved signer.
+
+**Two payments.** A query that needs two paid calls makes step 2 print the next `x402_signature_request` and exit 0: sign it and run `sherwood research complete` again. The payment travels in the x402 v2 `PAYMENT-SIGNATURE` header.
 
 ## Other state-changing commands
 
@@ -126,7 +206,8 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `strategy propose` | `--proposer`, `--duration`, and `--name` (or `--metadata-uri`) |
 | `proposal create` | `--proposer` is optional: it enables the proposer-bond balance and allowance check and the owner-only check |
 | `guardian prepare-owner-stake` | none; prints the WOOD approval and `prepareOwnerStake` |
-| `governor set-*` | same as signed mode |
+| `governor set-*` / `vault set-min-buffer` | same as signed mode |
+| `sources login`, `chat --join-cohort`, `research` | `--address` (two-step, above; a signature, not a transaction) |
 
 ```bash
 sherwood --calldata-only vault join --subdomain zerohumanfund
@@ -150,4 +231,4 @@ One step is still yours: signed `vault create` registers the creator as an agent
 
 stdout carries only the JSON under `--calldata-only`; progress lines go to stderr, so you can pipe the output straight into a signer.
 
-See the skill on-ramp for the keyless strategy-propose recipe (clone + propose in one JSON payload).
+The keyless strategy-propose recipe (clone + propose in one JSON payload) is in [Strategy commands](/cli/strategy-commands#keyless-sign-only-wallet); the full flow, in order, is in the [Quickstart](/learn/quickstart).

@@ -24,7 +24,7 @@ sherwood --version
 
 If a global install fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH.
 
-Next, set up an agent wallet ([Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet)) and run write commands with the global `--calldata-only` flag. Privy signs and you broadcast to the Robinhood Chain RPC; MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663. See [External signer](/cli/external-signer).
+Next, set up a sign-only agent wallet — the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second — and run write commands with the global `--calldata-only` flag. MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663; Privy signs and you broadcast to the Robinhood Chain RPC. See [External signer](/cli/external-signer).
 
 ### Binary download (no XMTP chat)
 

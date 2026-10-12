@@ -369,6 +369,50 @@ Strategy templates are cloned and proposed through the `strategy` command group 
 
 ---
 
+## Research (x402)
+
+Token, market, smart-money and wallet reports from Messari and Nansen, paid per call via **x402** in **USDC on Base (chain 8453)** — from the agent wallet, not from the vault, and not on 4663. Ask the owner before every spend.
+
+| Subcommand | Purpose |
+|------------|---------|
+| `research token <target>` | Token report — profile, market data, on-chain metrics |
+| `research market <asset>` | Market overview — price, volume, market cap, ROI, ATH |
+| `research smart-money --token <symbol>` | Smart money flows — net flow, DEX trades, holdings from labeled wallets |
+| `research wallet <address>` | Wallet due diligence — PnL history, transaction patterns, counterparties |
+| `research complete --signature <sig>` | Step 2 of the sign-only flow |
+
+| Option | Description |
+|--------|-------------|
+| `--provider <messari\|nansen>` | Required. Research provider |
+| `--address <wallet>` | Sign-only wallet that pays: step 1 of the two-step, prints the payment to sign and waits |
+| `--timeout <s>` | How long step 1 waits for `research complete --signature`, capped by the payment deadline. Default: 600 |
+| `--yes` | Skip the cost prompt. Only after the owner approved that spend |
+| `--json` | Machine-readable output: the signature request and the result as JSON lines on stdout |
+| `--post <vault>` | Pin the result to IPFS, write an `X402_RESEARCH` [attestation](/reference/integrations/eas) and post it to the vault chat. Needs a configured key |
+
+A configured private key pays in one step. A sign-only wallet pays in two:
+
+```bash
+# Step 1: confirms the cost, sends the request, catches the 402, prints the typed data, then waits
+sherwood research token TSLA --provider messari --address <agent wallet> --yes --json > /tmp/x402.log 2>&1 &
+jq '.x402_signature_request' /tmp/x402.log
+#   { wallet, provider, cost_usdc, chain_id: 8453, typed_data: {domain,types,primaryType,message}, deadline }
+#   also written to ~/.sherwood/x402-signing/<wallet, lowercase>.request.json
+#   Sign typed_data unchanged, before deadline (eth_signTypedData_v4):
+#     MetaMask: mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'
+#     Privy:    $P rpc --json '{"method":"eth_signTypedData_v4","params":{"typed_data":<typed_data>}}'
+# Step 2: hands the signature to step 1, which pays, retries the request and prints the result
+sherwood research complete --signature 0x… [--address <agent wallet>]
+```
+
+The wallet must support EIP-712 (`eth_signTypedData_v4`): the payment is an EIP-3009 `TransferWithAuthorization` on Base USDC, sent in the x402 v2 `PAYMENT-SIGNATURE` header. Step 2 exits 1 with the reason when no step 1 is waiting or the deadline has passed; start step 1 again, nothing was paid. Full recipe: [External signer](/cli/external-signer#research-x402-payment).
+
+**Deadlines.** The provider sets the payment window (`maxTimeoutSeconds` in its 402 response; `deadline` is `typed_data.message.validBefore`): Messari 60 s, Nansen 300 s. With Messari that leaves about 57 s to sign and run step 2 (step 1 keeps a 3 s margin), so have the signer ready first. Nansen is the safer provider for a human-approved signer.
+
+**Two payments.** A query that needs two paid calls makes step 2 print the next `x402_signature_request` and exit 0: sign it and run `sherwood research complete` again.
+
+---
+
 ## Allowance
 
 ### `sherwood allowance disburse`
@@ -530,7 +574,7 @@ jq -r .xmtp_signature_request.message /tmp/join.log
 # or: jq -r .message ~/.sherwood/xmtp-signing/<wallet, lowercase>.request.json
 ```
 
-The message spans several lines. Sign the exact string with `personal_sign` (EIP-191) from the agent wallet. Signing never sends a transaction or costs gas.
+The message spans several lines. Sign the exact string with `personal_sign` (EIP-191) from the agent wallet (MetaMask: `mm wallet sign-message --message '<text>' --chain-id 4663`; Privy: `$P rpc` with `personal_sign`). Signing never sends a transaction or costs gas.
 
 Step 2, in another shell, hands the signature to the waiting process and prints the join result:
 

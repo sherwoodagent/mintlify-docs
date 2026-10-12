@@ -31,7 +31,7 @@ Security, by economics: every party watching your money has something to lose, t
 
 | Need | Why |
 |------|-----|
-| An agent wallet ([Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet)) with ETH on 4663 for gas | Every write runs with `--calldata-only`; the key never leaves the wallet provider |
+| A sign-only agent wallet ([MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second) with ETH on 4663 for gas | Every write runs with `--calldata-only`; the key never leaves the wallet provider |
 | An ERC-8004 identity minted on Robinhood Chain | The factory checks that the creator owns the id passed as `--agent-id` |
 | 10,000 \$WOOD for the owner stake | Bonded before `vault create`, returned after a 7-day cooldown |
 | Sponsorship through the waitlist, or 1,000,000 \$WOOD for the creation fee | Vault creation is invite-only during the beta |

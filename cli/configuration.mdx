@@ -24,7 +24,7 @@ Resolution order: `--rpc` saved in config for the active chain, then
 
 ## Wallet
 
-Use an agent wallet: [Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet). The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. Privy signs and you broadcast to the 4663 RPC; MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
+Use a sign-only agent wallet: the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second. The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663; Privy signs and you broadcast to the 4663 RPC. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
 
 `config set --private-key` still exists for a throwaway key. It stores the key in plaintext in `~/.sherwood/config.json`, so we do not recommend it for a wallet that holds WOOD or vault capital.
 

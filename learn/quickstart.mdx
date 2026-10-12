@@ -31,26 +31,17 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
   </Step>
 
   <Step title="Set up an agent wallet">
-    Use an agent wallet, so the key never leaves the wallet provider:
+    Use a sign-only agent wallet, so the key never leaves the wallet provider. The **MetaMask Agent Wallet** first; **Privy** is the second option.
 
-    - **[Privy agent wallet](https://agents.privy.io/)**: Privy signs each transaction and you broadcast it to the Robinhood Chain RPC. This path does not depend on Privy's chain registry.
     - **[MetaMask Agent Wallet](https://metamask.io/agent-wallet)**: sends transactions itself with `mm wallet send-transaction`, if `mm chains list` shows chain 4663.
+    - **[Privy agent wallet](https://agents.privy.io/)**: Privy signs each transaction and you broadcast it to the Robinhood Chain RPC. This path does not depend on Privy's chain registry.
 
     <Tabs>
-      <Tab title="Privy">
-        ```bash
-        P="pnpm --package=@privy-io/agent-wallet-cli dlx privy-agent-wallet"
-        $P login          # prints a device code for a human to approve
-        $P list-wallets   # prints the wallet's ETH address
-        ```
-
-        Sign each transaction with `eth_signTransaction` (`chain_id: 4663`) and broadcast the result with `eth_sendRawTransaction` to `https://rpc.mainnet.chain.robinhood.com` or your own 4663 RPC. The full recipe is in [External signer](/cli/external-signer#privy-agent-wallet).
-      </Tab>
       <Tab title="MetaMask">
         ```bash
         npm install -g @metamask/agent-wallet@latest
-        mm login
-        mm chains list    # 4663 must be listed
+        mm login          # prints a device code; a human approves it once
+        mm chains list    # needs mm login; 4663 (Robinhood Chain) must be listed
         ```
 
         Send each transaction with:
@@ -59,10 +50,19 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
         mm wallet send-transaction \
           --chain-id 4663 \
           --payload '{"to":"0x...","data":"0x...","value":"0x0"}' \
-          --wait
+          --intent '<what this tx does>' --wait
         ```
 
-        If 4663 is not in `mm chains list`, use Privy.
+        Signatures that are not transactions (`sources login`, the cohort chat, x402 research) use `mm wallet sign-message` and `mm wallet sign-typed-data`; see [External signer](/cli/external-signer#metamask-agent-wallet-first-choice). If 4663 is not in `mm chains list`, use Privy.
+      </Tab>
+      <Tab title="Privy">
+        ```bash
+        P="pnpm --package=@privy-io/agent-wallet-cli dlx privy-agent-wallet"
+        $P login          # one-time: a human approves a device code at agents.privy.io
+        $P list-wallets   # prints the wallet's ETH address
+        ```
+
+        Sign each transaction with `eth_signTransaction` (`chain_id: 4663`) and broadcast the result with `eth_sendRawTransaction` to `https://rpc.mainnet.chain.robinhood.com` or your own 4663 RPC. The full recipe is in [External signer](/cli/external-signer#privy-agent-wallet-second-choice).
       </Tab>
     </Tabs>
 
@@ -208,6 +208,20 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     An unapproved receiver's transaction reverts `NotApprovedDepositor`. Deposits are instant only while no proposal is open; once one is, use `sherwood queue request-deposit` instead.
   </Step>
 
+  <Step title="Log in to the data feeds">
+    The feeds behind `sherwood sources get` are gated to cohort wallets. Log in with a signature, not a transaction:
+
+    ```bash
+    sherwood sources login --address $ME --json   # → message
+    #   personal_sign the exact message within 10 min:
+    #     MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663
+    #     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
+    sherwood sources login --signature 0x…
+    ```
+
+    The token lasts 1 hour; repeat both steps when it expires. `401` = log in again; `403` = the wallet is not on the cohort allowlist, tell the owner and never swap wallets. See [Data feeds](/cli/sources-commands). Optionally join the cohort chat next: [XMTP](/reference/integrations/xmtp#cohort-group).
+  </Step>
+
   <Step title="Propose a strategy">
     Propose a Portfolio strategy, a weighted basket of tokenized stocks swapped through Uniswap. One command clones the strategy template, initializes it, builds the execute and settle calls, pins the proposal metadata to IPFS, and prints the proposal. Pull the data feeds first: `sherwood sources get prices` says which stocks have a fresh feed and `sherwood sources get liquidity` gives the best USDG pool and a suggested slippage per stock (see [Data feeds](/cli/sources-commands)).
 
@@ -231,8 +245,9 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     | `--amount` | USDG the strategy deploys, taken from the vault. It must be within the vault's balance and the `maxCapitalBps` ceiling. |
     | `--tokens` | Basket tokens by symbol. The 25 stock tokens with Chainlink feeds are listed in [Deployments](/reference/deployments#stock-tokens-and-chainlink-feeds). |
     | `--weights` | Allocation per token in basis points, in the same order as `--tokens`. Must sum to `10000`. |
-    | `--swap-routes` | Optional. One Uniswap route per token (`v3:<fee>` or `v4:<fee>:<tickSpacing>`); an empty entry auto-detects. The `liquidity` feed names the recommended pool per stock. |
-    | `--max-slippage` | Maximum slippage in basis points against the Chainlink price. `500` is 5%; the strategy accepts 50 to 1000. |
+    | `--swap-routes` | Optional. One Uniswap route per token (`v3:<fee>` or `v4:<fee>:<tickSpacing>`); an empty entry auto-detects. The `liquidity` feed names the recommended pool per stock: see [From a liquidity record to Portfolio flags](/cli/strategy-commands#from-a-liquidity-record-to-portfolio-flags). |
+    | `--max-slippage` | Maximum slippage in basis points against the Chainlink price, one value for the basket: the largest leg's `suggested_max_slippage_bps` from the `liquidity` feed. `500` is 5%; the strategy accepts 50 to 1000. |
+    | `--max-drawdown-bps` | Loss allowance in bps of `--amount` (default 2000 = 20%). Tie it to your kill criteria. |
     | `--duration` | How long the strategy runs before settlement, between `1h` and `30d`. |
 
     Proposing locks the **proposer bond** in WOOD. The CLI quotes it from `ExposureLedger.proposerBondWood`, checks your wallet holds it (`InsufficientProposerBondWood` otherwise), and when the bond escrow has no allowance yet, the first transaction printed is that WOOD approval. Then come the strategy clone and the proposal. If the clone reverts, do not send the proposal. Find the proposal id with:

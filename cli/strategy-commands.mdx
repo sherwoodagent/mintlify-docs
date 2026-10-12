@@ -58,6 +58,27 @@ All-in-one command: clone + initialize + build batch calls + submit proposal (or
 This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`, set by the vault owner via [`sherwood vault set-agent-fee`](/cli/governance-commands#sherwood-vault-set-agent-fee) within the protocol ceiling (for example 20%). Each proposal snapshots it at propose time; the governor clamps that snapshot to `maxPerformanceFeeBps` at settlement.
 </Note>
 
+### Keyless (sign-only wallet)
+
+```bash
+sherwood --calldata-only strategy propose portfolio \
+  --vault 0xVAULT --proposer 0xAGENT \
+  --name "TSLA/AMZN basket" --description "60/40 TSLA and AMZN, 7d" \
+  --amount 200 \
+  --tokens TSLA,AMZN --weights 6000,4000 \
+  --swap-routes <TSLA route>,<AMZN route> --max-slippage <largest leg bps> \
+  --max-drawdown-bps 2000 \
+  --duration 7d
+# already pinned a document? replace --name/--description with --metadata-uri ipfs://…
+
+# Morpho Supply, keyless
+sherwood --calldata-only strategy propose morpho-supply \
+  --vault 0xVAULT --proposer 0xAGENT --name "USDG lending" --description "7d Morpho supply" \
+  --market-id <market_id from sources get morpho> --amount 1000 --duration 7d
+```
+
+It prints one JSON payload: `WOOD.approve(bondEscrow)` (only when the allowance does not cover the bond), the strategy clone, then `governor.propose`. Broadcast them in order from the `--proposer` wallet; if the clone reverts, do not send the proposal. `--proposer` must be a registered agent on the vault (`vault add`) and, while `ownerOnlyProposals` is on, the vault owner. Set `--max-drawdown-bps` explicitly, tied to the kill criteria you tell the owner. The sign-then-broadcast loop is in [External signer](/cli/external-signer).
+
 ### Write calls to files (for manual proposal creation)
 
 ```bash
@@ -100,15 +121,44 @@ Weighted basket of tokenized stocks with on-chain rebalancing, swapped through t
 | `--amount <n>` | Total asset amount to allocate (USDG). Becomes the proposal's `maxCapital` | required |
 | `--tokens <list>` | Comma-separated token symbols or addresses. The 25 stock tokens with feeds are listed in [Deployments](/reference/deployments#stock-tokens-and-chainlink-feeds) | required |
 | `--weights <list>` | Comma-separated weights in bps (must sum to 10000) | required |
-| `--max-slippage <bps>` | Max per-swap slippage in bps against the Chainlink price; the strategy accepts 50 to 1000 | 500 |
+| `--max-slippage <bps>` | Max slippage in bps against the Chainlink price, one value for the whole basket; the strategy accepts 50 to 1000 | 500 |
+| `--max-slippage-per-leg <list>` | Per-leg slippage bps, same order as `--tokens`. The strategy stores one value, so the CLI resolves it to the largest leg. Not together with `--max-slippage` | none |
 | `--swap-routes <list>` | One route per token, same order: `v3:<fee>`, `v4:<fee>:<tickSpacing>` or `v4path:...`; an empty entry auto-detects from the registry's verified pools | auto |
 | `--feeds <list>` | Chainlink AggregatorV3 feed per token; an empty slot resolves from the address book | auto |
 | `--fee-tier <n>` | Pool fee tier when no route is given | 3000 |
+| `--max-drawdown-bps <bps>` | Declared loss allowance, in bps of `--amount` (0–10000). The envelope voters and guardians are asked to accept, and the basis the settle-price guard sizes its tolerance from | 2000 |
 | `--swap-adapter <address>` | Override swap adapter | the network's |
 
 **Vault asset.** The strategy's asset must be the vault's own asset, and the protocol's coverage ledger must price one unit of it within 1% of $1 (`AssetNotVaultAsset`, `AssetNotUsdPegged`, `ExposureLedgerUnresolved`). The CLI checks all three before anything is sent; the peg is checked again at execute. Use USDG.
 
 **Weekend feed gap.** Execute, settle and `rebalanceDelta` revert `StalePrice` when a basket token's feed is older than 26 hours. The stock feeds pause over the weekend (52–55 hours between updates), so a proposal holding stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. Do not put a stock in a basket across an announced split. `sherwood sources get prices` marks each token's `portfolio_price_ok`, and `sherwood sources get calendar` prints the live window; `sherwood sources get liquidity` gives the recommended USDG pool and a suggested `maxSlippageBps` per stock (see [Data feeds](/cli/sources-commands)).
+
+**Routes.** Leave `--swap-routes` out and the CLI auto-detects a route per token by quoting the pools. No route table is fixed for 4663: pools and depth change, so re-quote before every proposal with `sherwood sources get liquidity` and pass the routes it picks.
+
+#### From a liquidity record to Portfolio flags
+
+`sherwood sources get liquidity` returns `recommended.by_symbol[SYM]` for each stock: the best hookless, USDG-quoted Uniswap pool at a $10k size, with
+
+| Record field | Example | Flag |
+|---|---|---|
+| `swap_extra_data_hint` `{mode: 0, fee}` (Uniswap v3) | `{mode: 0, fee: 3000}` | that leg of `--swap-routes`: `v3:3000` |
+| `swap_extra_data_hint` `{mode: 2, fee, tickSpacing}` (Uniswap v4) | `{mode: 2, fee: 3000, tickSpacing: 60}` | that leg of `--swap-routes`: `v4:3000:60` |
+| `fee` | `3000` | `--fee-tier 3000` only when every leg is v3 at the same fee; `--swap-routes` overrides it per leg |
+| `suggested_max_slippage_bps` | `150` | `--max-slippage`: the **largest** value across the legs |
+
+`--max-slippage` is one value for the whole basket, so use the largest leg's `suggested_max_slippage_bps`. Or pass `--max-slippage-per-leg <a,b,c>` (same order as `--tokens`, not together with `--max-slippage`): the strategy stores one value, so the CLI resolves it to the largest leg. A record with `swap_extra_data_hint: null` is not routable by the swap adapter: drop that token.
+
+```bash
+T=TSLA,AMZN,AMD
+L=$(sherwood sources get liquidity)
+ROUTES=$(echo "$L" | jq -r --arg t "$T" '[$t|split(",")[] as $s | .recommended.by_symbol[$s].swap_extra_data_hint
+  | if .mode == 0 then "v3:\(.fee)" else "v4:\(.fee):\(.tickSpacing)" end] | join(",")')
+SLIP=$(echo "$L" | jq --arg t "$T" '[$t|split(",")[] as $s | .recommended.by_symbol[$s].suggested_max_slippage_bps] | max')
+sherwood --calldata-only strategy propose portfolio --vault 0xVAULT --proposer 0xAGENT \
+  --name "TSLA/AMZN/AMD basket" --description "40/30/30, 7d" \
+  --amount 200 --tokens $T --weights 4000,3000,3000 \
+  --swap-routes "$ROUTES" --max-slippage "$SLIP" --max-drawdown-bps 2000 --duration 7d
+```
 
 See the [Portfolio strategy reference](/protocol/strategies/uniswap) for mechanics and risk notes.
 

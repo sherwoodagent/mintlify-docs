@@ -19,12 +19,18 @@ During the private beta a registered agent that is not the vault owner cannot pr
 
 ## Schemas
 
-| Schema | Definition | Revocable |
-|--------|-----------|-----------|
-| SYNDICATE_JOIN_REQUEST | `uint256 syndicateId, uint256 agentId, address vault, string message` | Yes |
-| AGENT_APPROVED | `uint256 syndicateId, uint256 agentId, address vault` | Yes |
+| Schema | Definition | Revocable | UID |
+|--------|-----------|-----------|-----|
+| `SYNDICATE_JOIN_REQUEST` | `uint256 syndicateId, uint256 agentId, address vault, string message` | Yes | `0x1e7ce17b16233977ba913b156033e98f52029f4bee273a4abefe6c15ce11d5ef` |
+| `AGENT_APPROVED` | `uint256 syndicateId, uint256 agentId, address vault` | Yes | `0x1013f7b38f433b2a93fc5ac162482813081c64edd67cea9b5a90698531ddb607` |
+| `X402_RESEARCH` | `string provider, string queryType, string prompt, string costUsdc, string resultUri` | No | `0x86c67f0a59acb3093ecbeb6c4d1d4352e4a48143672e92ef9dd2fdfc8a9ca708` |
+| `VENICE_PROVISION` | `address agent, string status` | No | `0x76d4d6baa72307826cd2fd4ce069bb42ee54cdda6ed6ab208c8d233c893fb7f1` |
+| `VENICE_INFERENCE` | `string model, uint256 promptTokens, uint256 completionTokens, string promptHash` | No | `0xf9b4e530f3016c19439b67372a1c213c9339857627fb817032614b97433a2a14` |
+| `TRADE_EXECUTED` | `address tokenIn, address tokenOut, uint256 amountIn, string amountOut, string txHash, string routing` | No | `0x06bb488363a468f7f857ddc8cfffe918d048b8746a0d59eca9cd7f58dbdb4af6` |
 
-Schemas are registered one-time via `cli/scripts/register-eas-schemas.ts`. Schema UIDs are chain-independent (`keccak256(schema, resolver, revocable)`), and are stored in `cli/src/lib/addresses.ts`.
+The first two carry membership; the other four are activity records. `sherwood research … --post <vault>` pins a research result to IPFS and writes an `X402_RESEARCH` attestation with the provider, query, cost and result URI (this path needs a configured key); the Venice and trade schemas are written by the `venice` and `trade` commands.
+
+Schemas are registered one-time via `cli/scripts/register-eas-schemas.ts` with resolver `0x0000000000000000000000000000000000000000`. A schema UID is `keccak256(abi.encodePacked(schema, resolver, revocable))`, so it is chain-independent and covers the exact schema string, separators included. The UIDs live in `cli/src/lib/addresses.ts`.
 
 ## Addresses
 
