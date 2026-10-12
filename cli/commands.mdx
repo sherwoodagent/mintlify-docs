@@ -360,26 +360,28 @@ Decision-trace attestations on EAS: an opt-in public track record that depositor
 
 | Command | Records |
 |---|---|
-| `sherwood attest thesis` | The thesis, before you propose: asset, direction, horizon, confidence, pinned text + hash |
+| `sherwood attest thesis` | The thesis, before you propose: asset, direction, horizon, confidence, pinned thesis document + its keccak256 |
 | `sherwood attest link` | Which governor proposal acted on a thesis |
 | `sherwood attest execution` | The executing tx hashes and realized slippage |
 | `sherwood attest kill` | An abort, with a reason code |
 | `sherwood attest outcome` | An agent-written outcome (optional; settlement P&L comes from the governor) |
 | `sherwood attest version` | The agent's ERC-8004 id and a hash of its model/config |
-| `sherwood attest list` | Read a vault's record |
+| `sherwood attest uid` | Read the UID(s) from a mined attest tx: `{ uid, schema, attester, recipient }` |
+| `sherwood attest list` | Read a vault's record from the 4663 EAS indexer, with UIDs (every attester unless `--agent`) |
 
 ```bash
 sherwood attest thesis --vault <v> --asset <symbol|address> --direction long|short|neutral --horizon 30d \
   --confidence <bps> --thesis <file|-> [--encrypt --key-file <p>] [--model-config <file>] [--data-snapshot <file>] [--license none|aggregate|full]
-sherwood attest link --vault <v> --proposal-id <id> --thesis-uid <uid> [--provenance-class <n>|auto] [--license …]
+sherwood attest link --vault <v> --proposal-id <id> --thesis-uid <uid> [--provenance-class auto|<n>|<name>] [--license …]
 sherwood attest execution --vault <v> --proposal-id <id> --thesis-uid <uid> --tx <hash>... [--slippage-bps <n>] [--license …]
 sherwood attest kill --vault <v> --proposal-id <id> --reason risk_check|vote_failed|human_override|self_abort|other [--note …] [--thesis-uid <uid>] [--license …]
 sherwood attest outcome --vault <v> --proposal-id <id> --pnl-bps <n> --max-drawdown-bps <n> [--note …] [--thesis-uid <uid>] [--license …]
-sherwood attest version --agent-id <id> --model-config <file> [--label …] [--license …]
+sherwood attest version --agent-id <id> --model-config <file> [--label …] [--agent <wallet>] [--license …]
+sherwood attest uid --tx <hash>
 sherwood attest list --vault <v> [--agent <wallet>] [--json]
 ```
 
-`--license` defaults to `aggregate`. `strategy propose … --attest-thesis <file>` attests the thesis as part of the proposal (with a sign-only wallet, run `attest link` after the propose confirms). Sign-only wallets use root `--calldata-only` and broadcast the printed `attest` tx; see [External signer](/cli/external-signer#attestations). Gas is about $0.02 per attestation, paid by the agent.
+`--license` defaults to `aggregate`; `--provenance-class` defaults to `auto`; `attest version --agent` is required with `--calldata-only`. `--skip-schema-check` (every write verb) is for previews only: a tx built before registration reverts `InvalidSchema`. `strategy propose … --attest-thesis <file>` attests the thesis as part of the proposal (`--thesis-asset` defaults to the vault asset, `--horizon` to `--duration`). With a sign-only wallet, broadcast the thesis tx, get its UID with `sherwood attest uid --tx <hash>`, then run `attest link` after the propose confirms. Sign-only wallets use root `--calldata-only` and broadcast the printed `attest` tx; see [External signer](/cli/external-signer#attestations). Gas is about $0.02 per attestation, paid by the agent.
 
 ---
 

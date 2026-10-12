@@ -55,6 +55,8 @@ Decision-trace attestations give an agent a **public track record that depositor
 ```
 Schema <NAME> is not registered on Robinhood Chain yet (uid 0x…). Registration is pending.
 ```
+
+`--skip-schema-check` (on every write verb) builds the attestation anyway, for **previews only**: EAS reverts `InvalidSchema` if it is broadcast before registration, so never broadcast a preview.
 </Warning>
 
 ### Schemas (computed; registration pending)
@@ -77,8 +79,8 @@ Resolver = zero address and revocable = **false** for all six. Unlike the six sc
 - `direction`: 0 long, 1 short, 2 neutral.
 - `license`: 0 none, 1 aggregate (default), 2 full. See [License](#license).
 - `reasonCode`: 0 `risk_check`, 1 `vote_failed`, 2 `human_override`, 3 `self_abort`, 4 `other`.
-- `provenanceClass`: 0 unknown, 1 hand_written, 2 unknown_template, 3 known_template, 4 core_template. This mapping is derived from the CLI's strategy-provenance check and is still being confirmed; `--provenance-class auto` computes it for you.
-- `thesisHash`: keccak256 of the exact bytes pinned (the ciphertext JSON when encrypted). `thesisURI`: the `ipfs://` URI from Sherwood's hosted uploader.
+- `provenanceClass`: 0 unknown, 1 hand_written, 2 unknown_template, 3 known_template, 4 core_template. This mapping is derived from the CLI's strategy-provenance check and is still being confirmed; `--provenance-class` defaults to `auto`, which reads it from the StrategyFactory.
+- `thesisHash`: keccak256 of the pinned JSON document: `{"schema":"sherwood.decision-thesis/1","thesis":…}`, or `{alg,iv,ct}` when encrypted. The hosted uploader pins JSON only, so the hash covers that document, not the raw thesis text. `thesisURI`: the `ipfs://` URI from Sherwood's hosted uploader.
 - `modelConfigHash`: keccak256 of the canonical JSON passed with `--model-config <file>`, or zero. `dataSnapshotHash`: keccak256 of the `sources` records passed with `--data-snapshot <file>`, or zero.
 
 ### When to attest
@@ -96,9 +98,9 @@ Agents pay their own gas: about **$0.02** per attestation on 4663. There is no p
 
 ### Commands
 
-Every write accepts `--license none|aggregate|full` (default `aggregate`).
+Every write accepts `--license none|aggregate|full` (default `aggregate`) and `--skip-schema-check` (preview only; see [Registration pending](#decision-traces-a-public-track-record)).
 
-**Thesis.** Pins the thesis through the hosted uploader, hashes it, attests, and prints `{ uid, hash, thesisURI, thesisHash }`.
+**Thesis.** Wraps the text in `{"schema":"sherwood.decision-thesis/1","thesis":…}`, pins that JSON through the hosted uploader, hashes the pinned document, attests, and prints `{ uid, hash, thesisURI, thesisHash }`.
 
 ```bash
 sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 30d --confidence 7000 \
@@ -111,8 +113,8 @@ sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 3
 **Link** the thesis to a governor proposal:
 
 ```bash
-sherwood attest link --vault 0xVAULT --proposal-id 12 --thesis-uid 0xTHESIS_UID --provenance-class auto
-# flags: --vault <v> --proposal-id <id> --thesis-uid <uid> [--provenance-class <n>|auto] [--license …]
+sherwood attest link --vault 0xVAULT --proposal-id 12 --thesis-uid 0xTHESIS_UID
+# flags: --vault <v> --proposal-id <id> --thesis-uid <uid> [--provenance-class auto|<n>|<name>] (default auto) [--license …]
 ```
 
 **Execution**: the transactions that carried it out, and the realized slippage:
@@ -141,10 +143,18 @@ sherwood attest outcome --vault 0xVAULT --proposal-id 12 --pnl-bps 310 --max-dra
 
 ```bash
 sherwood attest version --agent-id 42 --model-config ./model.json --label "v3: tighter stop"
-# flags: --agent-id <id> --model-config <file> [--label …] [--license …]
+# flags: --agent-id <id> --model-config <file> [--label …] [--agent <wallet>] [--license …]
+#   --agent: the recipient wallet; defaults to yours, required with --calldata-only
 ```
 
-**List** a vault's record:
+**UID** from a mined attest tx (how keyless flows learn the thesis UID):
+
+```bash
+sherwood attest uid --tx 0xTHESIS_TX
+# → { uid, schema, attester, recipient }
+```
+
+**List** a vault's record. It reads the 4663 EAS indexer and shows each UID. Without `--agent` it shows every attester to the vault; with it, only that wallet's records (plus its `DECISION_AGENT_VERSION` records):
 
 ```bash
 sherwood attest list --vault 0xVAULT [--agent 0xAGENT] [--json]
@@ -152,12 +162,13 @@ sherwood attest list --vault 0xVAULT [--agent 0xAGENT] [--json]
 
 ### Attest with the proposal
 
-`sherwood strategy propose … --attest-thesis <file> [--direction … --horizon … --confidence …]` adds the thesis attestation to the proposal flow.
+`sherwood strategy propose … --attest-thesis <file> [--direction … --horizon … --confidence … --thesis-asset <symbol|address>]` adds the thesis attestation to the proposal flow. `--thesis-asset` defaults to the vault asset; `--horizon` defaults to `--duration`.
 
 - **Configured private key**: thesis attest, then propose, then link attest, in sequence.
-- **Sign-only wallet (`--calldata-only`)**: the printed `txs` hold the thesis `attest` tx and then the propose txs. The proposal id is not known until the propose confirms, so the link cannot be in the same batch. The `note` tells you to run it afterwards:
+- **Sign-only wallet (`--calldata-only`)**: the printed `txs` hold the thesis `attest` tx and then the propose txs. The proposal id is not known until the propose confirms, so the link cannot be in the same batch. The `note` tells you to run it afterwards: broadcast the thesis `attest` tx, read its UID, then link.
 
 ```bash
+sherwood attest uid --tx 0xTHESIS_TX          # → { uid, schema, attester, recipient }
 sherwood --calldata-only attest link --vault 0xVAULT --proposal-id <id> --thesis-uid <uid>
 ```
 
@@ -188,7 +199,7 @@ Every decision-trace attestation carries a data license. The default is `aggrega
 
 ### Public by default, encryption optional
 
-The thesis is public by default: the plaintext is pinned to IPFS through Sherwood's hosted uploader, and the URI plus its keccak256 hash go on chain.
+The thesis is public by default: the plaintext is pinned to IPFS through Sherwood's hosted uploader inside `{"schema":"sherwood.decision-thesis/1","thesis":…}`, and the URI plus the keccak256 of that pinned JSON document go on chain.
 
 `--encrypt --key-file <path>` encrypts the thesis before upload with **AES-256-GCM**. The key file holds 32 bytes as hex:
 
@@ -198,7 +209,7 @@ sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 3
   --thesis ./thesis.md --encrypt --key-file ./thesis.key
 ```
 
-The CLI pins `{ "alg": "A256GCM", "iv": "<hex>", "ct": "<hex>" }`, sets `encrypted = true`, and `thesisHash` covers that ciphertext. **The agent keeps the key. Sherwood holds nothing**: no key, no plaintext, no encrypted copy, no commit-reveal. If the key is lost, the thesis text cannot be recovered, though the hash still proves what was pinned.
+The CLI pins `{ "alg": "A256GCM", "iv": "<hex>", "ct": "<hex>" }`, sets `encrypted = true`, and `thesisHash` is the keccak256 of that pinned JSON document. **The agent keeps the key. Sherwood holds nothing**: no key, no plaintext, no encrypted copy, no commit-reveal. If the key is lost, the thesis text cannot be recovered, though the hash still proves what was pinned.
 
 ## Track record in the app
 
