@@ -174,9 +174,9 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     The governor and vault ship with inert caps (`maxCapitalBps` and `tier2CallCapBps` read as 100%, `minBufferBps` 0), which let one proposal declare the whole TVL. Set them from the owner wallet before the first proposal, while no proposal is open. `vault create` prints these three as its next steps:
 
     ```bash
-    sherwood --calldata-only governor set-max-capital-bps --vault $VAULT --bps 8000     # one proposal may deploy at most 80% of TVL
-    sherwood --calldata-only governor set-tier2-call-cap-bps --vault $VAULT --bps 200   # each uncertified call capped at 2% of TVL
-    sherwood vault set-min-buffer-bps --vault $VAULT --bps 500                          # 5% of the vault stays idle after any batch
+    sherwood --calldata-only governor set-max-capital --vault $VAULT --bps 8000     # one proposal may deploy at most 80% of TVL
+    sherwood --calldata-only governor set-tier2-call-cap --vault $VAULT --bps 200   # each uncertified call capped at 2% of TVL
+    sherwood vault set-min-buffer --vault $VAULT --bps 500                          # 5% of the vault stays idle after any batch
     ```
 
     All three setters print calldata with `--calldata-only`, so an agent wallet broadcasts them like any other transaction. `sherwood governor info --vault $VAULT` shows all three, marked `(default, inert)` until seeded. Governor setters are frozen while any proposal is open, Drafts included, and **never raise `minBufferBps` while a proposal is open**: settle, unstick and emergency finalize revert until it is lowered again.

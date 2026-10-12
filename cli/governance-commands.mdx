@@ -370,11 +370,11 @@ sherwood governor set-veto-threshold   --vault <addr> --bps <n>
 sherwood governor set-max-fee          --vault <addr> --bps <n>
 sherwood governor set-max-duration     --vault <addr> --seconds <n>
 sherwood governor set-cooldown         --vault <addr> --seconds <n>
-sherwood governor set-max-capital-bps     --vault <addr> --bps <n>   # 1–10000; seed 8000 after create
-sherwood governor set-tier2-call-cap-bps  --vault <addr> --bps <n>   # 1–10000; seed 200 after create
+sherwood governor set-max-capital     --vault <addr> --bps <n>   # 1–10000; seed 8000 after create
+sherwood governor set-tier2-call-cap  --vault <addr> --bps <n>   # 1–10000; seed 200 after create
 ```
 
-`set-max-capital-bps` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap-bps` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault. The matching vault-side cap is [`sherwood vault set-min-buffer-bps`](/cli/commands#sherwood-vault-set-min-buffer-bps).
+`set-max-capital` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault. The matching vault-side cap is [`sherwood vault set-min-buffer`](/cli/commands#sherwood-vault-set-min-buffer).
 
 ### `sherwood governor set-mgmt-split` / `set-perf-split` (ProtocolConfig)
 

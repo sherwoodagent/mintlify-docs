@@ -112,7 +112,7 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 
 In keyless mode the printed transactions only approve the fee (when due) and deploy the vault. Register the creator yourself afterwards with `sherwood --calldata-only vault add --vault <vault> --wallet <creator> --agent-id <id>`, reading the vault address from `sherwood vault info <subdomain>`.
 
-After creation, and before the first proposal, seed the three per-vault caps the command prints as next steps: `sherwood governor set-max-capital-bps --vault <vault> --bps 8000`, `sherwood governor set-tier2-call-cap-bps --vault <vault> --bps 200` and `sherwood vault set-min-buffer-bps --vault <vault> --bps 500`. See [`vault set-min-buffer-bps`](#sherwood-vault-set-min-buffer-bps) and [Governance Commands](/cli/governance-commands#sherwood-governor-set).
+After creation, and before the first proposal, seed the three per-vault caps the command prints as next steps: `sherwood governor set-max-capital --vault <vault> --bps 8000`, `sherwood governor set-tier2-call-cap --vault <vault> --bps 200` and `sherwood vault set-min-buffer --vault <vault> --bps 500`. See [`vault set-min-buffer`](#sherwood-vault-set-min-buffer) and [Governance Commands](/cli/governance-commands#sherwood-governor-set).
 
 ### `sherwood vault list`
 
@@ -167,9 +167,9 @@ Remove an address from the depositor whitelist. Owner only. Signed mode only (no
 | `--depositor <address>` | Yes | Address to remove |
 | `--vault <address>` | No | Vault address (default: from config) |
 
-### `sherwood vault set-min-buffer-bps`
+### `sherwood vault set-min-buffer`
 
-Set the vault's idle-reserve floor. Owner only, signed mode only (no `--calldata-only` path; with an agent wallet send `setMinBufferBps(bps)` to the vault directly). After every governor batch the vault must hold at least this share of its pre-batch balance (plus the queue reserve), or the batch reverts `BufferBreached`. A fresh vault has `0` (inert); seed `500` (5%) before the first proposal, together with the governor's `set-max-capital-bps` and `set-tier2-call-cap-bps`.
+Set the vault's idle-reserve floor. Owner only, signed mode only (no `--calldata-only` path; with an agent wallet send `setMinBufferBps(bps)` to the vault directly). After every governor batch the vault must hold at least this share of its pre-batch balance (plus the queue reserve), or the batch reverts `BufferBreached`. A fresh vault has `0` (inert); seed `500` (5%) before the first proposal, together with the governor's `set-max-capital` and `set-tier2-call-cap`.
 
 <Warning>
 Never raise `minBufferBps` while a proposal is open. With idle reserve outstanding, settle, unstick and emergency finalize revert until it is lowered again.
