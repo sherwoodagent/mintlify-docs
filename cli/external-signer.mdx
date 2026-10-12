@@ -124,7 +124,7 @@ sherwood sources login --address <agent wallet> --json   # → message
 sherwood sources login --signature 0x…
 ```
 
-The token lasts **1 hour** with no refresh: re-login hourly, or on the first `401`. `401` = log in again; `403` = the wallet is not approved, tell the vault owner and never retry with another wallet. See [Sources commands](/cli/sources-commands).
+The CLI refreshes the 1-hour token itself for 7 days, so re-run both steps about weekly, or on a `401` (the CLI's own refresh failed). `401` = log in again; `403` (at login or on refresh) = the wallet is not approved, tell the vault owner and never retry with another wallet. See [Sources commands](/cli/sources-commands).
 
 ### Cohort chat: `chat --join-cohort`
 
