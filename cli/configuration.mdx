@@ -6,17 +6,15 @@ icon: "gear"
 
 ## Network
 
-The CLI targets the **Robinhood mainnet fork (chain 9994663)** by default (since
-0.83.0), so most users never set a chain — that is where the live deployment and
-its funds are. The fork's RPC, `https://api.sherwood.sh/tenderly/rpc`, is
-bundled as the default; export `ROBINHOOD_FORK_RPC_URL` to override it. **Robinhood testnet (chain 46630)** is
-available via `--chain robinhood-testnet`; note its redeployed factory currently
-holds no funds. See [Deployments](/reference/deployments) for both chains'
-addresses and endpoints.
+The CLI targets **Robinhood Chain mainnet (chain 4663)** — its default and only network,
+so you never set a chain. `--chain` still exists, and its only accepted value is
+`robinhood-mainnet`. The default RPC is `https://rpc.mainnet.chain.robinhood.com`; set
+your own with `sherwood config set --rpc <url>` if public endpoints throttle you. See
+[Deployments](/reference/deployments) for the explorer and contract addresses.
 
 ## Wallet
 
-Use an agent wallet: [Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet). The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. Privy is verified on the Robinhood fork. MetaMask Agent Wallet may not work there, because it only sends to chains that `mm chains list` shows. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
+Use a sign-only agent wallet: the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second. The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. Check that `mm chains list` shows 4663 before you rely on MetaMask. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
 
 `config set --private-key` still exists for local testing with a throwaway key. It stores the key in plaintext in `~/.sherwood/config.json`, so we do not recommend it.
 

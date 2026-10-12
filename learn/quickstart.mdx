@@ -1,206 +1,179 @@
 ---
 title: "Quickstart"
-description: "Go from zero to a running fund in minutes"
+description: "Go from zero to a running fund on Robinhood Chain"
 icon: "rocket"
 ---
 
-This guide takes you from a fresh install to a live strategy proposal: set up an agent wallet, fund it, bond the owner stake, create a vault, deposit, and propose a stock basket. The live deployment is the **Robinhood mainnet fork (chain 9994663)**. The CLI targets it by default (since 0.83.0), so there is no chain to select. It runs the latest, in-audit protocol build.
+This guide takes you from a fresh install to a live strategy proposal on **Robinhood Chain mainnet (chain 4663)**, using a sign-only agent wallet: set up the wallet, mint an identity, bond the owner stake, create a vault, register yourself, set the caps, log in to the data feeds, propose a stock basket, and watch it. 4663 is the CLI's default and only network, so there is no chain to select.
 
-<Note>
-  Everything on the fork is test capital. Its ETH, WOOD, USDG and stock tokens have no real value and cannot be withdrawn or redeemed for anything. The vault asset is **USDG** (6 decimals); there is no USDC on this chain.
-</Note>
+<Warning>
+  This is real money. ETH, USDG, WOOD and the stock tokens on 4663 carry real value. The vault asset is **USDG** (6 decimals). Never pay, stake, bond, approve or deposit before the person you act for has seen the amount and said yes.
+</Warning>
 
 <Steps>
   <Step title="Install the CLI">
-    Install globally from npm:
-
     ```bash
-    npm install -g @sherwoodagent/cli@0.92.2
-    ```
-
-    Verify the installation:
-
-    ```bash
-    sherwood --version
+    npm install -g @sherwoodagent/cli@0.93.0
+    sherwood --version   # must be 0.93.0 or later
     ```
   </Step>
 
   <Step title="Set up an agent wallet">
-    Use an agent wallet, so the key never leaves the wallet provider. Two work with Sherwood:
-
-    - **[Privy agent wallet](https://agents.privy.io/)** — recommended on the fork, where it is verified end to end. Privy signs and you broadcast.
-    - **[MetaMask Agent Wallet](https://metamask.io/agent-wallet)** — sends transactions itself with `mm wallet send-transaction`.
+    Use the **MetaMask Agent Wallet** first; **Privy** is the second option. Both are sign-only from the CLI's view: the key never leaves the wallet provider.
 
     <Tabs>
+      <Tab title="MetaMask">
+        ```bash
+        npm i -g @metamask/agent-wallet@latest
+        mm login                 # prints a device code; a human approves it once
+        mm chains list           # must list 4663 (Robinhood Chain); if it does not, use Privy
+        mm wallet send-transaction --chain-id 4663 \
+          --payload '{"to":"<txs[i].to>","data":"<txs[i].data>","value":"<txs[i].value>"}' \
+          --intent '<what this tx does>' --wait
+        ```
+      </Tab>
       <Tab title="Privy">
         ```bash
         P="pnpm --package=@privy-io/agent-wallet-cli dlx privy-agent-wallet"
-        $P login          # prints a device code for a human to approve
-        $P list-wallets   # prints the wallet's ETH address
+        $P login          # one-time: a human approves a device code at agents.privy.io
+        $P list-wallets   # prints the provisioned ETH address
         ```
 
-        Privy's chain registry does not include 9994663, so you sign each transaction with `eth_signTransaction` and broadcast the result to the fork RPC. The full recipe is in [External signer](/cli/external-signer#privy-agent-wallet-verified-on-the-robinhood-fork).
-      </Tab>
-      <Tab title="MetaMask">
-        ```bash
-        npm install -g @metamask/agent-wallet@latest
-        mm login
-        ```
-
-        Send each transaction with:
-
-        ```bash
-        mm wallet send-transaction \
-          --chain-id 9994663 \
-          --payload '{"to":"0x...","data":"0x...","value":"0x0"}' \
-          --wait
-        ```
-
-        <Warning>
-          MetaMask Agent Wallet may not work on the fork. `send-transaction` only reaches chains that `mm chains list` shows, and 9994663 is a custom fork chain ID. If it is not listed, use Privy.
-        </Warning>
+        Privy either broadcasts on 4663 (`eth_sendTransaction` with `caip2: eip155:4663`) or, if its registry does not carry 4663, signs with `eth_signTransaction` and you broadcast to `https://rpc.mainnet.chain.robinhood.com`. Both branches: [External signer](/cli/external-signer#privy-agent-wallet-second-choice).
       </Tab>
     </Tabs>
 
-    Save the wallet address for the commands below:
+    Fund the wallet on 4663 with **ETH** for gas, **USDG** for the vault, and **WOOD** for the 10,000 owner bond plus proposer bonds (plus the creation fee if the wallet is not sponsored). Fund **USDC on Base** only if you will run [research](/cli/commands#research-x402).
 
     ```bash
     export ME=0xYourAgentWalletAddress
     ```
 
-    **How commands run.** Put `--calldata-only` before any command that writes to the chain. The CLI then prints unsigned transactions instead of sending them:
+    **How commands run.** Put `--calldata-only` before any command that writes to the chain. The CLI prints unsigned transactions instead of sending them:
 
     ```json
-    { "txs": [{ "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 9994663 }], "description": "..." }
+    { "txs": [{ "to": "0x...", "data": "0x...", "value": "0x0", "chainId": 4663 }], "description": "...", "note": "..." }
     ```
 
-    Send every entry in `txs` from your wallet, **in order**, and wait for each to confirm before sending the next. Read-only commands such as `vault info` and `proposal list` need no flag and no wallet.
+    Send every entry in `txs` from your wallet, **in order**, and wait for each to confirm before sending the next. If one reverts, stop. Read-only commands such as `vault info` and `proposal list` need no flag and no wallet.
   </Step>
 
-  <Step title="Get test funds">
-    <Note>The beta faucet closed when the beta ended on 2026-09-30. Mainnet is coming soon.</Note>
+  <Step title="Mint an identity">
+    ```bash
+    sherwood --calldata-only identity mint --name "My Agent"
+    ```
+
+    Broadcast it, then record your agent id (`sherwood identity status`; `sherwood identity load --id <id>` saves it if needed). The factory checks that the creating wallet owns this id.
+
+    ```bash
+    export ID=<your agent id>
+    ```
   </Step>
 
   <Step title="Bond the owner stake">
-    The factory will not deploy a vault until its creator has bonded WOOD, 10,000 at minimum:
-
     ```bash
     sherwood --calldata-only guardian prepare-owner-stake 10000
     ```
 
-    This prints two transactions: a WOOD approval to sWOOD (`StakedWood`), then `prepareOwnerStake`. Run it once per creator wallet. Skip it and vault creation reverts with `PreparedStakeNotFound`.
+    This prints a WOOD approval to `StakedWood`, then `prepareOwnerStake`. Skip it and vault creation reverts with `PreparedStakeNotFound`.
   </Step>
 
   <Step title="Create a vault">
-    Print the transaction that deploys the vault, its governor and its withdrawal queue, then send it:
-
     ```bash
-    sherwood --calldata-only vault create \
-      --name "My Fund" \
-      --subdomain my-fund \
-      --description "Weighted stock baskets on the Robinhood fork" \
-      --agent-id 0 \
-      --asset USDG \
-      --open-deposits \
-      -y
+    sherwood --calldata-only vault create -y \
+      --name "My Fund" --subdomain my-fund \
+      --description "Weighted stock baskets on Robinhood Chain" \
+      --agent-id $ID --asset USDG --creator $ME
     ```
 
-    | Flag | What it sets |
-    |------|--------------|
-    | `--name` | Display name. |
-    | `--subdomain` | Fund identifier, lowercase, at least 3 characters. ENS registration is skipped on the Robinhood chains. |
-    | `--description` | Short strategy summary, pinned to IPFS with the rest of the metadata. |
-    | `--agent-id` | ERC-8004 identity token ID. `0` works on this deployment, so you can skip minting an identity for now. |
-    | `--asset` | Vault asset. Use `USDG` on the fork. |
-    | `--open-deposits` | Anyone can deposit. Leave it off for a whitelist-only vault, then approve every depositor (yourself included) with `sherwood --calldata-only vault approve-depositor --vault $VAULT --depositor <address>`. |
-    | `-y` | Skips the confirmation prompt. |
+    `--creator` makes the CLI check your owner bond, sponsorship, fee balance and identity before it prints anything. Creation is invite-only: a wallet sponsored through the waitlist creates for free; any other wallet pays the creation fee, and the printed txs then start with that approval. Add `--open-deposits` only if you want anyone to deposit once the launch restriction lifts.
+  </Step>
 
-    Once it confirms, look up the vault address:
+  <Step title="Register yourself on the vault">
+    The keyless create cannot register the creator, because the vault address is unknown until it confirms:
 
     ```bash
     sherwood vault info my-fund
     export VAULT=0xYourVaultAddress
+    sherwood --calldata-only vault add --vault $VAULT --wallet $ME --agent-id $ID
     ```
 
-    Then register your wallet as an agent on the vault. Only agents can propose, and the factory does not register the creator for you:
-
-    ```bash
-    sherwood --calldata-only vault add --vault $VAULT --wallet $ME --agent-id 0
-    ```
+    Skip this and keyless `strategy propose` fails with `not a registered agent`.
   </Step>
 
-  <Step title="Deposit capital">
-    Deposit USDG into the vault to receive shares. Shares carry voting power over proposals:
-
+  <Step title="Set the vault caps">
     ```bash
-    sherwood --calldata-only vault deposit --vault $VAULT --amount 500 --receiver $ME
+    sherwood --calldata-only governor set-tier2-call-cap 200 --vault $VAULT
+    sherwood --calldata-only governor set-max-capital 8000 --vault $VAULT
+    sherwood --calldata-only vault set-min-buffer 500 --vault $VAULT
     ```
 
-    This prints two transactions: a USDG approval, then the deposit. Your shares self-delegate automatically. Check them with:
+    See [Vault caps](/cli/governance-commands#vault-caps-owner-only).
+  </Step>
 
+  <Step title="Log in to the data feeds">
     ```bash
-    sherwood vault balance --vault $VAULT --address $ME
+    sherwood sources login --address $ME --json   # → message
+    #   personal_sign the exact message within 10 min:
+    #     MetaMask: {{MM_SIGN_MESSAGE}}
+    #     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
+    sherwood sources login --signature 0x…
     ```
 
-    Deposits are instant only while no proposal is open. Once one is, use `sherwood queue request-deposit` instead.
+    The token lasts **1 hour**: re-login hourly. `401` = log in again; `403` = the wallet is not approved, tell the owner and never swap wallets. Optionally join the cohort chat next: [XMTP](/reference/integrations/xmtp).
   </Step>
 
   <Step title="Propose a strategy">
-    Propose a Portfolio strategy, a weighted basket of tokenized stocks swapped through Uniswap v4 on the fork. One command clones the strategy template, initializes it, builds the execute and settle calls, pins the proposal metadata to IPFS, and prints the proposal:
+    Pull the routes and slippage from the liquidity feed, then propose:
 
     ```bash
+    T=TSLA,AMZN
+    L=$(sherwood sources get liquidity)
+    ROUTES=$(echo "$L" | jq -r --arg t "$T" '[$t|split(",")[] as $s | .recommended.by_symbol[$s].swap_extra_data_hint
+      | if .mode == 0 then "v3:\(.fee)" else "v4:\(.fee):\(.tickSpacing)" end] | join(",")')
+    SLIP=$(echo "$L" | jq --arg t "$T" '[$t|split(",")[] as $s | .recommended.by_symbol[$s].suggested_max_slippage_bps] | max')
+
     sherwood --calldata-only strategy propose portfolio \
-      --vault $VAULT \
-      --proposer $ME \
-      --name "TSLA/AMZN basket" \
-      --description "60/40 TSLA and AMZN, held for 7 days" \
-      --amount 200 \
-      --tokens TSLA,AMZN \
-      --weights 6000,4000 \
-      --swap-routes v4:3000:60,v4:3000:60 \
-      --max-slippage 500 \
-      --duration 7d
+      --vault $VAULT --proposer $ME \
+      --name "TSLA/AMZN basket" --description "60/40 TSLA and AMZN, held for 7 days" \
+      --amount 200 --tokens $T --weights 6000,4000 \
+      --swap-routes "$ROUTES" --max-slippage "$SLIP" \
+      --max-drawdown-bps 2000 --duration 7d
     ```
 
     | Flag | What it sets |
     |------|--------------|
     | `--proposer` | Your agent wallet. It must send every transaction. |
-    | `--name`, `--description` | What voters and guardians see. Pinned to IPFS for you; pass `--metadata-uri` instead to use a document you pinned yourself. |
-    | `--amount` | USDG the strategy deploys, taken from the vault. It must be no more than the vault's balance. |
-    | `--tokens` | Basket tokens by symbol. The fork carries AAPL, TSLA, NVDA, MSFT, AMZN, AMD, SPY, QQQ and GOOGL. |
-    | `--weights` | Allocation per token in basis points, in the same order as `--tokens`. Must sum to `10000`. |
-    | `--swap-routes` | Uniswap pool per token, in the same order. Required on the fork. Most stocks use `v4:3000:60`; AMD uses `v4:10000:200`. |
-    | `--max-slippage` | Maximum slippage in basis points against the Chainlink price. `500` is 5%. |
-    | `--duration` | How long the strategy runs before settlement, between `1h` and `30d` by default. |
+    | `--name`, `--description` | What voters and guardians see. Pinned to IPFS for you; pass `--metadata-uri ipfs://…` instead to use a document you pinned yourself. |
+    | `--amount` | USDG the strategy deploys, taken from the vault. |
+    | `--tokens`, `--weights` | Basket by symbol, and bps per token in the same order (sum `10000`). |
+    | `--swap-routes` | One route per token, from `sources get liquidity` (see [From a liquidity record to Portfolio flags](/cli/strategy-commands#from-a-liquidity-record-to-portfolio-flags)). Leave it out to auto-detect. |
+    | `--max-slippage` | One value for the basket: the **largest** leg's `suggested_max_slippage_bps`. |
+    | `--max-drawdown-bps` | Loss allowance in bps of `--amount` (default 2000 = 20%). Tie it to your kill criteria. |
+    | `--duration` | How long the strategy runs before settlement. |
 
-    Proposing locks a **proposer bond** in WOOD, sized to the capital at risk. A 200 USDG book needs a few hundred WOOD, which the 5,000 WOOD left after the owner stake covers. The CLI checks your wallet holds it, and when the bond escrow has no allowance yet, the first transaction printed is that WOOD approval. Then come the strategy clone and the proposal. If the clone reverts, do not send the proposal. Find the proposal ID with:
-
-    ```bash
-    sherwood proposal list --vault $VAULT
-    ```
+    Proposing locks a **proposer bond** in WOOD, sized to the capital at risk. When the bond escrow has no allowance yet, the first printed tx is that WOOD approval; then come the strategy clone and the proposal. If the clone reverts, do not send the proposal.
   </Step>
 
-  <Step title="Execute and settle">
-    Shareholders get a voting window (24 hours by default), then staked guardians review the calls. Guardians who vote Approve underwrite the book with their WOOD. Execution needs at least one covering approval: with none, `execute` reverts `InsufficientApproveCoverage`, and with partial coverage it deploys a proportionally smaller amount. See [Coverage](/protocol/governance/coverage).
+  <Step title="Watch, execute and settle">
+    ```bash
+    sherwood proposal list --vault $VAULT
+    sherwood proposal show 1 --vault $VAULT
+    ```
 
-    Once the proposal is `Approved`, execute it within the execution window (24 hours by default):
+    States: `Draft`, `Pending` (voting), `GuardianReview`, `Approved`, `Rejected`, `Expired`, `Executed`, `Settled`, `Cancelled`. The owner can veto only while `Pending`. Execution needs guardian coverage: see [Coverage](/protocol/governance/coverage).
 
     ```bash
     sherwood --calldata-only proposal execute --vault $VAULT --id 1
-    ```
-
-    Proposal IDs are per vault and start at `1`. Settlement swaps the basket back to USDG and returns it to the vault. As the proposer you can settle one hour after execution; anyone else can settle once the full duration has passed:
-
-    ```bash
-    sherwood --calldata-only proposal settle --vault $VAULT --id 1
+    sherwood --calldata-only proposal settle --id 1 --vault $VAULT        # proposer: no sooner than 1 hour after execution
+    sherwood --calldata-only proposal reclaim-bond --id 1 --vault $VAULT  # after a terminal state
     ```
   </Step>
 </Steps>
 
 ## Next steps
 
-- Read [External signer](/cli/external-signer) for the full `--calldata-only` reference and the Privy signing recipe
-- Follow the [Strategy Walkthrough](/protocol/strategies/walkthrough) for the full proposal lifecycle: voting, guardian review, rebalancing and settlement
-- Read [Core Concepts](/learn/concepts) to understand the governance model and settlement mechanics
-- See [Proposer bond](/protocol/governance/proposer-bond) for how the WOOD bond is sized
-- Explore the full [CLI command reference](/cli/commands) for vault management, voting, and agent registration
+- [External signer](/cli/external-signer): the full `--calldata-only` reference, both Privy branches, and the sign-only two-steps
+- [Strategy Walkthrough](/protocol/strategies/walkthrough): voting, guardian review, rebalancing and settlement
+- [Proposer bond](/protocol/governance/proposer-bond): how the WOOD bond is sized
+- [CLI command reference](/cli/commands)

@@ -63,7 +63,7 @@ sherwood agent start \
 | `--log` | none | Path to write cycle log JSONL files |
 
 <Note>
-Live on-chain execution is not part of the current Robinhood testnet (chain 46630) deployment; the agent paper-trades here.
+The agent paper-trades. It does not execute live trades.
 </Note>
 
 The loop loads any persisted risk configuration from `~/.sherwood/agent/config.json` (written by `agent config --set`). Each cycle:
@@ -131,7 +131,7 @@ Configuration is persisted to `~/.sherwood/agent/config.json` and loaded automat
 
 ## `agent backtest`
 
-Backtest strategies on historical CoinGecko data.
+Backtest strategies on past CoinGecko price data.
 
 ```bash
 sherwood agent backtest bitcoin \

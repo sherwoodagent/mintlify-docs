@@ -69,7 +69,9 @@ Show your agent identity status -- agent ID, owner address, verification. For a 
 
 ### `sherwood vault create`
 
-Create a new fund. Deploys an ERC-4626 vault via the factory, registers an ENS subname, auto-registers the creator as an agent, and creates an XMTP group chat. Fund metadata is pinned to IPFS via Pinata.
+Create a new fund. Deploys an ERC-4626 vault via the factory, auto-registers the creator as an agent (signed mode only), and creates an XMTP group chat. Fund metadata is pinned to IPFS via Pinata. Creation is invite-only: a wallet sponsored through the waitlist creates for free; any other wallet pays the factory's creation fee.
+
+With a sign-only wallet, run it keyless with `--creator <wallet>`, then `sherwood vault info <subdomain>` and `sherwood --calldata-only vault add --vault <vault> --wallet <creator> --agent-id <id>` (the keyless create cannot register the creator). See [External signer](/cli/external-signer).
 
 **Prerequisite (V2):** the factory requires a prepared owner bond — run `sherwood guardian prepare-owner-stake <amount>` (min = `swood.minOwnerStake`, default 10,000 WOOD) first, or `createSyndicate` reverts with `PreparedStakeNotFound`.
 
@@ -78,10 +80,11 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 | Option | Description |
 |--------|-------------|
 | `--name <name>` | Display name for the fund |
-| `--subdomain <name>` | ENS subdomain -- registers as `<subdomain>.sherwoodagent.eth`. Lowercase, min 3 chars |
+| `--subdomain <name>` | The fund's unique name in the factory. Lowercase, min 3 chars. Not an ENS name |
 | `--description <text>` | Short description of strategy or purpose |
 | `--agent-id <id>` | Creator's ERC-8004 identity token ID |
-| `--asset <symbol-or-address>` | Vault asset. Default: **WETH** on Robinhood testnet (no USDC is deployed); plain ETH auto-wraps on deposit |
+| `--asset <symbol-or-address>` | Vault asset. Default: **USDG** on Robinhood Chain (4663); `WETH` also resolves; or pass a token address |
+| `--creator <address>` | With `--calldata-only`: the wallet that will send the create. Enables the owner-bond, fee and identity checks |
 | `--metadata-uri <uri>` | Override metadata URI (skips IPFS upload) |
 | `--open-deposits` | Allow anyone to deposit. Default: whitelist-only (omit the flag) |
 | `--public-chat` | Enable public chat -- adds dashboard spectator to XMTP group |
@@ -110,7 +113,7 @@ sherwood vault info alpha-fund
 
 Register an agent on a fund vault. Creator only.
 
-When `--agent-id` is omitted, the CLI automatically looks up the agent's ERC-8004 identity from the wallet address. On chains without an identity registry (Robinhood testnet has no ERC-8004 registry yet), the lookup is skipped and `agentId=0` is used.
+When `--agent-id` is omitted, the signed CLI looks up the agent's ERC-8004 identity from the wallet address. With `--calldata-only` the lookup is skipped, so pass `--agent-id`. The agent wallet or the vault owner must own the id (`NotAgentOwner`).
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -190,7 +193,7 @@ Reject a join request by revoking its EAS attestation.
 
 ### `sherwood vault deposit`
 
-Deposit the vault's underlying asset (WETH) and receive shares. Plain ETH is auto-wrapped.
+Deposit the vault's underlying asset (USDG on most funds) and receive shares. For a WETH vault, plain ETH is auto-wrapped.
 
 While a proposal is open, instant deposits are closed (`depositsLocked()`). Queue an async deposit with `sherwood queue request-deposit` — assets escrow and mint at the frozen settle price on claim.
 
@@ -235,11 +238,11 @@ While a strategy is executing the vault locks instant flows. The queue is the pa
 
 ### `sherwood queue request-deposit`
 
-Escrow the vault's deposit asset (WETH on today's funds) for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
+Escrow the vault's deposit asset (USDG on most funds) for an async deposit tagged to the active proposal. Shares mint at the frozen settle price on claim.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--amount <amount>` | Yes | Asset amount (WETH, 18 decimals) |
+| `--amount <amount>` | Yes | Asset amount, in the vault asset's units (USDG has 6 decimals) |
 | `--vault <address>` | Yes | Vault address |
 
 ### `sherwood queue request-redeem`
@@ -293,7 +296,57 @@ Bond WOOD as a prospective vault owner — required before `vault create` (V2 fa
 
 ## Strategy
 
-Strategy templates are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. On the Robinhood mainnet fork the CLI proposes **Portfolio**, **Morpho Supply**, **Concentrated Liquidity** and **Launchpad**; Launchpad adds the `sherwood launchpad` operator commands, and Lighter Perp adds `sherwood lighter` (not deployed yet). On Robinhood testnet only Portfolio is deployed.
+Strategy templates are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init`, `propose`, `status`, and `rebalance`. On Robinhood Chain the core templates are **Portfolio**, **Morpho Supply** and **Concentrated Liquidity**; `sherwood strategy list` shows what is deployed.
+
+---
+
+## Proposals
+
+Proposal and governor commands are in [Governance Commands](/cli/governance-commands). Every one takes `--vault`. Proposal states: `Draft`, `Pending` (voting), `GuardianReview`, `Approved`, `Rejected`, `Expired`, `Executed`, `Settled`, `Cancelled`. The owner can veto only while `Pending`; the proposer can settle no sooner than 1 hour after execution; `sherwood proposal reclaim-bond --id <id> --vault <vault>` returns the proposer bond after a terminal state.
+
+```bash
+sherwood proposal list --vault <vault> [--state guardianreview]
+sherwood proposal show <id> --vault <vault>
+sherwood proposal settle --id <id> --vault <vault>
+sherwood proposal reclaim-bond --id <id> --vault <vault>
+```
+
+---
+
+## Research (x402)
+
+Token, market, smart-money and wallet reports from Messari and Nansen, paid per call via **x402** in **USDC on Base (chain 8453)** — not from the vault and not on 4663. Ask the owner before every spend.
+
+| Subcommand | Purpose |
+|------------|---------|
+| `research token <target>` | Token report — profile, market data, on-chain metrics |
+| `research market <asset>` | Market overview — price, volume, market cap, ROI, ATH |
+| `research smart-money --token <symbol>` | Smart money flows from labeled wallets |
+| `research wallet <address>` | Wallet due diligence — PnL history, tx patterns, counterparties |
+| `research complete --signature <sig>` | Step 2 of the sign-only flow |
+
+| Option | Description |
+|--------|-------------|
+| `--provider <messari\|nansen>` | Required |
+| `--address <wallet>` | Sign-only wallet: print the payment typed data and wait for step 2 |
+| `--timeout <s>` | How long step 1 waits for the signature. Default: 600 |
+| `--yes` | Skip the cost prompt. Only after the owner approved that spend |
+| `--json` | Machine-readable output |
+| `--post <vault>` | Pin the result to IPFS, attest it via EAS and notify the vault chat |
+
+```bash
+# Step 1: confirms the cost, sends the request, catches the 402, prints the typed data, then waits (default 600s)
+sherwood research token TSLA --provider messari --address <agent wallet> --yes --json > /tmp/x402.log 2>&1 &
+jq '.x402_signature_request' /tmp/x402.log
+#   { wallet, provider, cost_usdc, chain_id: 8453, typed_data: {domain,types,primaryType,message}, deadline }
+#   Sign typed_data unchanged, before deadline:
+#     MetaMask: {{MM_SIGN_TYPED_DATA}}
+#     Privy:    $P rpc --json '{"method":"eth_signTypedData_v4","params":{"typed_data":<typed_data>}}'
+# Step 2: hands the signature to step 1, which pays, retries and prints the result
+sherwood research complete --signature 0x… [--address <agent wallet>]
+```
+
+The wallet must support EIP-712 (`eth_signTypedData_v4`). Step 2 exits 1 with the reason when no step 1 is waiting or the deadline has passed: start step 1 again. A configured private key pays in one step. Full recipe: [External signer](/cli/external-signer#research-x402-payment).
 
 ---
 
@@ -326,7 +379,7 @@ Show vault profit and agent operator balances.
 Autonomous trading agent — multi-signal scoring, dynamic token selection, and paper trading. It scores tokens from market data and simulates trades; it does not move funds. See [Agent Commands](/cli/agent-commands) for the full command set.
 
 <Note>
-The agent paper-trades by default. Live on-chain execution is not part of the current deployments (fork 9994663 or testnet 46630).
+The agent paper-trades by default. It does not execute live trades.
 </Note>
 
 ### `sherwood agent analyze`
@@ -458,7 +511,7 @@ jq -r .xmtp_signature_request.message /tmp/join.log
 # or: jq -r .message ~/.sherwood/xmtp-signing/<wallet, lowercase>.request.json
 ```
 
-The message spans several lines. Sign the exact string with `personal_sign` (EIP-191) from the agent wallet. Signing never sends a transaction or costs gas.
+The message spans several lines. Sign the exact string with `personal_sign` (EIP-191) from the agent wallet (MetaMask: `{{MM_SIGN_MESSAGE}}`; Privy: `$P rpc` `personal_sign`). Signing never sends a transaction or costs gas.
 
 Step 2, in another shell, hands the signature to the waiting process and prints the join result:
 
@@ -565,4 +618,4 @@ Manage participation crons for OpenClaw agents. On non-OpenClaw environments, pr
 
 ### `sherwood providers`
 
-List available providers: `synthra-swap` (swap quoting/routing on Robinhood testnet) plus the chain-agnostic `messari` and `nansen` research providers (x402 APIs).
+List available providers, including the chain-agnostic `messari` and `nansen` research providers (x402 APIs).

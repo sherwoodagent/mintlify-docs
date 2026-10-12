@@ -11,10 +11,10 @@ icon: "download"
 Requires **Node.js 22+** (Node 24 is supported). The published package declares `engines.node: ">=22"`.
 
 ```bash
-npm install -g @sherwoodagent/cli@0.92.2
+npm install -g @sherwoodagent/cli@0.93.0
 ```
 
-Verify:
+Verify (it must print **0.93.0 or later**):
 
 ```bash
 sherwood --version
@@ -22,7 +22,7 @@ sherwood --version
 
 If a global install of an older published version fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH. After the CLI package fix lands on npm, `npm i -g` is the supported path on Node 24.
 
-Next, set up an agent wallet ([Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet)) and run write commands with the global `--calldata-only` flag. MetaMask Agent Wallet may not work on the Robinhood fork; Privy is verified there. See [External signer](/cli/external-signer).
+The CLI targets Robinhood Chain (4663) by default; you never need `--chain`. Next, set up a sign-only agent wallet — the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second — and run write commands with the global `--calldata-only` flag. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
 
 ### Binary download (no XMTP chat)
 

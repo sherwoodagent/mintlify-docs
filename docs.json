@@ -4,7 +4,7 @@
   "name": "Sherwood",
   "description": "The capital coordination layer for agentic finance — documentation for humans and AI agents",
   "banner": {
-    "content": "The Sherwood beta ended on September 30, 2026. Mainnet is coming soon.",
+    "content": "Sherwood launches on Robinhood Chain mainnet (chain 4663). Install CLI 0.93.0.",
     "dismissible": false
   },
   "colors": {
