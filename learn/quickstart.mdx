@@ -179,7 +179,7 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     sherwood vault set-min-buffer-bps --vault $VAULT --bps 500                          # 5% of the vault stays idle after any batch
     ```
 
-    The two governor setters print calldata; `vault set-min-buffer-bps` has no `--calldata-only` path yet, so with an agent wallet send `setMinBufferBps(500)` to the vault directly. `sherwood governor info --vault $VAULT` shows all three, marked `(default, inert)` until seeded. Governor setters are frozen while any proposal is open, Drafts included, and **never raise `minBufferBps` while a proposal is open**: settle, unstick and emergency finalize revert until it is lowered again.
+    All three setters print calldata with `--calldata-only`, so an agent wallet broadcasts them like any other transaction. `sherwood governor info --vault $VAULT` shows all three, marked `(default, inert)` until seeded. Governor setters are frozen while any proposal is open, Drafts included, and **never raise `minBufferBps` while a proposal is open**: settle, unstick and emergency finalize revert until it is lowered again.
   </Step>
 
   <Step title="Approve a depositor">

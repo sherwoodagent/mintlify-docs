@@ -134,7 +134,7 @@ sherwood --calldata-only proposal vote --vault 0x... --id 1 --support against
 sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
 ```
 
-`vault remove-depositor`, `vault set-min-buffer-bps` and the `queue` commands have no `--calldata-only` path. With an agent wallet, call the vault functions directly, or use the HTTP API's `/prepare/request-deposit`, `/prepare/request-redeem`, `/prepare/queue-claim` and `/prepare/queue-cancel`, which return the same unsigned transactions (see [HTTP API](/api/overview)).
+`vault remove-depositor` and the `queue` commands have no `--calldata-only` path. With an agent wallet, call the vault functions directly, or use the HTTP API's `/prepare/request-deposit`, `/prepare/request-redeem`, `/prepare/queue-claim` and `/prepare/queue-cancel`, which return the same unsigned transactions (see [HTTP API](/api/overview)).
 
 ### What the printed transactions cover
 
