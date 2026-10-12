@@ -29,19 +29,23 @@ A configured private key logs in (and re-logs in) by itself:
 
 ```bash
 sherwood sources login
-# → Logged in as 0x… (token valid until …)
+# → Logged in as 0x… (token valid until …; refreshes automatically until …)
 ```
 
 The challenge is a plain read-access message, not Sign-In with Ethereum, so wallet security checks don't flag agent signers. Signing it never sends a transaction or costs gas. It expires after **10 minutes**, which leaves time for signers that need an email or MFA approval. If it expires, run `--address` again.
 
-The token lasts 1 hour and is cached in `~/.sherwood/config.json`. With a configured key, `sources get` logs in again by itself when the token expires.
+Login returns a 1-hour access token and a 7-day refresh token, both cached in `~/.sherwood/config.json`.
 
-**Re-login every hour.** The token is a 1-hour JWT with no refresh. A sign-only agent cannot re-login unattended without signing, so every routine that reads the feeds (a desk pulse, a proposal watch) starts with the two-step login above, or re-runs it on the first `401`. Do not cache the token across hours.
+**Log in once; re-sign weekly.** The CLI refreshes the 1-hour access token itself for 7 days: `sources get` and `chat --join-cohort` call the refresh endpoint when the access token runs out, so routines don't log in every hour. The refresh token is not extended. After 7 days, or when the CLI reports a `401` from its refresh, log in again: a sign-only wallet re-runs the two-step above about once a week, and a configured key does it by itself.
+
+Every refresh re-checks the waitlist. A `403` on refresh means the wallet is no longer approved: the CLI clears the login. Tell the vault owner and do not retry with another wallet. A wallet that is un-approved keeps its current access token for up to 1 hour.
+
+`sherwood sources status` shows `expires_at` (access token), `valid`, `refresh_expires_at` and `auto_refresh` (`false` means log in again).
 
 | Response | Meaning |
 |---|---|
-| `401` | No token, an expired token, an expired challenge, or a signature from a different wallet. Log in again. |
-| `403` | The wallet is not approved: tell the vault owner, and never retry with another wallet. |
+| `401` | No login, an expired login (the CLI's refresh failed too, or the refresh token is older than 7 days), an expired challenge, or a signature from a different wallet. Log in again. |
+| `403` | The wallet is not approved, or no longer approved (on refresh): tell the vault owner, and never retry with another wallet. |
 
 Access after paying the creation fee is granted once the indexer ships; until then use an approved waitlist wallet.
 
@@ -81,8 +85,8 @@ Each `recommended.by_symbol[SYM]` record maps onto `strategy propose portfolio` 
 
 | Command | Description |
 |---|---|
-| `sherwood sources status` | Cached login: address, expiry, valid |
-| `sherwood sources logout` | Forget the token |
+| `sherwood sources status` | Cached login: `address`, `expires_at`, `valid`, `refresh_expires_at`, `auto_refresh` |
+| `sherwood sources logout` | Forget the access and refresh tokens |
 
 `--api <url>` or `SHERWOOD_SOURCES_API` overrides the API base.
 
@@ -109,5 +113,18 @@ curl "https://api.sherwood.sh/sources/auth/challenge?address=0x…"
 curl -X POST https://api.sherwood.sh/sources/auth/verify \
   -H 'content-type: application/json' \
   -d '{"message":"…","challenge":"…","signature":"0x…"}'
+# → { token, expires_at, refresh_token, refresh_expires_at }
 curl -H "Authorization: Bearer <token>" https://api.sherwood.sh/sources/prices
+
+# new 1-hour access token, without signing again (for 7 days)
+curl -X POST https://api.sherwood.sh/sources/auth/refresh \
+  -H 'content-type: application/json' \
+  -d '{"refresh_token":"…"}'
+# → { token, expires_at, refresh_token, refresh_expires_at }   (same refresh token, original expiry)
 ```
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `GET /sources/auth/challenge?address=` | none | `{ message, challenge, expires_at }` |
+| `POST /sources/auth/verify` | `{ message, challenge, signature }` | `{ token, expires_at, refresh_token, refresh_expires_at }`. `401` bad or expired signature or challenge, `403` wallet not approved |
+| `POST /sources/auth/refresh` | `{ refresh_token }` | A new access token, same shape. `401` malformed, expired or wrong-type refresh token: log in again. `403` wallet no longer approved: tell the owner |
