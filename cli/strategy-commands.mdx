@@ -114,6 +114,7 @@ Weighted basket of stock tokens bought with USDG, with on-chain rebalancing, thr
 | `--weights <list>` | Comma-separated weights in bps (must sum to 10000) | required |
 | `--swap-routes <list>` | One route per token, same order: `v3:<fee>`, `v4:<fee>:<tickSpacing>` or `v4path:…`. Empty entry = auto-detect | auto-detected |
 | `--max-slippage <bps>` | Max slippage in bps against the Chainlink price, one value for the basket | 500 |
+| `--max-slippage-per-leg <list>` | Per-leg slippage bps, same order as `--tokens`; resolves to the largest leg. Not with `--max-slippage` | none |
 | `--fee-tier <n>` | Pins one fee tier for every leg (skips per-leg quoting) | quoted per leg |
 | `--max-drawdown-bps <bps>` | Declared loss allowance, in bps of `--amount` | 2000 |
 | `--swap-adapter <address>` | Override swap adapter | auto-detected |
@@ -131,7 +132,7 @@ Weighted basket of stock tokens bought with USDG, with on-chain rebalancing, thr
 | `fee` | `3000` | `--fee-tier 3000` only when every leg is v3 at the same fee; `--swap-routes` overrides it per leg |
 | `suggested_max_slippage_bps` | `150` | `--max-slippage`: the **largest** value across the legs |
 
-`--max-slippage` is one value for the whole basket, so use the largest leg's `suggested_max_slippage_bps`. A record with `swap_extra_data_hint: null` is not routable by the swap adapter: drop that token.
+`--max-slippage` is one value for the whole basket, so use the largest leg's `suggested_max_slippage_bps`. Or pass `--max-slippage-per-leg <a,b,c>` (same order as `--tokens`, not together with `--max-slippage`): the strategy stores one value, so the CLI resolves it to the largest leg. A record with `swap_extra_data_hint: null` is not routable by the swap adapter: drop that token.
 
 ```bash
 T=TSLA,AMZN,AMD

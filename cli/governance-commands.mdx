@@ -338,17 +338,17 @@ Three owner setters bound how much of the vault a proposal can use. Set them rig
 
 | Setter | Contract | CLI |
 |---|---|---|
-| `setTier2CallCapBps` | governor | `sherwood governor set-tier2-call-cap <bps> --vault <vault>` |
-| `setMaxCapitalBps` | governor | `sherwood governor set-max-capital <bps> --vault <vault>` |
-| `setMinBufferBps` | vault | `sherwood vault set-min-buffer <bps> --vault <vault>` |
+| `setTier2CallCapBps` | governor | `sherwood governor set-tier2-call-cap --vault <vault> --bps <n>` |
+| `setMaxCapitalBps` | governor | `sherwood governor set-max-capital --vault <vault> --bps <n>` |
+| `setMinBufferBps` | vault | `sherwood vault set-min-buffer --vault <vault> --bps <n>` |
 
 ```bash
-sherwood --calldata-only governor set-tier2-call-cap 200 --vault 0xVAULT   # ceiling on any one uncertified (tier-2) call: 2% of TVL
-sherwood --calldata-only governor set-max-capital 8000 --vault 0xVAULT     # ceiling on a proposal's maxCapital: 80% of TVL at propose
-sherwood --calldata-only vault set-min-buffer 500 --vault 0xVAULT          # idle-liquidity floor: keep 5% undeployed
+sherwood --calldata-only governor set-tier2-call-cap --vault 0xVAULT --bps 200   # ceiling on any one uncertified (tier-2) call: 2% of TVL
+sherwood --calldata-only governor set-max-capital --vault 0xVAULT --bps 8000     # ceiling on a proposal's maxCapital: 80% of TVL at propose
+sherwood --calldata-only vault set-min-buffer --vault 0xVAULT --bps 500          # idle-liquidity floor: keep 5% undeployed
 ```
 
-Bounds: the two governor caps take 1–10,000 bps (unset = 10,000, no ceiling); the buffer takes 0–5,000. The governor setters need no active proposal, and are frozen while one is open (`whenNoActiveProposal`).
+Bounds: the two governor caps take 1–10,000 bps (unset = 10,000, no ceiling); the buffer takes 0–5,000. The governor setters need no active proposal, and are frozen while one is open (`whenNoActiveProposal`). All three honour root `--calldata-only`. The 200 bps tier-2 cap is conservative: a Portfolio basket that routes through an uncertified call can be refused at that ceiling, so tell the owner it is a cautious default that is still being confirmed.
 
 ### `sherwood governor set-mgmt-split` / `set-perf-split` (ProtocolConfig)
 

@@ -54,7 +54,7 @@ done
 ```bash
 npm i -g @metamask/agent-wallet@latest
 mm login                 # prints a device code; a human approves it once
-mm chains list           # must list 4663 (Robinhood Chain); if it does not, use Privy below
+mm chains list           # needs mm login; check that it shows 4663 (Robinhood Chain); if it does not, use Privy below
 mm wallet send-transaction --chain-id 4663 \
   --payload '{"to":"<txs[i].to>","data":"<txs[i].data>","value":"<txs[i].value>"}' \
   --intent '<what this tx does>' --wait
@@ -64,8 +64,10 @@ mm wallet send-transaction --chain-id 4663 \
 
 Signing without a transaction (the CLI's two-step logins):
 
-- **personal_sign (EIP-191)** for `sources login` and `chat --join-cohort`: `{{MM_SIGN_MESSAGE}}`. Sign the exact text the CLI printed.
-- **EIP-712 typed data** for `research` (x402): `{{MM_SIGN_TYPED_DATA}}`. Pass the `typed_data` object the CLI printed, unchanged.
+- **personal_sign (EIP-191)** for `sources login` and `chat --join-cohort`: `mm wallet sign-message --message '<text>' --chain-id 4663`. Sign the exact text the CLI printed.
+- **EIP-712 typed data** for `research` (x402): `mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'`. Pass the `typed_data` object the CLI printed, unchanged; `--chain-id 8453` because the payment is USDC on Base.
+
+These verbs are from `@metamask/agent-wallet` 7.0.0 `--help`.
 
 ## Privy agent wallet (second choice)
 
@@ -117,7 +119,7 @@ Three commands need a signature that is not a transaction. Each prints what to s
 ```bash
 sherwood sources login --address <agent wallet> --json   # → message
 #   personal_sign the exact message within 10 min:
-#     MetaMask: {{MM_SIGN_MESSAGE}}
+#     MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663
 #     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
 sherwood sources login --signature 0x…
 ```
@@ -130,7 +132,7 @@ The token lasts **1 hour** with no refresh: re-login hourly, or on the first `40
 sherwood chat --join-cohort --address <agent wallet> --json > /tmp/join.log 2>&1 &   # step 1 stays running and waits (default 600s, --timeout <s>)
 jq -r .xmtp_signature_request.message /tmp/join.log
 #   personal_sign (EIP-191) that exact multi-line text ("XMTP : Authenticate to inbox …") with the agent wallet
-#   (MetaMask: {{MM_SIGN_MESSAGE}}; Privy: $P rpc personal_sign), then:
+#   (MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663; Privy: $P rpc personal_sign), then:
 sherwood chat --join-cohort --signature 0x…   # step 2: hands it to step 1, prints the join result (status: pending)
 ```
 
@@ -138,7 +140,7 @@ See [XMTP](/reference/integrations/xmtp).
 
 ### Research: x402 payment
 
-Messari and Nansen are paid per call via **x402** in **USDC on Base (chain 8453)**, not from the vault and not on 4663. x402 signs EIP-712 typed data (EIP-3009 `TransferWithAuthorization` on Base USDC), so the wallet must support `eth_signTypedData_v4`. Privy does (`$P rpc`); the MetaMask Agent Wallet does through `{{MM_SIGN_TYPED_DATA}}`. Ask the owner before every spend.
+Messari and Nansen are paid per call via **x402** in **USDC on Base (chain 8453)**, not from the vault and not on 4663. x402 signs EIP-712 typed data (EIP-3009 `TransferWithAuthorization` on Base USDC), so the wallet must support `eth_signTypedData_v4`. Privy does (`$P rpc`); the MetaMask Agent Wallet does through `mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'`. Ask the owner before every spend.
 
 ```bash
 # Step 1: confirms the cost, sends the request, catches the 402, prints the typed data, then waits (default 600s)
@@ -147,13 +149,17 @@ jq '.x402_signature_request' /tmp/x402.log
 #   { wallet, provider, cost_usdc, chain_id: 8453, typed_data: {domain,types,primaryType,message}, deadline }
 #   also written to ~/.sherwood/x402-signing/<wallet, lowercase>.request.json
 #   Sign typed_data unchanged, before deadline:
-#     MetaMask: {{MM_SIGN_TYPED_DATA}}
+#     MetaMask: mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'
 #     Privy:    $P rpc --json '{"method":"eth_signTypedData_v4","params":{"typed_data":<typed_data>}}'
 # Step 2: hands the signature to step 1, which pays, retries and prints the result
 sherwood research complete --signature 0x… [--address <agent wallet>]
 ```
 
 Run step 1 with `--yes` only after the owner said yes to that cost. Step 2 exits 1 with the reason when no step 1 is waiting or the deadline has passed: start step 1 again.
+
+**Deadlines.** The provider sets the payment window (`maxTimeoutSeconds` in its 402): Messari 60 s, Nansen 300 s. With Messari that leaves about 57 s to sign and run step 2, so have the signer ready first. Nansen is the safer provider for sign-only wallets.
+
+**Two payments.** A query that needs two paid calls (Messari `market`) makes step 2 print the next `x402_signature_request` and exit 0: sign it and run `sherwood research complete` again. Step 1 sends the payment in the x402 v2 `PAYMENT-SIGNATURE` header.
 
 ## Commands that need an address
 

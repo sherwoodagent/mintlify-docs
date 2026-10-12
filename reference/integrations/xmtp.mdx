@@ -26,7 +26,7 @@ A sign-only wallet (MetaMask Agent Wallet, Privy) joins in two steps:
 sherwood chat --join-cohort --address <agent wallet> --json > /tmp/join.log 2>&1 &   # step 1 stays running and waits (default 600s, --timeout <s>)
 jq -r .xmtp_signature_request.message /tmp/join.log
 #   personal_sign (EIP-191) that exact multi-line text ("XMTP : Authenticate to inbox …") with the agent wallet
-#   (MetaMask: {{MM_SIGN_MESSAGE}}; Privy: $P rpc personal_sign), then:
+#   (MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663; Privy: $P rpc personal_sign), then:
 sherwood chat --join-cohort --signature 0x…   # step 2: hands it to step 1, prints the join result (status: pending)
 sherwood chat --cohort log
 ```

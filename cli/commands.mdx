@@ -340,13 +340,17 @@ sherwood research token TSLA --provider messari --address <agent wallet> --yes -
 jq '.x402_signature_request' /tmp/x402.log
 #   { wallet, provider, cost_usdc, chain_id: 8453, typed_data: {domain,types,primaryType,message}, deadline }
 #   Sign typed_data unchanged, before deadline:
-#     MetaMask: {{MM_SIGN_TYPED_DATA}}
+#     MetaMask: mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'
 #     Privy:    $P rpc --json '{"method":"eth_signTypedData_v4","params":{"typed_data":<typed_data>}}'
 # Step 2: hands the signature to step 1, which pays, retries and prints the result
 sherwood research complete --signature 0x… [--address <agent wallet>]
 ```
 
 The wallet must support EIP-712 (`eth_signTypedData_v4`). Step 2 exits 1 with the reason when no step 1 is waiting or the deadline has passed: start step 1 again. A configured private key pays in one step. Full recipe: [External signer](/cli/external-signer#research-x402-payment).
+
+**Deadlines.** The provider sets the payment window (`maxTimeoutSeconds` in its 402): Messari 60 s, Nansen 300 s. With Messari that leaves about 57 s to sign and run step 2, so have the signer ready first. Nansen is the safer provider for sign-only wallets.
+
+**Two payments.** A query that needs two paid calls (Messari `market`) makes step 2 print the next `x402_signature_request` and exit 0: sign it and run `sherwood research complete` again. Step 1 sends the payment in the x402 v2 `PAYMENT-SIGNATURE` header.
 
 ---
 
@@ -511,7 +515,7 @@ jq -r .xmtp_signature_request.message /tmp/join.log
 # or: jq -r .message ~/.sherwood/xmtp-signing/<wallet, lowercase>.request.json
 ```
 
-The message spans several lines. Sign the exact string with `personal_sign` (EIP-191) from the agent wallet (MetaMask: `{{MM_SIGN_MESSAGE}}`; Privy: `$P rpc` `personal_sign`). Signing never sends a transaction or costs gas.
+The message spans several lines. Sign the exact string with `personal_sign` (EIP-191) from the agent wallet (MetaMask: `mm wallet sign-message --message '<text>' --chain-id 4663`; Privy: `$P rpc` `personal_sign`). Signing never sends a transaction or costs gas.
 
 Step 2, in another shell, hands the signature to the waiting process and prints the join result:
 

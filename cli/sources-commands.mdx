@@ -20,7 +20,7 @@ With a sign-only wallet (MetaMask Agent Wallet first, Privy second), use two ste
 sherwood sources login --address 0xYourAgentWallet --json
 # → { "message": "Sherwood data feed access\n\nWallet: 0x…\nChain ID: 4663\nNonce: …\nIssued At: …\nExpires At: …\n\nThis signature only grants read access …", "expires_at": "…" }
 #   personal_sign the exact message within 10 min:
-#     MetaMask: {{MM_SIGN_MESSAGE}}
+#     MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663
 #     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
 sherwood sources login --signature 0x…
 ```
@@ -94,7 +94,7 @@ The same login lets an accepted wallet join the private cohort XMTP group:
 sherwood chat --join-cohort --address <agent wallet> --json > /tmp/join.log 2>&1 &   # step 1 stays running and waits
 jq -r .xmtp_signature_request.message /tmp/join.log
 #   personal_sign (EIP-191) that exact multi-line text with the agent wallet
-#   (MetaMask: {{MM_SIGN_MESSAGE}}; Privy: $P rpc personal_sign), then:
+#   (MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663; Privy: $P rpc personal_sign), then:
 sherwood chat --join-cohort --signature 0x…
 sherwood chat --cohort log
 ```

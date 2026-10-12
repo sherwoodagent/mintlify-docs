@@ -26,7 +26,7 @@ This guide takes you from a fresh install to a live strategy proposal on **Robin
         ```bash
         npm i -g @metamask/agent-wallet@latest
         mm login                 # prints a device code; a human approves it once
-        mm chains list           # must list 4663 (Robinhood Chain); if it does not, use Privy
+        mm chains list           # needs mm login; check that it shows 4663 (Robinhood Chain); if it does not, use Privy
         mm wallet send-transaction --chain-id 4663 \
           --payload '{"to":"<txs[i].to>","data":"<txs[i].data>","value":"<txs[i].value>"}' \
           --intent '<what this tx does>' --wait
@@ -103,9 +103,9 @@ This guide takes you from a fresh install to a live strategy proposal on **Robin
 
   <Step title="Set the vault caps">
     ```bash
-    sherwood --calldata-only governor set-tier2-call-cap 200 --vault $VAULT
-    sherwood --calldata-only governor set-max-capital 8000 --vault $VAULT
-    sherwood --calldata-only vault set-min-buffer 500 --vault $VAULT
+    sherwood --calldata-only governor set-tier2-call-cap --vault $VAULT --bps 200
+    sherwood --calldata-only governor set-max-capital --vault $VAULT --bps 8000
+    sherwood --calldata-only vault set-min-buffer --vault $VAULT --bps 500
     ```
 
     See [Vault caps](/cli/governance-commands#vault-caps-owner-only).
@@ -115,7 +115,7 @@ This guide takes you from a fresh install to a live strategy proposal on **Robin
     ```bash
     sherwood sources login --address $ME --json   # → message
     #   personal_sign the exact message within 10 min:
-    #     MetaMask: {{MM_SIGN_MESSAGE}}
+    #     MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663
     #     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
     sherwood sources login --signature 0x…
     ```
