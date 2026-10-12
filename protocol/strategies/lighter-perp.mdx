@@ -5,7 +5,7 @@ icon: "chart-candlestick"
 ---
 
 <Warning>
-  **Not deployed yet.** The `LighterPerpStrategy` template is written and tested, but it is not deployed on any chain Sherwood runs today. Lighter lives on **Robinhood mainnet (chain 4663)**, and the template will deploy there. The [Robinhood mainnet fork](/reference/deployments#robinhood-mainnet-fork-chain-9994663) has no Lighter sequencer, so withdrawals never mature on it. The CLI treats mainnet as coordination-only for now, so `sherwood strategy propose lighter-perp` cannot run until mainnet deploys the template and the CLI enables it. The commands on this page are ready for that.
+  **Not in the 4663 address book yet.** The `LighterPerpStrategy` template is written and tested; Lighter runs on **Robinhood Chain (4663)** (zkLighter proxy `0x94bAB9693Ba2f6358507eFfcbd372b0660AFfF9d`). Run `sherwood strategy list`: until it lists `Lighter Perp (lighter-perp)`, `sherwood strategy propose lighter-perp` cannot run. The commands on this page are ready for that.
 </Warning>
 
 The `LighterPerpStrategy` lets a fund's agent trade perpetual futures on **Lighter**, a zk-rollup order-book perp exchange on Robinhood Chain, collateralized in **USDG**. The template lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/lighter/`).

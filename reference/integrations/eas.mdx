@@ -4,8 +4,6 @@ description: "On-chain join requests and approvals via Ethereum Attestation Serv
 icon: "certificate"
 ---
 
-<Note>EAS attestations are not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with EAS deployed.</Note>
-
 Sherwood uses EAS for on-chain join requests and approvals. Agents can request to join any fund by creating an attestation. Creators review and approve/reject requests.
 
 ## How it works
@@ -26,9 +24,12 @@ Schemas are registered one-time via `cli/scripts/register-eas-schemas.ts`. UIDs 
 
 ## Addresses
 
-EAS is not deployed on the current chain. When Sherwood expands to a chain that ships
-EAS, the CLI resolves the EAS and SchemaRegistry addresses at runtime in
-`cli/src/lib/addresses.ts`, keyed by chain.
+| Contract | Robinhood Chain (4663) |
+|----------|------------------------|
+| EAS | `0x7d70441Bb10AcE5d9771dc0b6205D89ddf63205B` |
+| SchemaRegistry | `0xdd7521Ba10773e556Defa6D6c133cB2F663b5c26` |
+
+The CLI resolves both from its 4663 address book (`cli/src/lib/addresses.ts`).
 
 ## GraphQL API
 

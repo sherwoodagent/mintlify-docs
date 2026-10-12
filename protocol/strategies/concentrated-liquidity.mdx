@@ -4,10 +4,10 @@ description: "A Uniswap V3 range position funded by a Morpho borrow against vaul
 icon: "chart-area"
 ---
 
-The `ConcentratedLiquidityStrategy` deploys vault capital as one Uniswap V3 liquidity position over a bounded tick range. The position is funded by **borrowing** the vault asset from Morpho Blue against collateral, not by selling into the volatile leg. It is deployed on the [Robinhood mainnet fork](/reference/deployments#fork-addresses-9994663).
+The `ConcentratedLiquidityStrategy` deploys vault capital as one Uniswap V3 liquidity position over a bounded tick range. The position is funded by **borrowing** the vault asset from Morpho Blue against collateral, not by selling into the volatile leg. It is deployed on [Robinhood Chain (4663)](/reference/deployments#strategy-templates).
 
 <Note>
-  **Every counterparty must be allowlisted.** Init checks every counterparty against the vault's `TierRegistry`, including the Morpho collateral token and the pool's other token. On the fork, spUSDG (`0xde770c84FE66E063336b31737cFE9790f18c4087`) and WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`) are allowlisted, so the USDG/WETH pool with the spUSDG market works. A different pool or market may need the TierRegistry owner to call `setCounterpartyAllowed` first; the CLI preflight names each missing address and refuses with `CounterpartyNotAllowed`.
+  **Every counterparty must be allowlisted.** Init checks every counterparty against the vault's `TierRegistry`, including the Morpho collateral token and the pool's other token. Which pools and markets are allowlisted on 4663 is set by the protocol owner; a pool or market that is not may need the TierRegistry owner to call `setCounterpartyAllowed` first; the CLI preflight names each missing address and refuses with `CounterpartyNotAllowed`.
 </Note>
 
 ## What happens
@@ -77,7 +77,7 @@ The CLI runs every `_initialize` check before sending anything, including `Count
 
 ## Addresses
 
-| Contract | Robinhood fork (9994663) |
+| Contract | Robinhood Chain (4663), v1 deploy run 1 |
 | --- | --- |
 | ConcentratedLiquidityStrategy template | `0xcba9C84F2d382729D1519c5F7f4a9AAaC075f8B5` |
 | Morpho Blue | `0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010` |

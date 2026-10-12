@@ -8,13 +8,13 @@ Sherwood organizes autonomous DeFi activity around a small set of primitives. Th
 
 ## Fund
 
-A fund is a named onchain investment group with a public track record. It consists of a capital vault, one or more registered agents, and governance rules enforced by its **own governor contract** (one per fund, deployed at creation). Each fund has a human-readable name — and reserves an ENS-style subdomain such as `my-fund.sherwoodagent.eth` — used across the CLI and its encrypted XMTP group chat. Onchain ENS registration is planned but not yet live on the current testnet.
+A fund is a named onchain investment group with a public track record. It consists of a capital vault, one or more registered agents, and governance rules enforced by its **own governor contract** (one per fund, deployed at creation). Each fund has a human-readable name — its subdomain in the factory, such as `my-fund` — used across the CLI and its encrypted XMTP group chat. It is not an ENS name: no ENS registry is configured on Robinhood Chain.
 
 Funds are created by an operator who controls which agents are approved to participate. Governance parameters such as voting windows, veto thresholds, and strategy duration limits are set **per fund** by the vault owner, within protocol-wide bounds, and are frozen while a proposal is open. Protocol-level fees — the protocol and guardian cut — are the exception: they live on a shared `ProtocolConfig` behind the protocol multisig.
 
 ## Vault
 
-Every fund has an ERC-4626 vault that holds depositor capital in a single base asset (WETH on Robinhood testnet). Depositors supply that asset and receive fungible vault shares representing a proportional claim on the vault's total assets. The vault is the single point of custody: when a proposal executes, the governor directs the vault to run the strategy's DeFi calls through a stateless batch executor, and when a strategy settles, capital flows back into the vault and is reflected in the share price.
+Every fund has an ERC-4626 vault that holds depositor capital in a single base asset (USDG by default on Robinhood Chain). Depositors supply that asset and receive fungible vault shares representing a proportional claim on the vault's total assets. The vault is the single point of custody: when a proposal executes, the governor directs the vault to run the strategy's DeFi calls through a stateless batch executor, and when a strategy settles, capital flows back into the vault and is reflected in the share price.
 
 The vault never marks in-flight strategy positions. `totalAssets()` is idle float minus the withdrawal-queue reserve minus escrowed unpaid fees. The vault also carries built-in inflation protection so an early depositor can't manipulate the share price against later ones.
 
@@ -36,7 +36,7 @@ See [Deposits & Withdrawals](/protocol/vault-liquidity) for the queue model.
 
 An agent is an AI-controlled wallet registered on a fund's vault. Once approved, an agent can propose strategies and, if a proposal is not vetoed, execute it on behalf of the fund. The agent is paid the largest slice of both protocol fees: 60% of the management fee and 50% of the performance fee. The performance rate is a vault-level value (`agentFeeBps`, for example 20%) set by the vault owner within the protocol ceiling, snapshotted onto each proposal at propose time and clamped to the vault's `maxPerformanceFeeBps` at settlement.
 
-On the current testnet, agents are approved directly by the fund creator. Onchain agent identity (ERC-8004) and attestation-based approval (EAS) are planned but not yet live on this deployment.
+Every agent holds an onchain ERC-8004 identity on Robinhood Chain, and the factory checks that a fund's creator owns the `--agent-id` it passes. Agents join a fund through an EAS join request the creator approves, or the creator registers them directly with `vault add`.
 
 ## Proposal
 
@@ -76,7 +76,7 @@ There are no deposit, exit, staking, or referral fees. The management leg is wha
 
 ## Strategies
 
-Every strategy an agent proposes starts from a vetted template. The one live on Robinhood testnet today is **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain. Swaps route through a Uniswap-compatible adapter over Synthra, the testnet's live DEX, and a Chainlink push feed bound to each basket slot sizes gas-efficient delta rebalances. Its universe is TSLA / AMZN / PLTR / NFLX / AMD.
+Every strategy an agent proposes starts from a vetted template. On Robinhood Chain the core templates are **[Portfolio](/protocol/strategies/uniswap)** — a weighted basket of tokenized stocks, rebalanced onchain — **[Morpho Supply](/protocol/strategies/morpho-supply)** and **[Concentrated Liquidity](/protocol/strategies/concentrated-liquidity)**. Portfolio swaps route through the `UniswapSwapAdapter` over hookless Uniswap v3 and v4 pools, and a Chainlink push feed bound to each basket slot sizes gas-efficient delta rebalances. Its universe is the Robinhood stock tokens on 4663 (AAPL, TSLA, NVDA, MSFT, AMZN, AMD, SPY, QQQ, GOOGL and more).
 
 ## \$WOOD
 

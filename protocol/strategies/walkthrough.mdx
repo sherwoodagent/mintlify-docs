@@ -31,8 +31,8 @@ graph LR
 - **Pending**: Voting window. Optimistic governance — proposals pass by default unless AGAINST votes reach the veto threshold (default 20% of past total supply). The **vault owner** can `vetoProposal()` while Pending, or `emergencyCancel()` while Draft or Pending.
 - **GuardianReview**: After voting passes, staked guardians review the calldata for a window (default 24h). If they reach **block quorum** (seed default 30% of cohort stake) the proposal is Rejected and every approver is slashed. This is the only way to block a proposal once it has left Pending.
 - **Approved**: Review window ended without a block quorum; the proposal can be executed. It expires if left unexecuted past the execution window.
-- **Executed**: The strategy is live — the vault's WETH is deployed into the basket.
-- **Settled**: The basket is sold back to WETH, profits are distributed, and fees are taken.
+- **Executed**: The strategy is live — the vault's USDG is deployed into the basket.
+- **Settled**: The basket is sold back to USDG, profits are distributed, and fees are taken.
 
 Terminal states outside the happy path are **Rejected**, **Expired**, and **Cancelled**.
 
@@ -44,17 +44,17 @@ List available templates and their deployed addresses:
 sherwood strategy list
 ```
 
-Templates the CLI can propose (CLI ≥ 0.89.0). Availability is per chain; `strategy list` shows what the active chain has.
+Templates the CLI can propose (CLI ≥ 0.93.0). `strategy list` shows what Robinhood Chain has deployed.
 
 | Template | What it does | Where |
 |----------|-------------|-----|
-| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights | Fork and testnet |
-| `morpho-supply` | Supply the vault asset to one Morpho Blue market ([details](/protocol/strategies/morpho-supply)) | Fork |
-| `concentrated-liquidity` | Uniswap V3 range funded by a Morpho borrow ([details](/protocol/strategies/concentrated-liquidity)) | Fork |
-| `launchpad` | Launch a fund token on Sushi or StonkBrokers; holders claim a reserve ([details](/protocol/strategies/launchpad)) | Fork |
-| `lighter-perp` | Agent-traded perps on Lighter ([details](/protocol/strategies/lighter-perp)) | Not deployed yet |
+| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights | Robinhood Chain (4663) |
+| `morpho-supply` | Supply the vault asset to one Morpho Blue market ([details](/protocol/strategies/morpho-supply)) | Robinhood Chain (4663) |
+| `concentrated-liquidity` | Uniswap V3 range funded by a Morpho borrow ([details](/protocol/strategies/concentrated-liquidity)) | Robinhood Chain (4663) |
+| `launchpad` | Launch a fund token on Sushi or StonkBrokers; holders claim a reserve ([details](/protocol/strategies/launchpad)) | Not in the 4663 book yet; check `strategy list` |
+| `lighter-perp` | Agent-traded perps on Lighter ([details](/protocol/strategies/lighter-perp)) | Not in the 4663 book yet; check `strategy list` |
 
-Each fund picks its own deposit asset at creation; on the current deployment (Robinhood testnet) the live funds use **WETH**, and the tokenized-stock universe is **TSLA / AMZN / PLTR / NFLX / AMD**.
+Each fund picks its own deposit asset at creation; on Robinhood Chain (4663) funds use **USDG** (the default), and the stock universe is the one `sherwood sources get universe` lists (AAPL, TSLA, NVDA, MSFT, AMZN, AMD, SPY, QQQ, GOOGL and more). Build `--swap-routes` and `--max-slippage` from `sherwood sources get liquidity`: see [From a liquidity record to Portfolio flags](/cli/strategy-commands#from-a-liquidity-record-to-portfolio-flags).
 
 ## Step 2: Propose a Strategy
 
@@ -65,12 +65,12 @@ The `strategy propose` command handles everything: clones the template, initiali
 ```bash
 sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 0.5 \
-  --tokens TSLA,AMZN,PLTR,NFLX,AMD \
+  --amount 500 \
+  --tokens TSLA,AMZN,PLTR,NVDA,AMD \
   --weights 2500,2500,2000,1500,1500 \
-  --max-slippage 500 \
+  --swap-routes "$ROUTES" --max-slippage "$SLIP" --max-drawdown-bps 2000 \
   --name "Tokenized Stock Basket" \
-  --description "Deploy 0.5 WETH across five tokenized stocks for 7 days" \
+  --description "Deploy 500 USDG across five tokenized stocks for 7 days" \
   --duration 7d
 ```
 
@@ -80,17 +80,17 @@ sherwood strategy propose portfolio \
 # Clone + init + generate batch call files
 sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 0.5 \
-  --tokens TSLA,AMZN,PLTR,NFLX,AMD \
+  --amount 500 \
+  --tokens TSLA,AMZN,PLTR,NVDA,AMD \
   --weights 2500,2500,2000,1500,1500 \
-  --max-slippage 500 \
+  --swap-routes "$ROUTES" --max-slippage "$SLIP" --max-drawdown-bps 2000 \
   --write-calls ./portfolio-calls
 
 # Review the generated files, then submit
 sherwood proposal create \
   --vault 0x... \
   --name "Tokenized Stock Basket" \
-  --description "Deploy 0.5 WETH across five tokenized stocks for 7 days" \
+  --description "Deploy 500 USDG across five tokenized stocks for 7 days" \
   --duration 7d \
   --execute-calls ./portfolio-calls/execute.json \
   --settle-calls ./portfolio-calls/settle.json
@@ -98,10 +98,10 @@ sherwood proposal create \
 
 The generated JSON files contain the raw batch calls the governor will execute:
 
-- **execute.json**: `[WETH.approve(strategy, totalAmount), strategy.execute()]`
+- **execute.json**: `[USDG.approve(strategy, totalAmount), strategy.execute()]`
 - **settle.json**: `[strategy.settle()]`
 
-On execute, the strategy pulls WETH from the vault and swaps it into each basket token at its target weight. On settle, it sells every token back to WETH.
+On execute, the strategy pulls USDG from the vault and swaps it into each basket token at its target weight. On settle, it sells every token back to USDG.
 
 ## Step 3: Monitor Voting & Guardian Review
 
@@ -112,7 +112,7 @@ Proposals use optimistic governance — they pass by default unless AGAINST vote
 sherwood proposal list --vault 0x...
 
 # Show detailed status for a specific proposal
-sherwood proposal show --id <proposal-id> --vault 0x...
+sherwood proposal show <proposal-id> --vault 0x...
 ```
 
 During the **Pending** window, depositors cast votes; voting weight is each holder's checkpointed vote balance at propose time (shares auto-delegate to self on deposit). If AGAINST votes reach the veto threshold the proposal is Rejected, and the vault owner may also `vetoProposal()` (Pending only). Once voting passes, the proposal moves to **GuardianReview**: staked guardians inspect the calldata, and a guardian block quorum is the only way to block it from here. If neither happens, it becomes **Approved**.
@@ -125,7 +125,7 @@ After the guardian review window ends without a block quorum and the proposal is
 sherwood proposal execute --id <proposal-id> --vault 0x...
 ```
 
-This calls the governor, which executes the batch calls from `execute.json` through the vault. For the Portfolio strategy, this pulls WETH from the vault and buys the basket tokens at their target weights.
+This calls the governor, which executes the batch calls from `execute.json` through the vault. For the Portfolio strategy, this pulls USDG from the vault and buys the basket tokens at their target weights.
 
 <Note>
   While the proposal is executing, instant vault deposits and redeems are closed. Use the async request queue: deposits and redeems escrow and settle at the single realized per-proposal price. See [Deposits & Withdrawals](/protocol/vault-liquidity).
@@ -139,7 +139,7 @@ The proposer can settle once **at least 1 hour** has passed since execute; anyon
 sherwood proposal settle --id <proposal-id> --vault 0x...
 ```
 
-Settlement sells every basket token back to WETH and returns the proceeds to the vault. The governor then calculates P&L and charges the two fees, in this order (rates snapshotted at propose time):
+Settlement sells every basket token back to USDG and returns the proceeds to the vault. The governor then calculates P&L and charges the two fees, in this order (rates snapshotted at propose time):
 
 1. **Management fee** — the vault's `managementFeeBps` (for example 2%/yr) accrued on fund assets × the time the strategy was deployed. Charged **whether the strategy gained, broke even, or lost** — see [Economics](/protocol/governance/economics). Split 60/20/20 across the agent, the protocol, and the guardian network.
 2. **Performance fee** — the vault's `agentFeeBps` (owner-set within the protocol ceiling, for example 20%) applied only to value above the fund's previous peak price per share, measured after the management fee. A strategy that ends below that peak pays nothing here. Split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner; the agent's slice is further divided across any co-proposers.

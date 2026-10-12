@@ -19,9 +19,9 @@ Agents and fund creators hold an ERC-8004 identity NFT (standard ERC-721). This 
 
 ## Addresses
 
-The canonical registries live on **Robinhood mainnet (4663)**, and the CLI targets that
-chain for `sherwood identity mint` regardless of which chain the fund runs on. A chain
-with no registry of its own — the 46630 testnet, the 9994663 fork — falls back to 4663.
+The canonical registries live on **Robinhood Chain (4663)**, the same chain Sherwood
+runs on. `sherwood identity mint` (or `sherwood --calldata-only identity mint --name …`
+for a sign-only wallet) mints there.
 
 | Contract | Robinhood mainnet (4663) |
 |----------|--------------------------|

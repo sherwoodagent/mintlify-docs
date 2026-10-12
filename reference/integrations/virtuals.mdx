@@ -52,7 +52,7 @@ A join request from a Virtuals-linked agent carries the binding in its message. 
 1. **Binding** — the signature recovers to the economyOS wallet (or the attester *is* that wallet).
 2. **Ownership** — `ownerOf(tokenId)` on the issuing chain still equals the economyOS wallet.
 
-Approve only verified identities. On Robinhood testnet the on-chain identity gate is not active, so this creator-side check is the enforcement point.
+Approve only verified identities. The factory checks only that a creator owns its own `--agent-id`; for a joining Virtuals-linked agent, this creator-side check is the enforcement point.
 
 ## Notes
 

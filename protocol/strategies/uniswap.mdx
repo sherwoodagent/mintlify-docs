@@ -8,11 +8,11 @@ The `PortfolioStrategy` manages a weighted basket of up to 20 tokens. On execute
 
 The basket is **frozen at init**: weights and swap routes cannot be changed for the life of the proposal, and the slippage tolerance can only be tightened. Depositors approve a basket, not a mandate.
 
-The vault's deposit asset is whatever the fund creator chose at creation. On the [Robinhood mainnet fork](/reference/deployments#robinhood-mainnet-fork-chain-9994663) — the chain of record — funds run against **USDG** or **WETH** and the wider mainnet stock universe; on Robinhood testnet the live funds use **WETH** and the basket is drawn from **TSLA / AMZN / PLTR / NFLX / AMD**.
+The vault's deposit asset is whatever the fund creator chose at creation. On Robinhood Chain (4663) funds run against **USDG** (the default) or **WETH**, and the basket is drawn from the stock tokens in the [4663 address book](/reference/deployments#stock-tokens-and-chainlink-feeds).
 
 ## Swaps and the swap adapter
 
-The strategy is DEX-agnostic: it never hardcodes a venue, it calls a pluggable **swap adapter**. On Robinhood testnet the deployed adapter is the `UniswapSwapAdapter` (Uniswap V3/V4-compatible), pointed at **Synthra** — a Uniswap-V3-compatible DEX and the chain's live venue. Two Synthra-native adapters (`SynthraSwapAdapter`, `SynthraDirectAdapter`) share the same interface as alternatives.
+The strategy is DEX-agnostic: it never hardcodes a venue, it calls a pluggable **swap adapter**. On Robinhood Chain the deployed adapter is the `UniswapSwapAdapter`, which routes through hookless Uniswap v3 (modes 0/1) and v4 (modes 2/3) pools.
 
 Route selection is done **CLI-side**: the CLI probes direct asset→token pools across fee tiers and falls back to an asset→WETH→token multi-hop when no direct pool exists, then encodes the chosen route into each token's `swapExtraData`. The on-chain adapter does not auto-detect — it reads a leading mode byte from the route data and executes exactly that route, which is how the basket can hold tokens without a liquid direct pair.
 
@@ -24,7 +24,7 @@ Route selection is done **CLI-side**: the CLI probes direct asset→token pools 
 
 ```mermaid
 graph TD
-    V["Vault (holds WETH)"] -->|"execute: pull asset"| S["PortfolioStrategy clone"]
+    V["Vault (holds USDG)"] -->|"execute: pull asset"| S["PortfolioStrategy clone"]
     S -->|"swap asset → tokenA (weight A)"| SA["SwapAdapter"]
     S -->|"swap asset → tokenB (weight B)"| SA
     S -->|"swap asset → tokenC (weight C)"| SA
@@ -112,13 +112,15 @@ Only one, and only downward: the proposer may **tighten** `maxSlippageBps` (neve
 ```bash
 sherwood strategy propose portfolio \
   --vault 0x... \
-  --amount 0.5 \
-  --tokens TSLA,AMZN,PLTR,NFLX,AMD \
+  --amount 500 \
+  --tokens TSLA,AMZN,PLTR,NVDA,AMD \
   --weights 2500,2500,2000,1500,1500 \
   --max-slippage 500 \
   --name "Stock Basket" \
   --duration 7d
 ```
+
+Build `--swap-routes` and `--max-slippage` (the largest leg's `suggested_max_slippage_bps`) from `sherwood sources get liquidity`: see [From a liquidity record to Portfolio flags](/cli/strategy-commands#from-a-liquidity-record-to-portfolio-flags).
 
 | Flag | Description | Default |
 |------|------------|---------|
@@ -136,9 +138,9 @@ sherwood strategy propose portfolio \
 
 ## Addresses
 
-| Contract | Robinhood fork (9994663) | Robinhood testnet (46630) |
-|----------|--------------------------|---------------------------|
-| PortfolioStrategy template | `0xAA5872009c527cCb80343E41C52840CEdb095eb0` | `0x67420Cc504d70a42Adfd8867d878afe0978C7d10` |
-| UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` | `0x4fc3492117cC3bbcE0b210D22a8DC244f9d86490` |
+| Contract | Robinhood Chain (4663), v1 deploy run 1 |
+|----------|-----------------------------------------|
+| PortfolioStrategy template | `0xAA5872009c527cCb80343E41C52840CEdb095eb0` |
+| UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |
 
-Per-token Chainlink push feeds live in each chain's address book (`CHAINLINK_<SYM>_USD_FEED`). See [Deployments](/reference/deployments) for the full tables and for which chain to target.
+Per-token Chainlink push feeds live in the 4663 address book (`CHAINLINK_<SYM>_USD_FEED`). See [Deployments](/reference/deployments).

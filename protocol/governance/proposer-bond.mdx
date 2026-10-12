@@ -26,16 +26,15 @@ proposerBondWood(asset, requiredCoverage)
 - Default `proposerBondBps` = **100 (1%)** (`PARAM_PROPOSER_BOND_BPS`).
 - Uncertified / **tier 2** portfolios: `requiredCoverage` is **full notional**.
 - The number **scales** with book size and WOOD price. **Do not publish a fixed WOOD amount as the requirement.**
-- Example only: on the Robinhood mainnet fork a **100 USDG** book quoted **~230 WOOD** at the then-current price.
 
 The quote is taken from [`requiredCoverage`](/protocol/governance/coverage) at propose. Guardian coverage that later falls short [scales execution](/protocol/governance/coverage#shortfall-scales-rather-than-blocks); it does not resize this bond.
 
-Live view: `ExposureLedger.proposerBondWood`. Escrow address: [Deployments](/reference/deployments#robinhood-mainnet-fork-chain-9994663) (`ProposerBondEscrow`). Fail-closed if WOOD is unpriceable.
+Live view: `ExposureLedger.proposerBondWood`. Escrow address: the governor's `bondEscrow()` (`ProposerBondEscrow`); see [Deployments](/reference/deployments#guardian-layer). Fail-closed if WOOD is unpriceable.
 
 ## CLI / wallet
 
 `sherwood strategy propose` prints the quoted bond, sets **allowance** to the escrow, and **refuses early** if `WOOD.balanceOf(wallet) < bond`. Allowance is not enough — the wallet must **hold** the WOOD.
 
-On the fork, `POST https://app.sherwood.sh/api/v1/faucet` grants 15,000 WOOD (plus ETH and USDG), which covers the 10k owner stake **and a small-book bond**. Larger books need more WOOD.
+Fund the proposer wallet with the 10k owner stake **plus** WOOD for the bond. Larger books need more WOOD. The bond comes back with `sherwood proposal reclaim-bond --id <id> --vault <vault>` once the proposal is terminal.
 
 `sherwood governor info` is the parameter panel (voting period, veto, …). The proposer bond is **not** a governor setter; it is quoted from the exposure ledger at propose time.

@@ -4,7 +4,7 @@ description: "Subname registration and resolution under sherwoodagent.eth"
 icon: "at"
 ---
 
-<Note>ENS subname registration is not active on Robinhood testnet (chain 46630), Sherwood's current deployment target, yet. This integration will come online as Sherwood expands to chains with the ENS L2 registrar deployed.</Note>
+<Note>ENS subname registration is not active on Robinhood Chain (4663): no ENS registry is configured there, so a fund's name is its bare subdomain. The CLI prints `<subdomain>.sherwoodagent.eth` only when a registry is configured and the vault owns that name.</Note>
 
 Every fund gets an ENS subname under `sherwoodagent.eth`. This gives each fund a human-readable identity and an onchain key-value store for metadata.
 

@@ -7,14 +7,14 @@ Sherwood Protocol enables any agent to manage an onchain fund with vaults, gover
 
 A fund is a non-custodial ERC-4626 vault with an agent at the desk. Depositors pool capital and receive shares — and every share is a vote. An agent proposes a strategy with its exact execution and settlement calls committed up front. If depositors don't vote it down and guardians don't block it, the contracts run precisely those calls and nothing else. Proceeds settle back into the vault. A fund charges two fees: a management fee on assets under management (for example 2%/yr), charged at every settlement whether the fund gains or loses, and a performance fee (for example 20%) charged only on value above the fund's previous peak. Rates are set per fund within protocol ceilings. See [Economics](/protocol/governance/economics).
 
-Sherwood is live on **Robinhood testnet (chain 46630)**. Each fund's creator chooses the vault's deposit asset at creation — any ERC-20, typically a stablecoin (USDG, USDC) or WETH. Mainnet launch is ahead.
+Sherwood runs on **Robinhood Chain mainnet (chain 4663)**. Each fund's creator chooses the vault's deposit asset at creation; on Robinhood Chain that is typically **USDG** (the default) or WETH.
 
 ## Three gates before capital moves
 
 Every strategy is public before it runs, and it has to clear three independent checks:
 
 1. **Depositors vote.** Governance is optimistic — a proposal passes unless enough shares vote against it inside the voting window.
-2. **Guardians verify.** A staked network replays the exact calldata on a fork and blocks anything malicious. Approving a bad call burns the guardian's own \$WOOD.
+2. **Guardians verify.** A staked network simulates the exact calldata and blocks anything malicious. Approving a bad call burns the guardian's own \$WOOD.
 3. **The contracts execute.** Execution replays only the approved calldata. There is no other call path — not even for the agent that proposed it.
 
 Security, by economics: every party watching your money has something to lose.
@@ -33,7 +33,7 @@ Every strategy travels the same loop:
 
 1. **Depositors pool capital** into the fund's vault and receive shares — each share is a vote.
 2. **An agent proposes** a strategy onchain, byte for byte, before it runs.
-3. **Guardians verify** the exact calls on a fork and block anything malicious.
+3. **Guardians verify** the exact calls in simulation and block anything malicious.
 4. **The strategy settles**: proceeds land back in the vault, the management and performance fees are charged, and redemptions reopen.
 
 <CardGroup cols={2}>

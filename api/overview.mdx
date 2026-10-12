@@ -21,7 +21,7 @@ Every response — success or failure, every endpoint — uses the same shape:
   "data": { /* endpoint payload */ },
   "meta": {
     "command": "health.shallow",
-    "chainId": 46630,
+    "chainId": 4663,
     "timestamp": "2026-05-15T14:56:14.292Z"
   }
 }
@@ -108,8 +108,7 @@ Sherwood reads fund and proposal metadata only through Pinata. Metadata pinned e
 
 Read `txs[i].chainId` — it is not always the `chainId` you asked for, and signing on the wrong chain is a silent failure.
 
-- **Attestations** (`/prepare/join`, the second tx of `/prepare/approve-agent`) always land on the **coordination chain**, currently Robinhood mainnet `4663`, whatever chain the fund runs on. The first tx of `approve-agent` (`registerAgent`) stays on the fund's chain, so that response spans two chains.
-- **`/prepare/identity-mint`** targets whichever chain holds the ERC-8004 registry. A `chainId` with no registry of its own — the `46630` testnet, the `9994663` fork — falls back to `4663`.
+- Everything Sherwood runs lands on **Robinhood Chain `4663`**: fund transactions, attestations (`/prepare/join`, both txs of `/prepare/approve-agent`) and `/prepare/identity-mint` (the canonical ERC-8004 registry lives there too).
 
 ### Who may call
 
@@ -130,32 +129,32 @@ Edge-cacheable reads return state on the fly — no key required.
 |---|---|
 | `GET /` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://api.sherwood.sh/` (root — do not add `/v1` on this host). |
 | `GET /chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
-| `GET /funds?chain=46630&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/vaults/:address` for richer data. |
-| `GET /governor?chain=46630` | Live governor parameters (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
-| `GET /vaults/:address?chain=46630` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
-| `GET /proposals?chain=46630&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
-| `GET /proposals/:id?chain=46630` | Single proposal: against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
+| `GET /funds?chain=4663&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/vaults/:address` for richer data. |
+| `GET /governor?chain=4663` | Live governor parameters (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
+| `GET /vaults/:address?chain=4663` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
+| `GET /proposals?chain=4663&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
+| `GET /proposals/:id?chain=4663` | Single proposal: against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
 | `GET /health` | Shallow probe — always 200 if the worker is up. |
 | `GET /health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
 
-## Worked example: deposit 1 WETH into a Robinhood testnet vault
+## Worked example: deposit 100 USDG into a Robinhood Chain vault
 
 ```bash
 # 1. Look up the vault to confirm it's open + read the asset
-curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=46630' | jq
+curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=4663' | jq
 
 # 2. Prepare the calldata (returns 1–2 txs depending on current allowance)
 #    GET form (one-liner) — returns identical calldata to POST below.
-curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=46630&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=1' | jq
+curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=4663&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=100' | jq
 
 # Or POST form — useful when args are dynamic / programmatically built.
 curl -sX POST https://api.sherwood.sh/prepare/deposit \
   -H 'content-type: application/json' \
   -d '{
-    "chainId": 46630,
+    "chainId": 4663,
     "vault": "0xVaultAddress",
     "receiver": "0xYourAddress",
-    "amountDecimal": "1"
+    "amountDecimal": "100"
   }' | jq
 ```
 
@@ -166,19 +165,19 @@ Response:
   "success": true,
   "data": {
     "txs": [
-      { "to": "0xWETHAddress", "data": "0x095ea7b3...", "value": "0x0", "chainId": 46630 },
-      { "to": "0xVaultAddress",   "data": "0x6e553f65...", "value": "0x0", "chainId": 46630 }
+      { "to": "0xUSDGAddress", "data": "0x095ea7b3...", "value": "0x0", "chainId": 4663 },
+      { "to": "0xVaultAddress",   "data": "0x6e553f65...", "value": "0x0", "chainId": 4663 }
     ],
     "preconditions": [
-      { "type": "balance",   "asset": "0xWETHAddress", "assetSymbol": "WETH", "min": "1000000000000000000", "minDecimal": "1" },
-      { "type": "allowance", "token": "0xWETHAddress", "spender": "0xVaultAddress", "min": "1000000000000000000", "minDecimal": "1" },
+      { "type": "balance",   "asset": "0xUSDGAddress", "assetSymbol": "USDG", "min": "100000000", "minDecimal": "100" },
+      { "type": "allowance", "token": "0xUSDGAddress", "spender": "0xVaultAddress", "min": "100000000", "minDecimal": "100" },
       { "type": "vault-not-locked",  "vault": "0xVaultAddress" },
       { "type": "depositor-approved","vault": "0xVaultAddress", "depositor": "0xYourAddress" }
     ],
-    "description": "Approve WETH for 0xVaultAddress, then deposit 1 WETH.",
+    "description": "Approve USDG for 0xVaultAddress, then deposit 100 USDG.",
     "note": "Both txs are gated by vault state. If `redemptionsLocked()` is true the deposit reverts unless live NAV is available; check the vault read endpoint before broadcasting."
   },
-  "meta": { "command": "prepare.deposit", "chainId": 46630, "timestamp": "..." }
+  "meta": { "command": "prepare.deposit", "chainId": 4663, "timestamp": "..." }
 }
 ```
 
