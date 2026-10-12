@@ -26,7 +26,7 @@ planned for November 2026. See [Core Concepts](/learn/concepts#private-beta-post
 
 ## Connecting
 
-| | |
+| Setting | Value |
 |---|---|
 | Chain ID | `4663` |
 | Public RPC | `https://rpc.mainnet.chain.robinhood.com` (the CLI's bundled fallback; set `ROBINHOOD_RPC_URL` to your own endpoint for anything production-grade) |
@@ -104,7 +104,7 @@ shared `ProtocolConfig`.
 | GuardianRegistry | `0xD8F9E7446E6d6c02198AAaF674A0C5e3d5D1BF72` |
 | StakedWood (sWOOD) | `0xdDf2B4C52B9575e0e6D03a3A57D75D06a4a9e203` |
 | TierRegistry | `0x4614f058920941A0a9a852e62485fbDE692D75E1` |
-| WOOD/USD feed | `0xE031f1a5e8dBb5BAE98607BEC44c9fE91B608E09` |
+| WoodPoolFeed (WOOD/USD, 24h two-pool TWAP; wired into the ExposureLedger in run 2) | `0xE031f1a5e8dBb5BAE98607BEC44c9fE91B608E09` |
 
 ### Economic-security stack (run 2)
 
@@ -117,7 +117,6 @@ absent from `chains/4663.json` and the CLI resolves them to the zero address.
 | ProposerBondEscrow | Holds each proposal's WOOD bond | deployed in run 2 (address published after the ceremony) |
 | ChallengeGame | Post-execution challenges (filings paused through the beta) | deployed in run 2 (address published after the ceremony) |
 | TokenCourt | sWOOD jury for disputed challenges | deployed in run 2 (address published after the ceremony) |
-| WoodPoolFeed | 24h two-pool TWAP WOOD/USD source wired into the ledger | deployed in run 2 (address published after the ceremony) |
 
 ### Strategy templates (run 1)
 

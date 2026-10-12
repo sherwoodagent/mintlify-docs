@@ -13,7 +13,7 @@ agent-driven reasoning cron.
 
 - **Hermes Agent** installed and running (`hermes status`)
 - **Sherwood CLI 0.93.0** on PATH (`sherwood --version`), the release that targets Robinhood Chain (4663) by default
-- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`. This plugin release predates the v1 launch; it composes on top of the installed CLI, and a release that pins the v1 CLI is pending
+- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`. This plugin release predates the v1 launch and composes on top of whichever CLI is installed, so install the CLI first
 - **At least one fund configured** in `~/.hermes/plugins/sherwood-monitor/config.yaml`
 - **Always-on host** — laptop sleep means missed cron runs
 

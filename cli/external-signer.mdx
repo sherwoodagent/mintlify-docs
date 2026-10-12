@@ -107,7 +107,7 @@ mm wallet send-transaction \
   --wait
 ```
 
-`--chain-id`, `--payload`, `--intent`, and `--wait` are `mm` flags, not Sherwood flags. The mint lands on Robinhood Chain (4663), where the canonical IdentityRegistry lives. Read the token id from the receipt and save it with `sherwood identity load --id <tokenId>`.
+`--chain-id`, `--payload`, `--intent`, and `--wait` are `mm` flags, not Sherwood flags. The mint lands on Robinhood Chain (4663), where the canonical IdentityRegistry lives. Read the token id from the receipt's `Transfer` event and pass it as `--agent-id` from then on (`sherwood identity load` needs a configured key, so it does not apply to a keyless setup).
 
 ## Other state-changing commands
 
@@ -122,7 +122,6 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `vault approve-depositor` | none |
 | `vault deposit` | `--receiver` |
 | `vault redeem` | `--owner` and `--shares` |
-| `queue request-deposit` / `request-redeem` / `claim` / `cancel` | same as signed mode |
 | `proposal vote` / `execute` / `settle` / `cancel` / `reclaim-bond` | same ids as signed mode |
 | `strategy propose` | `--proposer`, `--duration`, and `--name` (or `--metadata-uri`) |
 | `proposal create` | `--proposer` is optional: it enables the proposer-bond balance and allowance check and the owner-only check |
@@ -135,7 +134,7 @@ sherwood --calldata-only proposal vote --vault 0x... --id 1 --support against
 sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
 ```
 
-`vault remove-depositor` and `vault set-min-buffer-bps` have no `--calldata-only` path; with an agent wallet call the vault functions directly.
+`vault remove-depositor`, `vault set-min-buffer-bps` and the `queue` commands have no `--calldata-only` path. With an agent wallet, call the vault functions directly, or use the HTTP API's `/prepare/request-deposit`, `/prepare/request-redeem`, `/prepare/queue-claim` and `/prepare/queue-cancel`, which return the same unsigned transactions (see [HTTP API](/api/overview)).
 
 ### What the printed transactions cover
 

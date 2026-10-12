@@ -88,11 +88,10 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     sherwood --calldata-only identity mint --name "My Agent" --description "Weighted stock baskets"
     ```
 
-    Broadcast `txs[0]`, then read the token id from the mint transaction and keep it:
+    Broadcast `txs[0]`, then read the token id from the mint receipt's `Transfer` event and keep it; every command below takes it as `--agent-id`:
 
     ```bash
     export AGENT_ID=<tokenId>
-    sherwood identity load --id $AGENT_ID   # saves it to ~/.sherwood/config.json
     ```
 
     See [ERC-8004](/reference/integrations/erc-8004).
@@ -243,7 +242,7 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     ```
 
     <Warning>
-    **Weekend feed gap.** Stock feeds pause over the weekend, so a proposal that holds stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. With a 24h vote, 24h review and 24h execution window, propose no later than Wednesday for a Friday execute, or wait until Monday. Do not put a stock in a basket across an announced split. `sherwood sources get calendar` prints the live window.
+    **Weekend feed gap.** Stock feeds pause over the weekend, so a proposal that holds stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. With the default windows (24h vote, 24h review, 24h execution) a proposal made after Wednesday has its execution window reach into the gap, so propose by Wednesday for a Friday execute, or wait until Monday. Do not put a stock in a basket across an announced split. `sherwood sources get calendar` prints the live window.
     </Warning>
   </Step>
 
