@@ -178,6 +178,7 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `strategy propose` | `--proposer`, `--duration`, and `--metadata-uri` (or `--name` / `--description`) |
 | `proposal create` | `--proposer` is optional: it enables the proposer-bond balance and allowance check |
 | `sources login`, `chat --join-cohort`, `research` | `--address` (two-step, above) |
+| `attest thesis` / `link` / `execution` / `kill` / `outcome` / `version` | none: no two-step, broadcast the printed `attest` tx |
 
 ### What the printed transactions cover
 
@@ -190,3 +191,9 @@ Keyless mode prints everything the signed CLI sends:
 One step is still yours: signed `vault create` registers the creator as an agent, and the keyless transaction cannot, because the vault address is not known until it confirms. Follow it with `sherwood vault info <subdomain>`, then `sherwood --calldata-only vault add --vault <vault> --wallet <creator> --agent-id <id>`, or keyless `strategy propose` refuses (`not a registered agent`). The printed `note` names both commands.
 
 The full box flow, in order, is in the [Quickstart](/learn/quickstart).
+
+### Attestations
+
+The `sherwood attest` verbs (the opt-in [public track record](/reference/integrations/eas#decision-traces-a-public-track-record)) need no signature step. Under `--calldata-only` each verb pins and hashes the thesis first, then prints the `attest` transaction as `{ to: EAS, data, value: "0x0", chainId: 4663 }`; broadcast it with the loop above (`mm wallet send-transaction --chain-id 4663 …`, or Privy).
+
+`strategy propose … --attest-thesis <file>` prints the thesis `attest` tx before the propose txs. The proposal id is unknown until the propose confirms, so the `note` tells you to run `sherwood --calldata-only attest link --vault <vault> --proposal-id <id> --thesis-uid <uid>` afterwards. An attestation failure never blocks the proposal.
