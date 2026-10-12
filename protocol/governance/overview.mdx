@@ -4,130 +4,171 @@ description: "Proposal lifecycle — from submission to settlement"
 icon: "landmark"
 ---
 
-Agents propose strategies, the fund's depositors vote, staked guardians review the calldata, and the winning agent executes within a mandate depositors already approved. Profit earns the agent carry; loss earns nothing.
+The vault owner proposes a strategy, the vault's depositors get an optimistic veto, staked guardians review and underwrite the exact calldata, and anyone executes the mandate within the window depositors already approved. Profit earns the agent carry; loss earns nothing.
 
-**One-liner:** Agents propose. Depositors vote. Guardians verify. Winners execute and earn carry.
+**One-liner:** Owners propose. Depositors veto. Guardians underwrite. Anyone executes and settles.
 
-**Per-vault governor.** Each vault has its own governor — a `BeaconProxy` the factory deploys at creation, resolved via `factory.governorOf(vault)`. A proposal targets that one vault, and only its depositors vote. Every governor shares one implementation through a `GovernorBeacon`, so there is no protocol-wide governor.
+**Per-vault governor.** Each vault has its own governor, a `BeaconProxy` the factory deploys at creation and resolves with `factory.governorOf(vault)`. A proposal targets that one vault, and only its depositors vote. Every governor shares one implementation through `GovernorBeacon`, so there is no protocol-wide governor.
+
+<Info>
+**Launch posture (private beta).** `SyndicateFactory.ownerOnlyProposals` is on: only `vault.owner()` can call `propose`, and it must also be a registered agent of the vault. Co-proposers are refused (`CollaborationDisabled`), so every proposal opens directly in `Pending`. `depositsRestricted` is also on, so every vault is whitelist-only whatever its `openDeposits` flag. Both flags are factory-owner setters and will be relaxed for general access.
+</Info>
 
 ## Optimistic governance
 
-Sherwood uses an **optimistic** model — a proposal passes by default unless enough depositors actively vote against it. This reduces voter fatigue and reflects a trust-but-verify posture:
+A proposal passes by default unless enough depositors vote against it. Depositors act only when they disagree; silence is consent.
 
-- A proposal is assumed to pass unless Against votes reach the **veto threshold** (`vetoThresholdBps`), measured against the past total supply captured at the snapshot.
-- If Against stays below the threshold, the proposal is approved automatically when voting ends.
-- Depositors only need to act when they disagree — there is no participation quorum on approval. Silence is consent.
+- Only `Against` votes carry weight. `For` and `Abstain` are recorded but never counted.
+- The veto bar is `max(1, votableSupply × vetoThresholdBps / 10_000)`. A proposal is `Rejected` at `voteEnd` when `votesAgainst` reaches it. When `votableSupply` is zero the veto check is skipped, so an empty vault cannot auto-reject.
+- There is no participation quorum on approval.
 
-This works because agents are already registered to propose and their exact onchain calls are committed at proposal time. Depositors can inspect every calldata byte and only need to mobilize if something looks wrong. Guardians are the adversarial second check.
+This works because the exact onchain calls are committed at propose time: depositors inspect calldata, not a description, and guardians are the adversarial second check.
 
-### VoteType
+### Electorate and timing
 
-| VoteType | Effect |
-|----------|--------|
-| **For** | Supports the proposal (does not count toward the veto threshold) |
-| **Against** | Opposes the proposal (counts toward the veto threshold) |
-| **Abstain** | Participates without taking a side (does not count toward the veto threshold) |
+| Rule | Value |
+|------|-------|
+| Snapshot | `snapshotTimestamp = block.timestamp − 1` at the transition into `Pending` |
+| Electorate (`votableSupply`) | Recorded at that transition: past total supply minus the shares the withdrawal queue holds, each term the smaller of its snapshot and live value. **Queued shares carry no veto weight.** |
+| Vote weight | `min(getPastVotes(voter, snapshot), getPastVotes(voter, snapshot + 1))` |
+| Earliest vote | `block.timestamp > snapshot + 1`, else `NotWithinVotingPeriod`. `getVoteWeight` returns 0 until then |
+| Delegation | Disabled. `delegate` / `delegateBySig` revert `DelegationDisabled`; every share holder is self-delegated |
+| Veto threshold | Snapshotted onto the proposal at `Pending`; a later `setVetoThresholdBps` does not reach it |
+
+Buying shares after a proposal opens grants no power on it, and the one-second gap plus the two-checkpoint minimum removes same-block and flash-loan weight.
 
 ### Owner veto
 
-The **vault owner** can reject a proposal **only while it is Pending**, by calling `vetoProposal(proposalId)` — a safety valve for a proposal that is clearly malicious. Once voting ends and the proposal enters `GuardianReview`, the owner's unilateral veto is disabled; from there the only way to block it is the [guardian block quorum](/protocol/governance/guardian-review).
+The vault owner can reject a proposal with `vetoProposal(proposalId)` **only while it is Pending** (`ProposalNotCancellable` otherwise). Once voting ends and the proposal enters `GuardianReview`, the only way to block it is the [guardian block quorum](/protocol/governance/guardian-review).
 
 <Note>
-Depositors cannot call `vetoProposal` — it is owner-only. Depositors influence outcomes by casting `Against` votes during the voting window; Against votes crossing `vetoThresholdBps` block a proposal.
+Depositors cannot call `vetoProposal`; it reverts `NotVaultOwner`. Depositors block a proposal by casting `Against` votes during the voting window.
 </Note>
 
 ## The flow
 
 <Steps>
-  <Step title="An agent proposes">
-    The agent commits a full strategy — for example, opening a weighted basket of tokenized stocks against the fund's WETH and later unwinding it back to WETH. The exact onchain calls, open and close, are committed at proposal time. The performance fee is not chosen here — it is the vault's `agentFeeBps`, set by the owner.
+  <Step title="The owner proposes">
+    The proposal commits the full strategy: the opening calls, the closing calls, per-call caps, a `RiskEnvelope` (`maxCapital`, `maxDrawdownBps`) and a `strategyDuration`. The performance fee is not chosen here; it is the vault's `agentFeeBps`, clamped to the governor's `maxPerformanceFeeBps`.
 
-    On deployments with an exposure ledger, the proposer also posts a [risk-scaled WOOD bond](/protocol/governance/proposer-bond) into `ProposerBondEscrow`. That is not the 10k owner stake.
+    At propose the governor prices the calls into [`requiredCoverage`](/protocol/governance/coverage), checks the covered-TVL cap and the 60-day horizon, and pulls the [proposer bond](/protocol/governance/proposer-bond) into `ProposerBondEscrow`. From this moment the vault's instant deposit and redeem paths are closed (`openProposalCount() != 0`), see [Deposits & Withdrawals](/protocol/vault-liquidity).
   </Step>
   <Step title="Depositors vote">
-    Voting power is weighted by vault shares at the snapshot. Only depositors of the target vault participate, voting For, Against, or Abstain.
+    `votingPeriod` (24 h at launch). Weight is vault shares at the snapshot. Only `Against` counts.
   </Step>
-  <Step title="Guardians verify">
-    After voting, staked guardians inspect the exact committed calldata. A block quorum rejects the proposal and slashes its early approvers; no block quorum means it is approved. See [Guardian Review](/protocol/governance/guardian-review).
+  <Step title="Guardians review and underwrite">
+    `reviewPeriod` (24 h). Staked guardians inspect the committed calldata and vote `Approve` with a WOOD lock, or `Block`. A block quorum rejects the proposal and slashes its approvers; otherwise it is `Approved`. See [Guardian Review](/protocol/governance/guardian-review).
   </Step>
-  <Step title="The agent executes the mandate">
-    The pre-committed calls are replayed through the vault. The agent cannot change what runs after the vote — capital usage and target contracts are locked to what was approved.
+  <Step title="Anyone executes">
+    Within `executionWindow` (24 h), `executeProposal(proposalId)` replays the opening calls through `vault.executeGovernorBatch`. Capital is scaled to the coverage guardians actually booked. Nothing new enters at execution.
   </Step>
   <Step title="The strategy settles">
-    Once the strategy duration ends, anyone can trigger settlement. The vault replays the pre-committed unwind calls, P&L is booked, the management fee and (on profit above the high-water mark) the performance fee are charged and split, and a `ProposalSettled` event is emitted.
+    The proposer can settle one hour after execute; anyone can settle once `strategyDuration` has elapsed. The closing calls run, the management fee and (above the high-water mark) the performance fee are charged and split, the queue price is stamped and `ProposalSettled` is emitted. See [Execution & Settlement](/protocol/governance/settlement).
   </Step>
-  <Step title="Cooldown">
-    Redemptions re-open so depositors can withdraw. No new strategy can execute until cooldown expires.
+  <Step title="Cooldown and bond release">
+    Every terminal transition stamps `cooldownEndsAt = now + cooldownPeriod`; the next `propose` waits for it (`CooldownNotElapsed`). Instant deposits and redemptions re-open as soon as no proposal is open. The proposer bond is released by the permissionless `reclaimProposerBond`; a settled proposal waits out the challenge window first.
   </Step>
 </Steps>
 
 ## What a proposal contains
 
-The proposal is the contract between agent and depositors. It commits how to open the position **and** how to close it before anyone votes. Two separate call arrays are stored per proposal and read via `getExecuteCalls` / `getSettlementCalls`:
+```solidity
+propose(
+    address vault,
+    address strategy,               // registered strategy clone; address(0) for a queue-only proposal
+    string  metadataURI,            // ≤ 512 bytes
+    uint256 strategyDuration,       // minStrategyDuration..maxStrategyDuration
+    RiskEnvelope envelope,          // { maxCapital, maxDrawdownBps ≤ 10_000 }
+    Call[]    executeCalls,         // ≤ 64 calls
+    uint256[] executeCallCaps,      // per-call gross-outflow caps in the vault asset; Σ ≤ maxCapital
+    Call[]    settlementCalls,      // ≤ 64 calls
+    uint256[] settlementCallCaps,   // Σ ≤ maxCapital, metered separately from execute
+    CoProposer[] coProposers        // must be empty while ownerOnlyProposals is on
+)
+```
 
-- **`executeCalls`** — the opening calls, including the capital pulls, replayed at execution.
-- **`settlementCalls`** — the closing calls, replayed at settlement.
-
-There is no `capitalRequired` field and no combined array with a split index — depositors inspect the calldata directly to see exactly how much asset moves and where. Alongside the calls, a proposal carries:
-
-- **`strategy`** — the contract that holds the proposal's on-venue positions. Set once at propose time and never rebindable; pass `address(0)` for a queue-only proposal. Strategies do not report a value; `totalAssets()` is vault float minus queue reserve minus escrowed fees.
-- **`metadataURI`** — an IPFS link to the human-readable rationale, research, and risk analysis.
-- **`strategyDuration`** — how long the position runs before it can be settled, bounded by the min/max strategy duration.
-- **Fee snapshot** — the performance-fee rate and both fee splits are snapshotted from live config at propose time. An owner or the protocol multisig changing a rate or split after the vote cannot alter what voters approved; settlement uses the snapshot.
+- **`executeCalls` / `settlementCalls`** are read back with `getExecuteCalls` / `getSettlementCalls`. Every target must be the vault asset (transfer and approve shapes only) or a strategy registered on `StrategyFactory`, else `NotARegisteredStrategy(target)`.
+- **`maxCapital`** must fit inside `totalAssets() × maxCapitalBps / 10_000`, checked at propose (`MaxCapitalExceedsCeiling`) and again at execute against live TVL (`MaxCapitalCeilingRegressed`).
+- **`maxDrawdownBps`** sets the settle price floor: settlement reverts `SettlePriceBelowFloor` if price per share falls below `ppsAtExecute × (10_000 − min(maxDrawdownBps, 9_000)) / 10_000`.
+- **Fee snapshot.** The performance-fee rate and both `ProtocolConfig` splits are snapshotted at propose, so a change after the vote cannot alter what voters approved.
+- **Strategies do not report a value.** `totalAssets()` is vault float minus the queue reserve minus escrowed fees.
 
 <Note>
-**The calls are the vote.** Depositors vote on the precise onchain actions, not a description. `executeProposal(proposalId)` takes only the proposal id and replays what was approved — no bait-and-switch is possible. The `metadataURI` explains *why*; the calls are *what*.
+**The calls are the vote.** `executeProposal(proposalId)` takes only the id and replays what was approved. The `metadataURI` explains *why*; the calls are *what*.
 </Note>
-
-## Voting
-
-- **Weight = vault shares** via `ERC20Votes` checkpoints on the vault. Only depositors of the target vault can vote — your money, your decision.
-- **Snapshot at `block.timestamp − 1`.** The vault's voting clock is timestamp-based; the weight snapshot is taken one second before the proposal opens, so buying shares after a proposal opens grants no power on it — this defeats flash-loan and same-block delegation manipulation on fast L2 blocks.
-- **Auto-delegation** on deposit — depositors have voting power without a separate transaction.
-- **Optimistic resolution** — after voting ends the proposal passes unless Against reaches `vetoThresholdBps` of the past total supply. No participation quorum. (If past supply is zero the veto check is skipped, so a proposal cannot auto-reject.)
 
 ## Who controls what
 
-Depositors govern **what happens to their money** (the strategy vote). The owner governs **the rules of the game** (the parameters), within hard bounds.
-
 | Parameter | Controlled by | Notes |
 |-----------|---------------|-------|
-| `strategy`, `executeCalls`, `settlementCalls`, `strategyDuration`, `metadataURI` | Agent (proposer) | The mandate — committed at proposal time |
-| `agentFeeBps` | Vault owner | Performance fee for the vault (for example 20%), bounded by the protocol ceiling. Snapshotted onto each proposal; clamped to `maxPerformanceFeeBps` at settlement |
-| `votingPeriod`, `executionWindow`, `vetoThresholdBps`, `maxPerformanceFeeBps`, `maxStrategyDuration`, `cooldownPeriod` | Governor (vault-owner setters, per-vault) | Bounded and frozen while a proposal is open |
-| `reviewPeriod` | GuardianRegistry (owner setter) | Guardian review window, read at propose time |
-| Management and performance fee splits, fee recipients | ProtocolConfig (protocol multisig) | Global; snapshotted into the proposal at propose |
-| `managementFeeBps` | SyndicateFactory (factory owner) | Stamped onto each vault at creation (for example 2%/yr), bounded by the factory cap. No per-vault setter — changes reach new funds only |
+| `strategy`, calls, caps, envelope, `strategyDuration`, `metadataURI` | Proposer (the vault owner at launch) | The mandate, committed at propose |
+| `agentFeeBps`, `minBufferBps`, depositor whitelist, agents | Vault owner (vault setters) | `agentFeeBps` ≤ 2,500; `minBufferBps` ≤ 5,000 |
+| Governor parameters (table below) | Vault owner (governor setters) | `onlyVaultOwner whenNoActiveProposal`: instant, but reverts `ParamsFrozenDuringProposal` while any proposal is open, Drafts included |
+| `reviewPeriod`, `blockQuorumBps` | GuardianRegistry owner | Read at propose |
+| Fee splits and recipients | `ProtocolConfig` owner (protocol multisig) | Snapshotted into each proposal |
+| `managementFeeBps`, creation fee, `ownerOnlyProposals`, `depositsRestricted` | `SyndicateFactory` owner | `managementFeeBps` is stamped on a vault at creation and has no per-vault setter |
 
-<Note>
-**Parameters are per-fund and frozen mid-flight.** Each vault's governor holds its own parameters; the vault owner tunes them, affecting only that fund. Setters are `onlyVaultOwner`, re-validate protocol-wide bounds, and revert while a proposal is open — the terms cannot shift under an in-flight vote. There is no onchain timelock; the freeze plus bounds are the protection, and the owner is expected to be a multisig.
-</Note>
+There is no onchain timelock on governor parameters; the freeze while a proposal is open plus the hard bounds are the protection, and the owner is expected to be a multisig.
 
-## Agent registration & depositor access
+### Governor parameters
 
-**Proposing requires registration.** Only agents registered on the vault (via `registerAgent`) can submit proposals. Registration is the gate for strategy creation.
+Launch values are the factory defaults every new governor starts with. Bounds are enforced by `GovernorParameters`.
 
-**Depositing is open.** Anyone can deposit with standard ERC-4626 `deposit` / `mint`, subject only to the pause flag and an optional depositor whitelist — no registration, no identity step.
+| Parameter | Launch value | Bounds | Setter |
+|-----------|--------------|--------|--------|
+| `votingPeriod` | 24 h | 1 h – 3 d | `setVotingPeriod` |
+| `vetoThresholdBps` | 2,000 (20%) | 2,000 – 8,000 | `setVetoThresholdBps` |
+| `executionWindow` | 24 h | 1 h – 7 d | `setExecutionWindow` |
+| `cooldownPeriod` | 1 h | 1 h – 30 d | `setCooldownPeriod` |
+| `minStrategyDuration` / `maxStrategyDuration` | 1 h / 30 d | 1 h – 30 d, min ≤ max, max ≤ `ProtocolConfig.maxStrategyDuration` | `setMinStrategyDuration` / `setMaxStrategyDuration` |
+| `maxPerformanceFeeBps` | 2,000 (20%) | ≤ 2,500 | `setMaxPerformanceFeeBps` |
+| `maxCapitalBps` | unset, reads as 10,000 | 1 – 10,000 | `setMaxCapitalBps` |
+| `tier2CallCapBps` | unset, reads as 10,000 | 1 – 10,000 | `setTier2CallCapBps` |
+| `collaborationWindow` | 24 h | 1 h – 7 d | `setCollaborationWindow` |
+| `maxCoProposers` | 10 | 1 – 10 | `setMaxCoProposers` |
 
-An agent's track record is built onchain: every settlement emits `ProposalSettled` with realized P&L, so past proposals — wins and losses — are verifiable before anyone votes on the agent's next one.
+<Tip>
+**Recommended seeds for a new vault.** Right after `createSyndicate` and before the first `propose`, set `setTier2CallCapBps(200)` and `setMaxCapitalBps(8000)` on the governor and `setMinBufferBps(500)` on the vault. The governor defaults leave both caps inert, and `minBufferBps` must never be raised while a proposal is open: the post-batch buffer check would make the committed settlement calls revert.
+</Tip>
+
+## Proposer, agents and depositors
+
+**Proposing.** The caller must be a registered agent of the vault (`registerAgent`, up to 32 per vault) and, while `ownerOnlyProposals` is on, the vault owner. The vault's owner stake must be live (`OwnerBondNotLive` at propose and again at execute), the vault must have no open proposal (`VaultHasOpenProposal`), and the cooldown must have elapsed.
+
+**Depositing.** `deposit` / `mint` check the receiver against the vault's depositor whitelist (`NotApprovedDepositor`) while `depositsRestricted` is on, and revert `DepositsLocked` while any proposal is open. Depositors need no WOOD and no identity.
+
+Every settlement emits `ProposalSettled` with realized P&L, so an agent's record is verifiable onchain before anyone votes on its next proposal.
 
 ## Proposal states
+
+`ProposalState`, in enum order: `Draft`, `Pending`, `GuardianReview`, `Approved`, `Rejected`, `Expired`, `Executed`, `Settled`, `Cancelled`. `stateOf(proposalId)` is a true view: it reports `Approved`, `Rejected` or `Expired` as soon as the clock makes them determinable. `resolveProposalState(proposalId)` is a permissionless flush that persists a lazy terminal transition.
 
 ```mermaid
 graph TD
     D["Draft (collaborative only)"] -->|all co-proposers approve| P["Pending"]
-    D -->|"proposer or owner cancels"| CX["Cancelled"]
-    P -->|voting ends, Against < veto| GR["GuardianReview"]
-    P -->|"Against ≥ veto, or owner veto"| R["Rejected"]
-    P -->|"proposer or owner cancels"| CX
-    GR -->|review window passes, no block quorum| A["Approved"]
-    GR -->|block quorum reached| R
-    A -->|execution window passes| E2["Expired"]
+    D -->|collaboration window passes| E1["Expired"]
+    D -->|"lead cancels / rejects, or owner emergency-cancels"| CX["Cancelled"]
+    P -->|"voteEnd, Against below the veto bar"| GR["GuardianReview"]
+    P -->|"Against reaches the veto bar, or owner veto"| R["Rejected"]
+    P -->|"proposer cancels (before voteEnd), or owner emergency-cancels"| CX
+    GR -->|reviewEnd, no block quorum| A["Approved"]
+    GR -->|block quorum| R
+    GR -->|"proposer cancels (review still open)"| CX
+    A -->|executeBy passes| E2["Expired"]
+    A -->|proposer cancels| CX
     A -->|anyone calls executeProposal| EX["Executed"]
-    EX -->|"P&L booked, fees distributed"| S["Settled"]
-    S --> C["Cooldown"]
+    EX -->|"settleProposal, unstick or emergency settle"| S["Settled"]
 ```
 
-A solo proposal opens directly in **Pending**; a [collaborative](/protocol/governance/collaborative-proposals) one opens in **Draft** and advances only once every co-proposer consents. One non-terminal proposal per vault at a time. Before settlement, the proposer can cancel their own Draft or Pending proposal, and the owner can emergency-cancel a Draft or Pending one.
+### Who can end a proposal early
 
-See [Guardian Review](/protocol/governance/guardian-review) for the Pending → GuardianReview → Approved/Rejected gate, and [Execution & Settlement](/protocol/governance/settlement) for the post-approval path.
+| Action | Caller | Allowed states |
+|--------|--------|----------------|
+| `cancelProposal` | Proposer | `Draft` (not once all but one co-proposer approved, `CancelNotAllowedNearQuorum`), `Pending` up to `voteEnd`, `GuardianReview` while the registry still accepts `cancelReview` (before `reviewEnd` and before the block quorum is reached), `Approved` |
+| `emergencyCancel` | Vault owner | `Draft`, `Pending` |
+| `vetoProposal` | Vault owner | `Pending` |
+| `rejectCollaboration` | Lead proposer | `Draft` |
+
+Every early exit, and every `Rejected` or `Expired` transition, runs `_decOpen`: the open count drops, the cooldown is stamped, and any registered guardian review is cancelled. None of them stamps a queue price, so a queued redeem tagged to that proposal must be cancelled by its owner (see [Deposits & Withdrawals](/protocol/vault-liquidity#when-the-proposal-does-not-settle)).
+
+See [Guardian Review](/protocol/governance/guardian-review) for the `Pending` → `GuardianReview` → `Approved` / `Rejected` gate and [Execution & Settlement](/protocol/governance/settlement) for the post-approval path.

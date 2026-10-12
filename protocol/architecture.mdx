@@ -4,122 +4,184 @@ description: "Smart contract design — vault, per-vault governor, factory, with
 icon: "cubes"
 ---
 
-Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin. The core contracts are UUPS-upgradeable proxies; strategies are minimal clones. The protocol is deployed on Robinhood testnet (chain 46630); mainnet launch is ahead. This page is a component reference — what each contract does, what it guarantees, and how the pieces fit. For addresses, see [Deployments](/reference/deployments).
+Solidity smart contracts for Sherwood, built with Foundry and OpenZeppelin. Sherwood v1 is live on **Robinhood Chain (chain id 4663)**. The core contracts are upgradeable proxies; strategies are minimal clones. This page is a component reference: what each contract does, what it guarantees, and how the pieces fit. For addresses, see [Deployments](/reference/deployments).
 
 <Note>
-On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a fund.
+On-chain contracts keep the `Syndicate*` naming for audit continuity; the product concept is a vault, or fund.
 </Note>
 
 ## Architecture
 
-Each fund is a vault. Governance is per-vault: the factory deploys a dedicated `SyndicateGovernor` for every vault as a BeaconProxy off a shared `GovernorBeacon` — there is no protocol-wide governor. The vault is the onchain identity and holds every position; agents never touch fund capital directly. Strategy execution flows governor → `vault.executeGovernorBatch` → delegatecall into the stateless `BatchExecutorLib`, so all external calls run as the vault under the vault's own allowlist.
+Each fund is a vault. Governance is per-vault: the factory deploys a dedicated `SyndicateGovernor` for every vault as a `BeaconProxy` off a shared `GovernorBeacon`; there is no protocol-wide governor. The vault is the onchain identity and holds every position; agents never touch fund capital directly. Strategy execution flows governor → `vault.executeGovernorBatch` → delegatecall into the stateless `BatchExecutorLib`, so every external call runs as the vault under the vault's batch guards.
 
 ```mermaid
 graph TD
-    F["SyndicateFactory (UUPS)"] -->|one tx deploys + wires| V["SyndicateVault (ERC-1967)"]
+    F["SyndicateFactory (UUPS)"] -->|one tx deploys + wires| V["SyndicateVault (UUPS)"]
     F -->|deploys one per vault| G["SyndicateGovernor (BeaconProxy)"]
-    F -->|deploys per vault| Q["VaultWithdrawalQueue"]
-    F -->|binds owner bond on create| SW["StakedWood / sWOOD"]
+    F -->|deploys one per vault| Q["VaultWithdrawalQueue"]
+    F -->|binds the prepared owner stake| SW["StakedWood / sWOOD (UUPS)"]
     G -.->|reads impl from| GB["GovernorBeacon"]
     G -.->|snapshots fees at propose| PC["ProtocolConfig"]
-    G -->|review + slash hooks| R["GuardianRegistry"]
+    G -->|register / open / resolve review| R["GuardianRegistry (UUPS)"]
     R -->|stake / slash / burn| SW
+    R -->|recordApproval| EL["ExposureLedger"]
+    G -->|requiredCoverage, bond quote, approve quorum| EL
+    G -->|lockBond / releaseBond| PBE["ProposerBondEscrow"]
+    G -->|tierOf| TR["TierRegistry"]
+    TR -->|isRegisteredStrategy| SF["StrategyFactory"]
+    EL -->|woodPriceX8| WPF["WoodPoolFeed"]
+    CG["ChallengeGame"] -->|freeze coverage| EL
+    CG -->|slashVerdict| SW
+    CG -->|forfeitBond| PBE
+    CG <-->|refer / rule| TC["TokenCourt"]
     V <-->|execute / settle| G
     V -->|delegatecall| B["BatchExecutorLib (stateless)"]
     V <-->|escrow / stamp / claim| Q
+    V -->|batch targets| S["Strategy clones"]
+    S -->|swap| UA["UniswapSwapAdapter"]
 ```
 
-The vault is the identity — every position the fund opens lives on the vault address. Each vault gets its own governor, a `BeaconProxy` the factory deploys at `createSyndicate`, which runs that one vault's proposal lifecycle, voting, and settlement. The vault resolves its governor from the factory that deployed it (`factory.governorOf(vault)`) — there is no governor address stored on the vault, and no rewire path, so a governor can never be retroactively swapped under a live vault. Upgrading every fund's governor at once is a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
+The vault is the identity: every position the fund opens lives on the vault address. Each vault gets its own governor at `createSyndicate`, which runs that one vault's proposal lifecycle, voting and settlement. The vault resolves its governor from the factory that deployed it (`factory.governorOf(vault)`); there is no governor address stored on the vault and no rewire path, so a governor can never be swapped under a live vault. Upgrading every fund's governor at once is a single `GovernorBeacon.upgradeTo(newImpl)` by the beacon owner.
 
 <Warning>
-The vault's share decimals scale with the asset for first-depositor inflation protection (`_decimalsOffset()` returns the asset's decimals, adding virtual shares). Each vault fixes its deposit asset at creation — any ERC-20; the funds live on Robinhood testnet use 18-decimal WETH.
+The vault's share decimals scale with the asset for first-depositor inflation protection (`_decimalsOffset()` returns the asset's decimals, adding virtual shares). Each vault fixes its deposit asset at creation. The Portfolio strategy additionally requires a USD-pegged asset; USDG is the launch default.
 </Warning>
+
+## Launch flags
+
+Two factory flags shape the private beta. Both are factory-owner setters and are read live.
+
+| Flag | Launch | Effect |
+|------|--------|--------|
+| `ownerOnlyProposals` | `true` | Only `vault.owner()` (also a registered agent) can `propose`; co-proposers revert `CollaborationDisabled` |
+| `depositsRestricted` | `true` | Every vault is whitelist-only whatever its `openDeposits` flag |
+
+Creating a vault costs a `creationFee` of 1,000,000 WOOD unless the factory owner has marked the creator `creationSponsored`, plus a prepared owner stake of `minOwnerStake` (10,000 WOOD) on `StakedWood`.
 
 ## Core contracts
 
 ### SyndicateVault
 
-The ERC-4626 vault that **is** the fund. It holds every position and is the only address that moves fund capital. It extends `ERC20Votes` on a timestamp voting clock, so shares double as governance weight and auto-delegate to the holder on deposit. Deposits are gated by pause state and an optional depositor whitelist.
+The ERC-4626 vault that **is** the fund. It holds every position and is the only address that moves fund capital. It extends `ERC20Votes` on a timestamp voting clock, so shares double as governance weight; every receiver is self-delegated and `delegate` reverts `DelegationDisabled`. Deposits are gated by pause state and the depositor whitelist (receiver-checked).
 
-Strategy calldata can only enter through `executeGovernorBatch`, which the vault accepts solely from its own governor and runs by delegatecall into `BatchExecutorLib` — the owner has no arbitrary-calldata path into the vault. Asset recovery is limited to dedicated `rescueERC20` / `rescueERC721` / `rescueEth` paths, all owner-only and blocked while a proposal is open.
+Strategy calldata can only enter through `executeGovernorBatch(calls, callCaps, maxNetOutflow)`, which the vault accepts solely from its own governor and runs by delegatecall into `BatchExecutorLib`; the owner has no arbitrary-calldata path into the vault. The guards, in order:
 
-`totalAssets()` is vault float minus the queue reserve minus escrowed unpaid fees — there is no strategy NAV term. While a strategy is executing, instant `redeem` / `withdraw` return 0 and depositors use `requestRedeem` on the [withdrawal queue](/protocol/vault-liquidity). Instant `deposit` is closed for the whole open-proposal window. At settlement the vault stamps one frozen post-fee price; anyone can `claim`.
+1. The executor's codehash must equal the one pinned at `initialize` (`ExecutorCodehashMismatch`).
+2. Every target is the vault asset or a strategy registered on `StrategyFactory`, resolved through `governor → tierRegistry → strategyFactory` and fail-closed (`NotARegisteredStrategy`).
+3. A call on the asset is `transfer`, `transferFrom` from the vault, or an allowance call; the vault resets every named spender to zero after the batch (`TransferFromNotVault`, `UnrecognizedAssetSelector`, `MalformedAssetCall`).
+4. Gross outflow per call ≤ `callCaps[i]` (`CallCapExceeded`); net outflow ≤ `maxNetOutflow` (`MaxNetOutflowExceeded`); float stays above the queue reserve (`QueueReserveBreached`) and the `minBufferBps` floor (`BufferBreached`).
 
-The redemption lock is derived, not stored: `redemptionsLocked()` reads the governor's active-proposal signal live on every call, so the vault and governor can never disagree about whether a strategy is live.
+There is no per-call target allowlist and no sandbox: registration on `StrategyFactory` is the only reachability rule, and `TierRegistry` prices risk rather than permitting calls. Asset recovery is limited to `rescueERC20` (non-asset tokens, only to a strategy clone of this vault), `rescueERC721` and `rescueEth`, all owner-only and blocked while a proposal is open.
+
+`totalAssets()` is vault float minus the queue reserve minus escrowed unpaid fees; there is no strategy NAV term. While any proposal is open (`openProposalCount() != 0`), instant `deposit` / `redeem` are closed and depositors use the [withdrawal queue](/protocol/vault-liquidity). The lock is derived, not stored.
+
+The vault is a UUPS proxy. `Factory.upgradeVault(vault, expectedImpl)` is the only upgrade path: the creator calls it, only while `upgradesEnabled` and no proposal is open.
 
 ### SyndicateGovernor
 
-One governor per vault, deployed as a BeaconProxy so every fund shares an implementation but keeps isolated state. It runs the proposal lifecycle — Draft (collaborative consent) → Pending (voting) → GuardianReview → Approved → Executed → Settled, with terminal Rejected / Expired / Cancelled states. Only registered agents propose, and one strategy is live per vault at a time — an open proposal blocks new ones.
+One governor per vault, deployed as a `BeaconProxy` so every fund shares an implementation but keeps isolated state. It runs the proposal lifecycle: `Draft` → `Pending` → `GuardianReview` → `Approved` → `Executed` → `Settled`, with terminal `Rejected` / `Expired` / `Cancelled`. One proposal is open per vault at a time.
 
-Voting is [optimistic](/protocol/governance/overview): weight is the `ERC20Votes` checkpoint taken one second before propose, and a proposal passes after voting ends unless Against votes reach the veto threshold (default 20% of past supply, bounds 20–50%). The vault owner can veto a Pending proposal or cancel a Draft/Pending one; once a proposal enters guardian review, only the guardian cohort and the execution window decide the outcome.
+Voting is [optimistic](/protocol/governance/overview): the electorate is recorded at the `Pending` transition with queued shares excluded, weight is the smaller of two `ERC20Votes` checkpoints around the snapshot, and the proposal passes after voting ends unless `Against` reaches `vetoThresholdBps` (20% at launch, bounds 20–80%). The vault owner can veto a `Pending` proposal or emergency-cancel a `Draft` / `Pending` one; once a proposal enters guardian review, only the guardian cohort and the execution window decide the outcome.
 
-At settlement the governor charges the [two fees](/protocol/governance/economics) — a management fee on assets × time deployed, charged on every settlement whether the fund gained or lost, and a performance fee on value above the fund's previous peak price per share, charged only on profitable settlements — using rates snapshotted at propose time. Each is divided once by the splits held on `ProtocolConfig`. Failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the four owner-only [emergency-settlement](/protocol/governance/settlement) paths for stuck strategies.
+At propose the governor prices the calls into `requiredCoverage` through `TierRegistry`, enforces the covered-TVL cap and horizon on `ExposureLedger`, and locks the [proposer bond](/protocol/governance/proposer-bond) in `ProposerBondEscrow`. At execute it scales capital to the coverage guardians booked. At settlement it charges the [two fees](/protocol/governance/economics) using rates and splits snapshotted at propose, each divided once by `ProtocolConfig`; failed fee transfers escrow rather than bricking settlement. Parameter setters are owner-instant but frozen while any proposal is open, so the owner is expected to be a multisig; there is no separate onchain timelock. The governor also carries the owner-only [emergency-settlement](/protocol/governance/settlement) paths.
 
 ### GovernorBeacon
 
-The `UpgradeableBeacon` holding the shared `SyndicateGovernor` implementation for every per-vault governor proxy. `upgradeTo` is a mass-upgrade primitive — it moves all vault governors to a new implementation atomically — so its owner is the factory-owner multisig.
-
-### GuardianRegistry
-
-The review layer between proposal approval and execution. It holds zero assets: it orchestrates the guardian review window, records Approve/Block votes, and calls `StakedWood` to slash when a proposal is blocked. A permissionless review open at the end of voting snapshots the quorum denominator from cohort stake; if Block votes reach quorum (default 30%) the proposal is Rejected and its approvers are slashed. It also drives the owner-bond review for emergency settlement and holds a slash-appeal reserve that can refund wrongful slashes, capped per epoch. Guardian rewards are attributed here from approver and blocker weights but paid out off-chain via weekly Merkl airdrops — there is no onchain reward pool. See [Guardian Review](/protocol/governance/guardian-review).
-
-### StakedWood (sWOOD)
-
-The sole custodian of staked WOOD: guardian stake, vault-owner bonds, vote checkpoints, and slashing all live here. sWOOD is non-transferable vote-escrow. A guardian is active only while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least as long as the guardian review period. Vote weight is the guardian's own stake (growth-gated `getPastStake`), not inbound delegations. When the registry signals a blocked proposal, sWOOD slashes each approver's own stake by the deterministic severity ramp and burns the slashed WOOD; a blocked emergency settlement burns the owner's bond in full.
-
-<Note>
-The in-repo `WoodToken.sol` is a non-production test fixture, not the live token. Mainnet WOOD is an external ERC-20 launched on Robinhood Chain and tradeable on Uniswap. Bind to the mainnet address `0xF8BC08092C06dB6148114DCf82AF881F1085f92b` (see [Deployments](/reference/deployments#wood)), not the in-repo artifact.
-</Note>
+The `UpgradeableBeacon` holding the shared `SyndicateGovernor` implementation for every per-vault governor proxy. `upgradeTo` is a mass-upgrade primitive, moving all vault governors to a new implementation atomically, so its owner is the protocol multisig.
 
 ### VaultWithdrawalQueue
 
-The per-vault async substrate for deposits and withdrawals while a strategy is live. When redemptions are locked, the vault escrows shares (redeem) or assets (deposit) here; at settlement the vault stamps one frozen, post-fee price for the whole proposal and every request in it claims at that single realized price. Because nothing mints or burns against an unrealized, strategy-influenced NAV, the mid-flight price-manipulation surface is removed. A request can be cancelled only before its proposal is stamped.
+The per-vault async substrate for deposits and withdrawals while a proposal is open, deployed by the factory at creation. The vault escrows shares (redeem) or assets (deposit) here; at settlement the vault stamps one frozen, post-fee price for the proposal and every redeem request in it claims at that single realized price, while deposit requests claim at the live price once nothing is open. A redeem can be cancelled only before its proposal is stamped; a deposit any time before it is claimed. See [Deposits & Withdrawals](/protocol/vault-liquidity).
 
 ### ProtocolConfig
 
-Holds the protocol-level fee splits — how the management fee divides across agent, protocol and guardians (default 60/20/20) and how the performance fee divides across agent, protocol, guardians and the fund owner (default 50/15/25/10) — plus the `protocolFeeRecipient` and `guardiansFeeRecipient` addresses, shared by every per-vault governor. Each split must sum to exactly 10,000 bps. Values are read only at propose time and snapshotted into the proposal, never read live at settle, so changing a split never affects an in-flight proposal. It is a plain `Ownable2Step` contract behind the protocol multisig.
+Holds the protocol-level fee splits (management 60/20/20 across agent, protocol and guardians; performance 50/15/25/10 across agent, protocol, guardians and the fund owner), the `protocolFeeRecipient` and `guardiansFeeRecipient` addresses, and `maxStrategyDuration`, shared by every per-vault governor. Each split must sum to exactly 10,000 bps. Values are read at propose time and snapshotted into the proposal, never read live at settle. Owned by the protocol multisig.
 
 ### SyndicateFactory
 
-Deploys a fund in one transaction: an immutable ERC-1967 vault proxy, its dedicated governor (BeaconProxy off `GovernorBeacon`), and its `VaultWithdrawalQueue`, all wired together. It collects the creator's WOOD owner bond through sWOOD at creation and records the vault ↔ fund mapping other contracts use to gate calls. The factory is UUPS-upgradeable so its config (creation fee, beacon, registries) can change, but deployed vaults are immutable. Where an ENS registrar is configured it also registers a `<subdomain>.sherwoodagent.eth` subname; that registrar is not live on the current deployment.
+Deploys a fund in one transaction: the vault proxy, its `VaultWithdrawalQueue`, its governor (a `BeaconProxy` off `GovernorBeacon`, registered with `GuardianRegistry` and wired to the ledger and escrow), then binds the creator's prepared owner stake on `StakedWood`. It checks the creator's ERC-8004 identity (`NotAgentOwner`), pulls the creation fee unless sponsored, and records the vault ↔ fund mapping, subdomain and creator. The factory is UUPS-upgradeable so its config (creation fee, beacon, registries, launch flags, `managementFeeBps`) can change; `pushWiring` and `pushExecutor` propagate new wiring to existing governors and vaults. There is no ENS registrar: subdomains are a uniqueness check on the factory only.
 
 ### StrategyFactory
 
-Clones and initializes a strategy template in a single transaction. Strategies are ERC-1167 clones, and a separate clone-then-initialize sequence would expose a front-running window where an attacker races the init to bind the clone to their own vault — this factory bundles both steps so that cannot happen. Only a vault's owner or a registered agent may pre-deploy a strategy, and the vault must be registered on the factory so a rogue contract cannot spoof membership. Strategies are always pre-deployed before a proposal executes; the governor never deploys one during execution.
+Clones and initializes a strategy template in a single transaction (`cloneAndInit`, or `cloneAndInitDeterministic` with a CREATE2 salt), which closes the front-running window a separate clone-then-init sequence would open. Both are permissionless, but the clone binds to the vault and proposer the caller names and the proposer must be the sender (`ProposerMustBeSender`). Only owner-approved templates can be cloned (`TemplateNotApproved`); `registerStrategy` also admits a hand-written strategy that answers `vault()`, `proposer()` and `executed()`. `isRegisteredStrategy` is the vault's batch-target rule, and it re-checks the registered codehash so a code change de-registers. Strategies are always deployed before a proposal; the governor never deploys one during execution.
 
 ### BatchExecutorLib
 
-A stateless library the vault delegatecalls to run a batch of protocol calls atomically. Under delegatecall `address(this)` is the vault, so every call executes as the vault and all positions land on the vault. It has no state and no access control by design — the calling vault enforces its allowlist before delegatecalling, and if any call in the batch fails the whole batch reverts.
+A stateless library the vault delegatecalls to run a batch atomically. Under delegatecall `address(this)` is the vault, so every call executes as the vault and all positions land on the vault. It meters gross outflow per call against `callCaps` and has no state and no access control by design; the calling vault enforces the target and asset rules before delegatecalling, and if any call fails the whole batch reverts. The vault pins its codehash at `initialize`.
+
+### UniswapSwapAdapter
+
+The swap venue for the Portfolio strategy on Robinhood Chain: a Uniswap-compatible route executor the strategy clone calls with a per-token encoded route. Allowlisted as a counterparty on `TierRegistry`.
+
+## Guardian layer
+
+### GuardianRegistry
+
+The review layer between proposal approval and execution. It holds zero assets: it registers each proposal's review window at propose, records `Approve` / `Block` votes with a WOOD lock on every approve, and on a blocked review calls `StakedWood` to slash the approvers. Review open and resolve are permissionless. It also runs the block-only review for an owner's emergency settlement and holds a slash-appeal reserve the owner can refund from, capped at 20% of the reserve per epoch. Guardian rewards are paid off-chain via weekly Merkl airdrops; there is no onchain reward pool. See [Guardian Review](/protocol/governance/guardian-review).
+
+### StakedWood (sWOOD)
+
+The sole custodian of staked WOOD: guardian stake, vault-owner stakes, vote checkpoints and slashing all live here. sWOOD is non-transferable and there is no delegation. A guardian is active while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least the review period and waits for the guardian's coverage locks to expire. Slashed WOOD is burned, whether from a blocked review (`slashGuardians`), a challenge verdict (`slashVerdict`) or a blocked emergency settle (`slashOwnerBond`).
+
+<Note>
+The in-repo `WoodToken.sol` is a non-production test fixture. Mainnet WOOD is an external ERC-20 on Robinhood Chain, tradeable on Uniswap; its address is on [Deployments](/reference/deployments).
+</Note>
+
+### TierRegistry
+
+Prices `(target, selector)` pairs for coverage (tier 0/1 with a certified bound, tier 2 at full notional by default) through a two-step, delayed certification, and carries the three allowlists strategy templates consult: counterparties, Morpho markets and per-token price sources. It also points the vault's batch guard at `StrategyFactory`. See [Tier policy](/protocol/governance/tier-policy).
+
+### ExposureLedger
+
+The coverage book. Prices a proposal's `requiredCoverage` in USD through Chainlink asset feeds, records the WOOD each approving guardian locks behind it in 7-day epoch buckets, quotes the proposer bond at the haircut WOOD price, enforces the per-proposal covered-TVL cap and the 60-day horizon, and reports the raised coverage at execute so the governor can scale capital. See [Coverage](/protocol/governance/coverage).
+
+### ProposerBondEscrow
+
+Holds the WOOD bond each proposal locks at propose. `releaseBond` pays the recorded proposer when the governor's `reclaimProposerBond` runs; `forfeitBond`, callable only by the challenge game, pays the prosecutor fee to the challenger and burns the rest.
+
+### ChallengeGame and TokenCourt
+
+The post-execution accountability tail. Anyone can `file` a bonded challenge against an executed proposal within the 14-day window; silence for 7 days convicts, a filled counter-bond pool refers the case to `TokenCourt`, a single sWOOD-weighted vote that bars the accused, the challenger, the proposer and the counter-bond contributors. A conviction burns the approvers' locks, forfeits the proposer bond and demotes the adapter pair. Filings are paused through the private beta.
+
+### WoodPoolFeed
+
+The WOOD/USD oracle the ledger reads: the lower of the WOOD/WETH Uniswap V2 pair TWAP and V3 pool TWAP over a 24-hour window, converted through Chainlink ETH/USD, with depth floors on both legs. `update()` is permissionless. The ledger applies a governance cap and the 50% haircut on top.
 
 ## Strategies
 
-Strategies are the pluggable execute/settle logic a proposal points at. A strategy pulls vault capital, holds venue positions, and returns the asset on settle. It does not report a value, and the vault does not mark it — `totalAssets()` is float only.
+Strategies are the pluggable execute/settle logic a proposal points at. A strategy clone pulls vault capital, holds venue positions and returns the asset on settle. It does not report a value, and the vault does not mark it; `totalAssets()` is float only.
 
-### PortfolioStrategy
-
-Holds a weighted basket of tokenized stocks and rebalances toward target weights. Rebalance sizing reads a Chainlink push feed bound per basket slot, and swaps route through a pluggable swap adapter rather than a hardcoded venue, so the strategy is DEX-agnostic. On the active deployment swaps route through Synthra (a Uniswap-V3-compatible DEX) via the `UniswapSwapAdapter` / `SynthraSwapAdapter`. See [Portfolio Strategy](/protocol/strategies/uniswap).
+| Template | What it does | Status on 4663 |
+|----------|-------------|----------------|
+| [Portfolio](/protocol/strategies/uniswap) | Weighted basket of tokenized stocks priced off Chainlink push feeds, swapped through `UniswapSwapAdapter` | Deployed; class certification pending |
+| [Morpho Supply](/protocol/strategies/morpho-supply) | Supply the vault asset to one allowlisted Morpho Blue market | Deployed |
+| [Concentrated Liquidity](/protocol/strategies/concentrated-liquidity) | A Uniswap V3 range funded by a Morpho borrow | Deployed |
+| [Launchpad](/protocol/strategies/launchpad), [Lighter Perps](/protocol/strategies/lighter-perp) | Community templates from `sherwood-strategies` | Not deployed, unaudited |
 
 ## Trust boundaries
 
 A few surfaces rely on governance discipline rather than a runtime check. Integrators and auditors should hold these in context:
 
-1. **The governor is trusted on the fee path.** `vault.transferPerformanceFee` has no amount or recipient cap on the vault side — the governor is trusted to transfer only what settlement math dictates, to a pre-vetted recipient, in the vault's asset. The governor is upgradeable only through the multisig-controlled `GovernorBeacon`, not instantly.
+1. **The governor is trusted on the fee path.** `vault.transferPerformanceFee` has no recipient cap on the vault side beyond the asset check and the reserve; the governor is trusted to transfer only what settlement math dictates, in the vault's asset. The governor is upgradeable only through the multisig-controlled `GovernorBeacon`.
 2. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
+3. **Certification trusts codehashes, not proxies.** `tierOf` and the counterparty allowlist re-check `EXTCODEHASH`, which catches a bytecode swap at the same address but not a proxy implementation swap. Governance must not certify proxied adapters at tier 0/1.
+4. **The guardian cohort is operator-run at launch.** Review is a security service over proposals submitted by vault owners, not a check on the operator; the challenge game, paused through the beta, is the ex-post backstop.
 
 ## Building and testing
 
+The contracts live in the [`sherwood-protocol`](https://github.com/sherwoodagent/sherwood-protocol) repository.
+
 ```bash
-cd contracts
 forge build        # compile
 forge test         # run all tests
 forge test -vvv    # verbose with traces
 forge fmt          # format before committing
 ```
 
-Foundry suites cover the governor, vault, factory, guardian registry, collaborative proposals, and the two strategy templates, plus invariant and fork-integration suites. Deployment records are written per chain to `contracts/chains/{chainId}.json` (the active chain is `46630.json`), the source of truth for the addresses in [Deployments](/reference/deployments).
+Foundry suites cover the governor, vault, factory, guardian registry, exposure ledger, challenge game, collaborative proposals and the strategy templates, plus invariant and fork-integration suites. Deployment records are written per chain to `chains/{chainId}.json` (`4663.json` for Robinhood Chain), the source of truth for the addresses in [Deployments](/reference/deployments).
 
 ## Upgrade safety
 
 <Warning>
-The vault and factory are UUPS proxies; the per-vault governor is a `BeaconProxy` upgraded via the shared `GovernorBeacon`. All of them include `__gap` arrays for upgrade safety. When modifying an upgradeable contract, append new storage variables at the end — never reorder or remove existing slots, and reduce `__gap` by the number of slots added. Verify with `forge inspect <Contract> storage-layout`. Deployed vaults themselves are immutable; upgrades apply to the shared implementations behind the factory and the governor beacon.
+The vault, factory, `StakedWood` and `GuardianRegistry` are UUPS proxies; the per-vault governor is a `BeaconProxy` upgraded via the shared `GovernorBeacon`. All of them include `__gap` arrays for upgrade safety. When modifying an upgradeable contract, append new storage variables at the end, never reorder or remove existing slots, and reduce `__gap` by the number of slots added. Verify with `forge inspect <Contract> storage-layout`.
 </Warning>

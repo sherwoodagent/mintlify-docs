@@ -4,100 +4,115 @@ description: "requiredCoverage, the approve-as-underwriting hook, and why a shor
 icon: "scale-balanced"
 ---
 
-Guardians who **Approve** are underwriters. `ExposureLedger` is the coverage book: it prices what a proposal can extract, books bonded WOOD against that price when a guardian approves, and at execute tells the governor how much coverage actually stands behind the calldata.
+Guardians who **Approve** are underwriters. `ExposureLedger` is the coverage book: it prices what a proposal can extract, books the WOOD a guardian locks against that price when it approves, and at execute tells the governor how much coverage actually stands behind the calldata.
 
 A coverage **shortfall does not disqualify the proposal**. It **scales** how much capital may leave the vault. Guardian daemons that treat a shortfall as a hard fail are implementing a rule the contracts do not enforce.
 
-The [proposer bond](/protocol/governance/proposer-bond) is a separate WOOD pull at propose. It is quoted from this same `requiredCoverage`.
+The [proposer bond](/protocol/governance/proposer-bond) is a separate WOOD pull at propose, quoted from this same `requiredCoverage`.
+
+<Note>
+`ExposureLedger` is part of the launch's second deployment run. Until a governor has a ledger wired, it skips the covered-TVL cap, the horizon, the bond and the execute-time quorum, and runs every proposal at its declared `maxCapital`. Addresses: [Deployments](/reference/deployments).
+</Note>
 
 ## requiredCoverage
 
 `SyndicateGovernor._snapshotTierAndGate` writes `proposal.requiredCoverage` at propose. Read it later with `getRequiredCoverage(proposalId)`.
 
-Coverage is the **sum of per-call contributions across both execute and settlement calls**. `_resolveTierAndCoverage` documents the scan; `_scanCalls` is the arithmetic:
+Coverage is the **sum of per-call contributions across both execute and settlement calls**:
 
 ```solidity
-coverage += (cap_i * boundBps) / 10_000;
+coverage += (cap_i * boundBps_i) / 10_000;
 ```
 
-`boundBps` comes from `TierRegistry.tierOf(target, selector)`:
+`boundBps_i` comes from `TierRegistry.tierOf(target, selector)`:
 
-- **Tier 0 / 1** — the certified extractable bound for that selector.
-- **Tier 2 or uncertified** — `10_000` (full notional of the declared cap).
+- **Tier 0 / 1**: the certified extractable bound for that `(target, selector)` pair.
+- **Tier 2 or uncertified**: `10_000`, the full notional of the declared cap.
 
-Proposal tier is the **max** tier across **execute** calls only. Coverage is the **sum** of execute coverage **plus** settlement coverage. With no `TierRegistry` wired, `_resolveTierAndCoverage` returns `(2, maxCapital)` — full notional, fail-closed.
+The proposal's tier is the **max** tier across execute **and** settlement calls. An uncertified strategy therefore books roughly twice its deployed capital: the execute leg and the settle leg each price at full notional. The Portfolio class is uncertified at launch; its certification at 2,000 bps is pending. See [Tier policy](/protocol/governance/tier-policy).
 
-A tier-2 call carries a second, independent propose-time limit: its declared `cap_i` must fit inside `totalAssets() * tier2CallCapBps() / 10_000`, or `_scanCalls` reverts `Tier2CallCapExceedsCeiling(i)`. See [Tier policy](/protocol/governance/tier-policy).
+A tier-2 call carries a second, independent propose-time limit: its declared `cap_i` must fit inside `totalAssets() × tier2CallCapBps / 10_000`, or propose reverts `Tier2CallCapExceedsCeiling(i)`.
 
 <Note>
-Zero coverage is specified, not a hole. An all-zero-cap batch prices to zero regardless of tier. `requiredCoverage == 0` skips the approve-quorum gate — a proposal that can extract nothing has nothing to underwrite. The per-call meter is the protection: `cap_i == 0` makes `BatchExecutorLib` revert `CallCapExceeded` on any outflow.
+Zero coverage is specified, not a hole. An all-zero-cap batch prices to zero regardless of tier. `requiredCoverage == 0` skips the approve-quorum gate and needs no bond; a proposal that can extract nothing has nothing to underwrite. The per-call meter is the protection: `cap_i == 0` makes `BatchExecutorLib` revert `CallCapExceeded` on any outflow.
 </Note>
 
 ### Propose-time gates (these *do* block)
 
 These run in `_snapshotTierAndGate` against the **declared** coverage, before anyone underwrites:
 
-| Check | Function | Revert |
-|---|---|---|
-| Covered-TVL ceiling | `ExposureLedger.requireWithinCoveredTvlCap(asset, coverage_)` | `CoveredTvlCapExceeded` |
-| Booking horizon | `ExposureLedger.requireWithinCoverageHorizon(deadline, strategyDuration)` | `CoverageHorizonExceeded` |
-| Proposer bond | `ExposureLedger.proposerBondWood(asset, coverage_)` then `ProposerBondEscrow.lockBond` | fail-closed if WOOD is unpriceable (`NoWoodPrice`) |
+| Check | Function | Launch value | Revert |
+|---|---|---|---|
+| Covered-TVL ceiling per proposal | `ExposureLedger.requireWithinCoveredTvlCap(asset, coverage)` | `coveredTvlCapUsd` = $1,000,000 | `CoveredTvlCapExceeded` |
+| Booking horizon | `ExposureLedger.requireWithinCoverageHorizon(executeBy, strategyDuration)` | `MAX_COVERAGE_HORIZON` 60 d from now | `CoverageHorizonExceeded` |
+| Proposer bond | `ExposureLedger.proposerBondWood(asset, coverage)` → `ProposerBondEscrow.lockBond` | `proposerBondBps` 100 | `NoWoodPrice` if WOOD is unpriceable; the token's `transferFrom` revert if the wallet is short |
 
-`coveredTvlCapUsd == 0` is fail-closed: nothing is proposable until governance seeds the cap.
+`coveredTvlCapUsd == 0` is fail-closed: nothing with non-zero coverage is proposable until the owner seeds the cap.
 
-At execute, `_resolveTierAndCoverage` runs again. If live coverage exceeds the propose-time snapshot, `executeProposal` reverts `CoverageRegressed` (a same-tier re-certification with a higher `extractableBoundBps` would otherwise slip through). That is a **regression** guard, not the shortfall path.
+At execute, `_resolveTierAndCoverage` runs again. If the live tier is higher than the snapshot, `executeProposal` reverts `TierRegressed`; if live coverage is higher, `CoverageRegressed`. Those are **regression** guards (a demotion between propose and execute), not the shortfall path.
 
 ## Approve is underwriting
 
-The hook is `GuardianRegistry.voteOnProposal(governor, proposalId, support, lockWood)` → `ExposureLedger.recordApproval`.
+The hook is `GuardianRegistry.voteOnProposal(governor, proposalId, support, lockWood)` → `ExposureLedger.recordApproval(governor, proposalId, guardian, lockWood)`.
 
-On a first `Approve`, and on a `Block` → `Approve` change, the registry writes its own vote state **then** calls the ledger (CEI). An Approve that never reaches `recordApproval` is a signal with no collateral behind it.
+On a first `Approve`, and on a `Block` → `Approve` change, the registry writes its own vote state **then** calls the ledger. The ledger call is not wrapped: if it reverts, the vote reverts, so an approver slot is never seated without a lock behind it.
 
-**The guardian declares the size of its own bet.** `lockWood` is the fourth argument of the vote — the WOOD the approver puts behind *this* proposal. It is ignored on a Block; pass `0`. The ledger books:
+**The guardian declares the size of its own bet.** `lockWood` is the fourth argument of the vote, the WOOD the approver puts behind *this* proposal. It is ignored on a Block; pass `0`. The ledger books:
 
 ```solidity
-free = kNumerator * swood.guardianStake(guardian) - openExposure(guardian);  // floored at 0
+cap  = kNumerator * swood.guardianStake(guardian);   // kNumerator = 1
+free = cap - openExposure(guardian);                 // floored at 0
 lock = min(lockWood, free);
 ```
 
-**Over-declaring clamps; under-declaring is refused.** A lock larger than the free budget simply books less, and the shortfall surfaces at execute. A lock that is too small reverts `ApproveLockBelowFloor`: the USD value of the booked lock must reach `floorUsd = min(shareUsd, budgetUsd)`, where `shareUsd = ceil(needUsd / APPROVER_SLOTS)` (`APPROVER_SLOTS` is 100 — one approver's share if a hundred carried the book) and `budgetUsd` is the guardian's **whole** cap `kNumerator × guardianStake`, valued the same way. A zero booked lock or a zero budget reverts too. Every WOOD amount is valued at `min(amount, slashable stake now) × woodPriceX8 / 1e8`, so a starved or inflated WOOD/USD feed can refuse a slot but never enlarge one.
+With `kNumerator = 1`, a guardian's locks never sum to more than its stake, so one conviction cannot leave its other proposals under-covered.
 
-That floor is what stops a slot in the bounded approver array from being bought for a lock that carries nothing. Booking is all-or-nothing at the slot level: the ledger never lists an approver it holds nothing for.
+**Over-declaring clamps; under-declaring is refused.** A lock larger than the free budget books less, and the difference surfaces at execute as a shortfall. A lock that is too small reverts `ApproveLockBelowFloor`:
 
-Coverage inputs that cannot be read revert the Approve rather than seating it — `CoverageInputsUnreadable`, or `StalePrice` / `FeedNotConfigured` bubbling with their own reason. A Block carries no such dependency, so it keeps working when pricing does not.
+- `shareUsd = ceil(needUsd / 100)`, one approver's share if a hundred carried the book (`MAX_APPROVERS_PER_PROPOSAL` is 100; blockers are uncapped).
+- `budgetUsd` is the guardian's whole cap, `min(cap, stake) × woodPriceX8 / 1e8`.
+- `floorUsd = shareUsd` if `shareUsd < budgetUsd`, or if 50 or more approvers are already booked; otherwise `floorUsd = budgetUsd`. A guardian whose whole budget is below one share is admitted with its whole budget only while fewer than half the slots are taken.
+- Reverts if `lock == 0`, `budgetUsd == 0`, or the booked lock is worth less than `floorUsd`.
 
-`releaseApproval` is the matching unwind on `Approve` → `Block`. A live challenge freezes that path (`CoverageFrozen`).
+Every WOOD amount is valued at the haircut `woodPriceX8()`, so a starved or inflated feed can refuse a slot but never enlarge one.
 
-The execute-time quorum reads the ledger's **own** `_approversOf` list, never the registry, so the two pointers cannot disagree about who covered a proposal.
+An Approve also needs the ledger's inputs: it reverts `CoverageInputsUnreadable`, `StalePrice` / `FeedNotConfigured` (the vault-asset feed), `NoWoodPrice` (the WOOD feed) or `CoverageHorizonExceeded`. A Block reads no price, so it keeps working through a pricing outage.
+
+### Lock lifetime
+
+A lock sits in the epoch bucket that holds `executeBy + strategyDuration` and is held until `bucketEnd + challengeWindow`, whether or not the proposal executed. At the launch constants (`epochLength` 7 days, `challengeWindow` 14 days) a lock lives about 23–53 days for a 7- to 30-day strategy, and it keeps counting against the guardian's free budget and blocks `claimUnstakeGuardian` (`CoverageStillOpen`) until then.
+
+- `releaseApproval` is the unwind on `Approve` → `Block`, registry-only; `CoverageFrozen` while a challenge is live.
+- `retireApproval` is permissionless once the bucket has aged out; before that it reverts `ChallengeWindowOpen`, and `CoveragePinnedActive` while an inconclusive challenge round pins the lock.
+- `openExposure(guardian)` walks the buckets in WOOD, with no price, across a 60-day horizon.
+
+The execute-time quorum reads the ledger's **own** approver list, never the registry, so the two cannot disagree about who covered a proposal.
 
 ## Shortfall scales rather than blocks
 
 This is the execute-time rule. Guardian daemons that treat a coverage shortfall as disqualifying are **wrong**.
 
-`IExposureLedger.requireApproveQuorum` is a **coverage measurement with a zero floor**, not an all-or-nothing gate. Its interface states it returns `(coverageRaisedUsd, requiredCoverageUsd)` so the caller can size execution to a coverage-proportional effective capital. It **reverts only** when the approver set is empty or the raised aggregate is exactly zero (`InsufficientApproveCoverage`). A nonzero-but-partial aggregate is **reported to the caller**.
+`IExposureLedger.requireApproveQuorum` is a **coverage measurement with a zero floor**, not an all-or-nothing gate. It returns `(coverageRaisedUsd, requiredCoverageUsd)` so the caller can size execution to a coverage-proportional effective capital. It **reverts only** when the approver set is empty or the raised aggregate is exactly zero (`InsufficientApproveCoverage`). A nonzero-but-partial aggregate is **reported to the caller**.
 
 `SyndicateGovernor._deriveAndStoreEffectiveCapital` is that caller. It runs inside `executeProposal` after `executedAt` is stamped, in the same transaction. The gate runs when:
 
 ```solidity
-bool gated = ledger != address(0) && proposal.requiredCoverage != 0
-    && proposal.envelopeTier >= IExposureLedger(ledger).quorumTierThreshold();
+bool gated = ledger != address(0) && proposal.requiredCoverage != 0;
 ```
 
-Launch `quorumTierThreshold` is `0` (every tier). When the gate does not run — no ledger, zero `requiredCoverage`, or tier below the threshold — `effectiveMaxCapital` stays `maxCapital`.
-
-When it does run:
+There is no tier threshold: every tier is gated. When the gate does not run, `effectiveMaxCapital` stays `maxCapital`. When it does:
 
 ```solidity
 (coverageRaisedUsd, requiredCoverageUsd) = IExposureLedger(ledger)
     .requireApproveQuorum(address(this), proposalId, asset, proposal.requiredCoverage);
 
-bool scale = gated && coverageRaisedUsd < requiredCoverageUsd;
+bool scale = coverageRaisedUsd < requiredCoverageUsd;
 uint256 effectiveMaxCapital = scale
     ? (maxCapital * coverageRaisedUsd) / requiredCoverageUsd
     : maxCapital;
 ```
 
-That is floor integer division. Dust coverage can floor `effectiveMaxCapital` to zero — a zero net-outflow cap, fail-closed. The division never sees a zero denominator on the scaling branch: `requireApproveQuorum` already reverted on a raised aggregate of exactly zero.
+That is floor integer division. Dust coverage can floor `effectiveMaxCapital` to zero, a zero net-outflow cap, fail-closed. The division never sees a zero denominator on the scaling branch: `requireApproveQuorum` already reverted on a raised aggregate of exactly zero.
 
 The same ratio scales every per-call cap via `_scaleCaps` (`(caps[i] * raised) / required`). Scaled **settlement** caps are persisted so `settleProposal` reuses them verbatim and **never recomputes** coverage. A coverage drop between execute and settle cannot cap the unwind below the size legitimately deployed.
 
@@ -109,38 +124,36 @@ Silence still does not pass a gated proposal. Empty approvers or a raised aggreg
 
 ### What `requireApproveQuorum` measures
 
-`requiredCoverageUsd = coverageUsd(asset, requiredCoverage)`.
+`requiredCoverageUsd = coverageUsd(asset, requiredCoverage)`, the vault asset's Chainlink feed to USD (18 decimals), stale past 26 hours.
 
-Each remaining approver contributes through `_sharedSlashableUsd`: `min(what it reserved at vote time, what its shared slashable bond is worth now)`, anchored at `block.timestamp` so a same-block stake top-up cannot pass on collateral a later conviction cannot reach. The loop sums **reservations**, not allocations — allocations are already scaled to `needUsd` and would fail a fully-subscribed proposal by dust.
+Each approver contributes `min(lock, live slashable stake) × woodPriceX8() / 1e8`: the lock it declared, valued at the haircut price now, and no more than its stake is worth now. A guardian whose lock is worth less than when it declared it (an unstake request, a WOOD price fall) counts at the shrunken live value, so coverage must hold in dollars at execution. The loop sums locks; there is no pro-rating and no cross-proposal sharing.
 
-This is **not an indemnity**. `coverageRaisedUsd` is bonded conviction standing behind the proposal. Slash proceeds are **burned**, not paid to anyone harmed. `requiredCoverage` is the price of admission to a tier, expressed in the same dollars a loss would be because that is the natural scale — not because the two net out.
+This is **not an indemnity**. `coverageRaisedUsd` is bonded conviction standing behind the proposal. Slash proceeds are **burned**, not paid to anyone harmed. `requiredCoverage` is the price of admission to a tier, expressed in the same dollars a loss would be because that is the natural scale, not because the two net out.
 
-## Proposer bond
+## WOOD pricing
 
-The propose-path WOOD bond is quoted from this book:
+`woodPriceX8()` is `min(feed, woodUsdPriceX8 cap) × woodHaircutBps / 10_000`, floored at 1, and reverts `NoWoodPrice` when the cap is zero or the feed cannot answer.
 
-```solidity
-function proposerBondWood(address asset, uint256 requiredCoverage) external view returns (uint256) {
-    uint256 usd = (coverageUsd(asset, requiredCoverage) * proposerBondBps) / BPS_DENOMINATOR;
-    // ...
-    return (usd * 1e8) / px; // px = woodPriceX8()
-}
-```
+| Input | Launch value |
+|-------|--------------|
+| Feed | `WoodPoolFeed`: the **lower** of the WOOD/WETH Uniswap V2 pair TWAP and the V3 pool TWAP over a 24-hour window, converted through Chainlink ETH/USD; `update()` is permissionless |
+| `woodHaircutBps` | 5,000 (50%); bounds 5,000 – 10,000 |
+| Cap (`setWoodUsdPrice`) | 4× spot at deployment, owner-set thereafter |
+| Feed max delay | 26 h (24 h window + 2 h keeper slack) |
 
-Default `proposerBondBps` is **100 (1%)**. See [Proposer bond](/protocol/governance/proposer-bond). The bond scales with `requiredCoverage` at propose; it is not resized if guardian coverage later falls short.
+`NoWoodPrice` halts every Approve, every propose and execute with non-zero coverage, challenge filing and fee weights, while Block votes, settlement and the queue keep working.
 
 ## Views
 
 | Read | Where | What |
 |---|---|---|
 | `getRequiredCoverage(proposalId)` | `SyndicateGovernor` | Stored extractable envelope, asset units |
-| `requireApproveQuorum(governor, proposalId, asset, requiredCoverage)` | `ExposureLedger` | `(coverageRaisedUsd, requiredCoverageUsd)` — reverts only on a zero aggregate |
+| `requireApproveQuorum(governor, proposalId, asset, requiredCoverage)` | `ExposureLedger` | `(coverageRaisedUsd, requiredCoverageUsd)`; reverts only on a zero aggregate |
 | `coverageUsd(asset, amount)` | `ExposureLedger` | USD-18 value of `amount` of `asset` |
 | `proposerBondWood(asset, requiredCoverage)` | `ExposureLedger` | WOOD to lock at propose |
-| `slashableBondUsd(guardian)` | `ExposureLedger` | Guardian's bonded capacity |
-| `openExposure(guardian)` | `ExposureLedger` | WOOD already spoken for by this guardian's other open locks |
+| `woodPriceX8()` | `ExposureLedger` | Haircut WOOD/USD price, 8 decimals |
+| `openExposure(guardian)` | `ExposureLedger` | WOOD already spoken for by this guardian's other live locks |
 | `lockOf(governor, proposalId, guardian)` | `ExposureLedger` | WOOD this guardian booked on this proposal |
 | `coverageUsdOf(governor, proposalId, guardian)` | `ExposureLedger` | What that lock is worth right now, in USD |
-| `pledgedOf` / `approversOf` | `ExposureLedger` | The ledger's own approver list and per-approver lock |
 
 See [Guardian Review](/protocol/governance/guardian-review) for the Approve / Block vote itself, and [Execution & Settlement](/protocol/governance/settlement) for the post-approval path that consumes `effectiveMaxCapital`.

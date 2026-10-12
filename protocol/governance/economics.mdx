@@ -4,9 +4,9 @@ description: "The two-fee model and the single-strategy model"
 icon: "coins"
 ---
 
-## Liquidity during a live strategy
+## Liquidity while a proposal is open
 
-When a strategy is live (`redemptionsLocked() == true`), instant `deposit` / `redeem` are closed. Depositors use the withdrawal queue: `requestRedeem` (or `requestDeposit`) escrows in the `VaultWithdrawalQueue`, settlement stamps one frozen post-fee price, and anyone `claim`s after unlock. The vault does not mark in-flight positions — `totalAssets()` is float minus queue reserve minus escrowed fees.
+While any proposal is open (`redemptionsLocked() == true`, from `propose` to a terminal state), instant `deposit` / `redeem` are closed. Depositors use the withdrawal queue: `requestRedeem` (or `requestDeposit`) escrows in the `VaultWithdrawalQueue`, settlement stamps one frozen post-fee price for redeems, and anyone `claim`s after unlock. The vault does not mark in-flight positions — `totalAssets()` is float minus queue reserve minus escrowed fees.
 
 See [Deposits & Withdrawals](/protocol/vault-liquidity) for the full flow and claim mechanics.
 
@@ -16,13 +16,13 @@ A fund charges depositors exactly **two fees**: a management fee and a performan
 
 | Fee | Base | Rate | Charged |
 |-----|------|------|---------|
-| **Management** | Fund assets × time deployed (asset-seconds) | Annualized, stamped on the vault at creation — for example 2%/yr | Every settlement — profit, flat, or loss |
-| **Performance** | Value above the fund's previous peak price per share | Set by the fund owner within the protocol ceiling — for example 20% | Profitable settlements only |
+| **Management** | Whole-fund `totalAssets()` stamped at execute × time the proposal is `Executed` (asset-seconds) | **2%/yr** at launch, stamped on the vault at creation; factory cap 3%/yr | Every settlement — profit, flat, or loss |
+| **Performance** | Value above the fund's previous peak price per share, and never more than the profit | **20%** default, set by the fund owner; per-vault cap 20%, protocol ceiling 25% | Profitable settlements only |
 
-Rates are snapshotted at propose time, so a governance change mid-strategy never affects an in-flight proposal.
+Rates and splits are snapshotted at propose time, so a governance change mid-strategy never affects an in-flight proposal.
 
 <Note>
-  **Rates in this guide are examples.** The launch values are still being finalized, so this page fixes the *mechanism* and the *splits* and quotes rates only as illustrations (a 2-and-20 shape). The live numbers for any fund are onchain: `vault.managementFeeBps()`, `vault.agentFeeBps()`, and the governor's `maxPerformanceFeeBps()`. The protocol-wide ceilings are the constants `SyndicateFactory.MAX_MANAGEMENT_FEE_BPS` and `FeeConstants.MAX_PERFORMANCE_FEE_BPS`.
+  The live numbers for any fund are onchain: `vault.managementFeeBps()`, `vault.agentFeeBps()`, and the governor's `maxPerformanceFeeBps()`. The protocol-wide ceilings are the constants `SyndicateFactory.MAX_MANAGEMENT_FEE_BPS` (300) and `FeeConstants.MAX_PERFORMANCE_FEE_BPS` (2,500).
 </Note>
 
 <Warning>
@@ -35,22 +35,22 @@ Rates are snapshotted at propose time, so a governance change mid-strategy never
 
 An annualized rate on assets under management, accrued over the time a strategy is actually deployed.
 
-- **Base.** The vault integrates *asset-seconds* — a running sum of fund assets × elapsed time. The clock starts at `executeProposal` and stops at settlement, so **idle capital between proposals accrues nothing**.
+- **Base.** The vault integrates *asset-seconds*: `totalAssets()` is stamped once at `executeProposal`, before the execute batch runs, and the clock runs until settlement, so **idle capital between proposals accrues nothing**. The base is the **whole fund**, not the deployed capital: a proposal that deploys a small fraction of the fund accrues the same fee as one that deploys all of it for the same time.
 - **Formula.** `fee = assetSeconds × rateBps / (10_000 × 365 days)`.
-- **Rate.** `vault.managementFeeBps()`, stamped once at vault creation from the factory's `managementFeeBps`. The protocol-wide cap is `SyndicateFactory.MAX_MANAGEMENT_FEE_BPS`, enforced at both vault `initialize` and the factory setter. Deploy scripts seed the launch rate (for example 200 bps, 2%/yr).
-- **Sticky per fund.** There is no per-vault setter. The vault exposes only a getter, and changing the factory value reaches **new** funds only — a fund created under one rate keeps it for its whole life.
-- **Conservative base.** The accrual base re-reads `totalAssets()` behind a `try`/`catch`; if pricing reverts it falls back to idle float, so the fee can only under-count, never inflate.
+- **Rate.** `vault.managementFeeBps()`, stamped once at vault creation from the factory's `managementFeeBps` (200 bps, 2%/yr at launch). The cap is `SyndicateFactory.MAX_MANAGEMENT_FEE_BPS = 300` (3%/yr), enforced at factory `initialize` and `setManagementFeeBps` (`ManagementFeeTooHigh`).
+- **Sticky per fund.** There is no per-vault setter. The vault exposes only a getter, and changing the factory value reaches **new** funds only; a fund created under one rate keeps it for its whole life.
+- **Base fallback.** The stamp reads `totalAssets()` behind a `try`/`catch`; if pricing reverts, the base is the vault's raw asset balance.
 
 ## Performance fee
 
 A share of new value created above the fund's previous peak — a high-water mark, so depositors are not charged twice for the same gains.
 
-- **High-water mark.** The fee applies only to value above the highest price per share the fund has ever been charged at. The mark ratchets monotonically at settlement and is seeded at the fund's first deposit. A loss leaves the mark in place, so **recovering back to the old peak is free**.
-- **Rate.** `vault.agentFeeBps()`, set by the fund owner with `vault.setAgentFeeBps(bps)` or the CLI [`sherwood vault set-agent-fee`](/cli/governance-commands#sherwood-vault-set-agent-fee). A new vault starts at the protocol default, `FeeConstants.DEFAULT_AGENT_FEE_BPS` (for example 2000 bps, 20%). An explicit 0% is legal and is stored distinguishably from unset.
+- **High-water mark.** The fee applies only to value above the highest price per share the fund has ever been charged at, and never to more than the proposal's realized profit: the base is `min(aboveHighWaterMark, max(pnl, 0))`. The mark ratchets monotonically at settlement and is seeded at the fund's first mint (instant or queued deposit). A loss leaves the mark in place, so **recovering back to the old peak is free**.
+- **Rate.** `vault.agentFeeBps()`, set by the fund owner with `vault.setAgentFeeBps(bps)` or the CLI [`sherwood vault set-agent-fee`](/cli/governance-commands#sherwood-vault-set-agent-fee). A new vault starts at the protocol default, `FeeConstants.DEFAULT_AGENT_FEE_BPS = 2000` (20%). An explicit 0% is legal and is stored distinguishably from unset.
 - **Three stacked limits.**
-  1. `FeeConstants.MAX_PERFORMANCE_FEE_BPS` — the absolute protocol ceiling, checked at `setAgentFeeBps`.
-  2. The per-vault governor cap `maxPerformanceFeeBps` — starts at `FeeConstants.DEFAULT_MAX_PERFORMANCE_FEE_BPS`, settable by the fund owner between proposals, up to the protocol ceiling.
-  3. The vault's own `agentFeeBps` — starts equal to the per-vault cap by design, so a default fund charges its full allowance until the owner lowers one of the two. Charging above the default cap therefore takes two changes, not one.
+  1. `FeeConstants.MAX_PERFORMANCE_FEE_BPS = 2500` (25%), the absolute protocol ceiling, checked at `setAgentFeeBps` (`AgentFeeTooHigh`).
+  2. The per-vault governor cap `maxPerformanceFeeBps`, `FeeConstants.DEFAULT_MAX_PERFORMANCE_FEE_BPS = 2000` (20%) on a new vault, settable by the fund owner between proposals up to the protocol ceiling.
+  3. The vault's own `agentFeeBps`, which starts equal to the per-vault cap by design, so a default fund charges its full allowance until the owner lowers one of the two. Charging above 20% therefore takes two changes, not one.
 - **Double clamp.** The rate is clamped against the governor cap at **propose** time and snapshotted onto the proposal, then re-clamped at **settle** against the live cap so a later cap reduction still bites. Clamping emits `FeeClamped` and continues — it never reverts.
 - **No per-proposal fee.** `propose()` takes no fee argument. To share the agent's cut with collaborators, use [co-proposers](/protocol/governance/collaborative-proposals).
 
@@ -96,9 +96,9 @@ The guardian slice of both fees is paid onchain, in the fund's asset, to `guardi
 
 ## Failed transfers escrow
 
-Every fee transfer is wrapped so settlement never bricks. If a transfer reverts — a recipient a token has blacklisted, a paused token, a contract recipient with a failing receive — the governor credits the owed amount to an onchain escrow keyed by `(vault, recipient, token)`, emits a `FeeTransferFailed` event, and continues. Anyone can later push it out with the permissionless `claimUnclaimedFees(vault, token)`. Depositor capital is never held hostage by a bad fee recipient, and no fee is lost.
+Every fee transfer is wrapped so settlement never bricks. If a transfer reverts — a recipient a token has blacklisted, a paused token, a contract recipient with a failing receive — the governor credits the owed amount to an onchain escrow keyed by `(vault, recipient, token)`, emits `FeeTransferFailed`, and continues. The escrowed amount is capped at what the vault can spare (`FeeEscrowCapped`). The **recipient** later pulls it with `claimUnclaimedFees(vault, token)`: the escrow is keyed to `msg.sender`, nobody else can push it, and the pull reverts `VaultProposalActive` while that vault has an active proposal. Depositor capital is never held hostage by a bad fee recipient, and no fee is lost.
 
-The vault also refuses to pay fees out of float reserved for stamped queue redemptions, so a fee can never eat into an already-priced exit.
+The vault also refuses to pay fees out of float reserved for stamped queue redemptions or already escrowed to other recipients (`transferPerformanceFee` subtracts both), so a fee can never eat into an already-priced exit. `totalAssets()` subtracts the outstanding escrow too.
 
 ## Other charges
 
@@ -106,27 +106,28 @@ These are not depositor fees, but they are the only other amounts the protocol m
 
 | Item | What it is | Bounds |
 |------|-----------|--------|
-| Fund creation fee | Optional absolute ERC-20 amount pulled at `createSyndicate`; default **0** (free) | Owner-set, unbounded |
+| Fund creation fee | Absolute ERC-20 amount pulled at `createSyndicate` to `creationFeeRecipient`; **1,000,000 WOOD at launch**, waived once for a creator the factory owner has marked `creationSponsored` (private-beta cohort). The contract default is 0 | `setCreationFee(token, amount, recipient)`, owner-set, unbounded |
+| Owner stake and proposer bond | WOOD the creator locks and gets back; not fees | See [Proposer bond](/protocol/governance/proposer-bond) |
 | Idle-liquidity floor `minBufferBps` | A batch-execution guard, not a charge | 0 (off) to 5,000 bps (50%) |
 | Challenge bonds and slashing | Guardian-accountability economics, not fees | See [Guardian Review](/protocol/governance/guardian-review) |
 | WOOD staking | No staking fee and no reward emissions. Slashed WOOD is **burned** to `0x…dEaD`, never routed to the treasury | — |
 
 ## Consolidated bounds
 
-| Parameter | Units | Default | Min | Max |
-|-----------|-------|---------|-----|-----|
-| `managementFeeBps` | bps/yr | Deploy-seeded (e.g. 200) | 0 | `SyndicateFactory.MAX_MANAGEMENT_FEE_BPS` |
-| `agentFeeBps` | bps | `FeeConstants.DEFAULT_AGENT_FEE_BPS` (e.g. 2,000) | 0 | `FeeConstants.MAX_PERFORMANCE_FEE_BPS` |
-| `maxPerformanceFeeBps` (per-vault cap) | bps | `FeeConstants.DEFAULT_MAX_PERFORMANCE_FEE_BPS` (e.g. 2,000) | 0 | `FeeConstants.MAX_PERFORMANCE_FEE_BPS` |
+| Parameter | Units | Launch value | Min | Max |
+|-----------|-------|--------------|-----|-----|
+| `managementFeeBps` | bps/yr | 200 | 0 | 300 (`SyndicateFactory.MAX_MANAGEMENT_FEE_BPS`) |
+| `agentFeeBps` | bps | 2,000 (`FeeConstants.DEFAULT_AGENT_FEE_BPS`) | 0 | 2,500 (`FeeConstants.MAX_PERFORMANCE_FEE_BPS`) |
+| `maxPerformanceFeeBps` (per-vault cap) | bps | 2,000 (`FeeConstants.DEFAULT_MAX_PERFORMANCE_FEE_BPS`) | 0 | 2,500 |
 | Management split legs | bps | 6000 / 2000 / 2000 | 0 per leg | Sum == 10,000 |
 | Performance split legs | bps | 5000 / 1500 / 2500 / 1000 | 0 per leg | Sum == 10,000 |
 | Co-proposer `splitBps` | bps | Per proposal | 100 | 9,000 total |
-| `creationFee` | Absolute | 0 | — | Unbounded |
+| `creationFee` | WOOD | 1,000,000 | — | Unbounded |
 | `minBufferBps` | bps | 0 | 0 | 5,000 |
 
-## Single strategy per vault
+## One proposal per vault
 
-Only **one strategy is live per vault at a time.** This keeps capital accounting simple, eliminates cross-strategy risk, and makes the redemption-lock and cooldown model clean. The governor tracks a single active proposal; `executeProposal` reverts if a strategy is already live or if the vault is still in cooldown. Multiple proposals can queue in Pending/Approved, but only one runs.
+Only **one proposal is open per vault at a time** (`VaultHasOpenProposal`), and so only one strategy is ever live. This keeps capital accounting simple, eliminates cross-strategy risk, and makes the liquidity-lock and cooldown model clean. The governor tracks a single active proposal; `executeProposal` reverts `StrategyAlreadyActive` if a strategy is already live, and the next `propose` reverts `CooldownNotElapsed` until the cooldown stamped by the previous terminal transition has run.
 
 ## When a strategy loses money
 

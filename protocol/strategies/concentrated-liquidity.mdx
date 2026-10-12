@@ -4,10 +4,10 @@ description: "A Uniswap V3 range position funded by a Morpho borrow against vaul
 icon: "chart-area"
 ---
 
-The `ConcentratedLiquidityStrategy` deploys vault capital as one Uniswap V3 liquidity position over a bounded tick range. The position is funded by **borrowing** the vault asset from Morpho Blue against collateral, not by selling into the volatile leg. It is deployed on the [Robinhood mainnet fork](/reference/deployments#fork-addresses-9994663).
+The `ConcentratedLiquidityStrategy` deploys vault capital as one Uniswap V3 liquidity position over a bounded tick range. The position is funded by **borrowing** the vault asset from Morpho Blue against collateral, not by selling into the volatile leg. It is deployed on Robinhood Chain (4663); see [Deployments](/reference/deployments).
 
 <Note>
-  **Every counterparty must be allowlisted.** Init checks every counterparty against the vault's `TierRegistry`, including the Morpho collateral token and the pool's other token. On the fork, spUSDG (`0xde770c84FE66E063336b31737cFE9790f18c4087`) and WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`) are allowlisted, so the USDG/WETH pool with the spUSDG market works. A different pool or market may need the TierRegistry owner to call `setCounterpartyAllowed` first; the CLI preflight names each missing address and refuses with `CounterpartyNotAllowed`.
+  **Every counterparty and the market must be allowlisted.** Init checks every counterparty against the vault's `TierRegistry` (`CounterpartyNotAllowed`): the swap adapter, the position manager, the Uniswap factory, Morpho, the collateral token and the pool's other token. The Morpho market id must also be allowed (`MorphoMarketNotAllowed`). A pool or market outside the launch allowlist needs the registry owner to call `setCounterpartyAllowed` / `setMorphoMarketAllowed` first; the CLI preflight names each missing address or id and refuses.
 </Note>
 
 ## What happens
@@ -34,24 +34,26 @@ The agent picks the band, the size, the target LTV and the swap split off-chain.
 | Check | Error |
 | --- | --- |
 | The vault's registry resolves and allows the swap adapter, position manager, Morpho, the collateral token, the Uniswap factory and the pool's other token | `TierRegistryUnresolved`, `CounterpartyNotAllowed` |
+| The Morpho market id is allowlisted on the registry | `MorphoMarketNotAllowed` |
 | The factory names the pool as canonical for its own token pair and fee | `PoolNotFromFactory` |
 | The pool quotes the vault asset | `PoolAssetMismatch` |
 | The market lends the vault asset, against the vault asset or an ERC-4626 wrapper of it | `LoanAssetMismatch`, `CollateralAssetMismatch` |
 | The market exists and can fund the borrow | `MarketNotCreated`, `BorrowExceedsLiquidity` |
-| LTV sits at least 5 percentage points below the market's LLTV | `LtvInsideLiquidationBuffer` |
-| The minted liquidity is at most 10% of the pool's active liquidity | `PositionExceedsPoolShareCap` |
+| LTV sits at least 5 percentage points below the market's LLTV (`MIN_LLTV_BUFFER_BPS` 500) | `LtvInsideLiquidationBuffer` |
+| The minted liquidity is at most 10% of the pool's active liquidity (`MAX_POOL_SHARE_BPS` 1,000) | `PositionExceedsPoolShareCap` |
 | The ticks are ordered and aligned to the pool's tick spacing | `InvalidTickRange` |
-| Spot is within the configured bound of the TWAP at every mint, rerange and settle | `SpotOutsideTwapBound` |
+| Spot is within the configured bound of the TWAP (at most 10%, `MAX_TWAP_DEVIATION_BPS`; window at least 300 s) at every mint, rerange and settle | `SpotOutsideTwapBound` |
+| `settleSlippageBps` is within 50 – 1,000 bps | `InvalidBound` |
 
 A bad but in-bounds proposal is still possible. Voter and guardian review exists for that.
 
 ## Reranging
 
-The rerange policy is fixed at init. Voters approve the policy, not each resulting range. A rerange is permissionless once price has travelled the trigger fraction through the half-range, the minimum interval has passed and the count is below the cap. Each rerange costs a swap and realized divergence loss, so the cap (at most 20) is the binding control. At the cap the position stays in its last range and remains settleable.
+The rerange policy is fixed at init. Voters approve the policy, not each resulting range. `rerange()` is **permissionless** once the proposal is `Executed`, price has travelled the trigger fraction through the half-range, the minimum interval has passed, the count is below the cap and the counterparties are still allowed. Each rerange costs a swap and realized divergence loss, so the cap (at most 20, `MAX_RERANGE_LIMIT`) is the binding control. At the cap the position stays in its last range and remains settleable.
 
 ## Tunable after execute
 
-Two values: the settle slippage, which can only be tightened (loosening reverts `ImmutableParam`), and the settle deadline. The range policy, the swap route and the sizes are fixed.
+One value: the **settle deadline**. `settleSlippageBps` is set at init within 50 – 1,000 bps and is immutable afterwards; passing a different value to `updateParams` reverts `ImmutableParam`. The range policy, the swap route and the sizes are fixed.
 
 ## Propose
 
@@ -59,7 +61,7 @@ Two values: the settle slippage, which can only be tightened (loosening reverts 
 sherwood strategy propose concentrated-liquidity \
   --vault 0x... \
   --pair-token WETH --pool-fee 100 \
-  --market-id 0x0309c02dabf0be02682af1a2bde9a457f4df0f0b6bc889cde3f948e5315e4114 \
+  --market-id <bytes32 market id> \
   --collateral-amount 1000 \
   --borrow-amount 800 \
   --range-pct 5 \
@@ -67,7 +69,9 @@ sherwood strategy propose concentrated-liquidity \
   --duration 7d
 ```
 
-The CLI runs every `_initialize` check before sending anything, including `CounterpartyNotAllowed` and `CollateralAssetMismatch`. It computes the expected liquidity from V3 liquidity math at spot and the swap split the range needs. Required: `--market-id`, `--collateral-amount`, `--borrow-amount`, a pool (`--pool`, or `--pair-token` with `--pool-fee`) and a range (`--range-pct`, or `--tick-lower` with `--tick-upper`). The full flag list is in [Strategy commands](/cli/strategy-commands#concentrated-liquidity).
+The CLI runs every `_initialize` check before sending anything, including `CounterpartyNotAllowed`, `MorphoMarketNotAllowed` and `CollateralAssetMismatch`. It computes the expected liquidity from V3 liquidity math at spot and the swap split the range needs. Required: `--market-id`, `--collateral-amount`, `--borrow-amount`, a pool (`--pool`, or `--pair-token` with `--pool-fee`) and a range (`--range-pct`, or `--tick-lower` with `--tick-upper`). The full flag list is in [Strategy commands](/cli/strategy-commands#concentrated-liquidity).
+
+The template is uncertified at launch, so the proposal prices at full notional on both legs for [coverage](/protocol/governance/coverage) and the [proposer bond](/protocol/governance/proposer-bond).
 
 ## Risk notes
 
@@ -77,10 +81,4 @@ The CLI runs every `_initialize` check before sending anything, including `Count
 
 ## Addresses
 
-| Contract | Robinhood fork (9994663) |
-| --- | --- |
-| ConcentratedLiquidityStrategy template | `0xcba9C84F2d382729D1519c5F7f4a9AAaC075f8B5` |
-| Morpho Blue | `0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010` |
-| Uniswap V3 factory | `0x1f7d7550B1b028f7571E69A784071F0205FD2EfA` |
-| Uniswap V3 position manager | `0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3` |
-| UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |
+The `ConcentratedLiquidityStrategy` template (`CONCENTRATED_LIQUIDITY_TEMPLATE`), Morpho Blue, the Uniswap V3 factory and position manager, and the `UniswapSwapAdapter` on Robinhood Chain are listed on [Deployments](/reference/deployments). Allowlisted counterparties and market ids are read from `TierRegistry`.
