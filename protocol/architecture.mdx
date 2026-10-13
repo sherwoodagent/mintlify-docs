@@ -29,7 +29,7 @@ graph TD
     G -->|lockBond / releaseBond| PBE["ProposerBondEscrow"]
     G -->|tierOf| TR["TierRegistry"]
     TR -->|isRegisteredStrategy| SF["StrategyFactory"]
-    EL -->|woodPriceX8| WPF["WoodPoolFeed"]
+    EL -->|woodPriceX8| WPF["WoodV3TwapFeed"]
     CG["ChallengeGame"] -->|freeze coverage| EL
     CG -->|slashVerdict| SW
     CG -->|forfeitBond| PBE
@@ -143,9 +143,9 @@ Holds the WOOD bond each proposal locks at propose. `releaseBond` pays the recor
 
 The post-execution accountability tail. Anyone can `file` a bonded challenge against an executed proposal within the 14-day window; silence for 7 days convicts, a filled counter-bond pool refers the case to `TokenCourt`, a single sWOOD-weighted vote that bars the accused, the challenger, the proposer and the counter-bond contributors. A conviction burns the approvers' locks, forfeits the proposer bond and demotes the adapter pair. Filings are paused through the private beta.
 
-### WoodPoolFeed
+### WoodV3TwapFeed
 
-The WOOD/USD oracle the ledger reads: the lower of the WOOD/WETH Uniswap V2 pair TWAP and V3 pool TWAP over a 24-hour window, converted through Chainlink ETH/USD, with depth floors on both legs. `update()` is permissionless. The ledger applies a governance cap and the 50% haircut on top.
+The WOOD/USD oracle the ledger reads since 2026-10-13: the WOOD/WETH Uniswap V3 pool's 1-hour TWAP (`pool.observe`), converted through Chainlink ETH/USD, with an in-range liquidity floor and an ETH/USD staleness bound. It is keeperless and stateless; when the pool's observation ring cannot serve the window the read fails closed (`NoWoodPrice`), never with a wrong price. It replaced the run-1 `WoodPoolFeed` (the lower of two 24-hour pool TWAPs, rolled by a permissionless `update()`), which is retired.
 
 ## Strategies
 
