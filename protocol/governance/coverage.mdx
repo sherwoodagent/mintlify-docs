@@ -136,10 +136,10 @@ This is **not an indemnity**. `coverageRaisedUsd` is bonded conviction standing 
 
 | Input | Launch value |
 |-------|--------------|
-| Feed | `WoodPoolFeed`: the **lower** of the WOOD/WETH Uniswap V2 pair TWAP and the V3 pool TWAP over a 24-hour window, converted through Chainlink ETH/USD; `update()` is permissionless |
+| Feed | `WoodV3TwapFeed` (since 2026-10-13): the WOOD/WETH Uniswap V3 pool's 1-hour TWAP, converted through Chainlink ETH/USD; keeperless, read live from the pool's observation ring. It replaced the run-1 `WoodPoolFeed` (24-hour two-pool snapshots, permissionless `update()`) |
 | `woodHaircutBps` | 5,000 (50%); bounds 5,000 – 10,000 |
-| Cap (`setWoodUsdPrice`) | 4× spot at deployment, owner-set thereafter |
-| Feed max delay | 26 h (24 h window + 2 h keeper slack) |
+| Cap (`setWoodUsdPrice`) | 2× the feed's TWAP when the feed was swapped (2026-10-13), owner-set thereafter |
+| Feed max delay | 1 h (the feed stamps every read with the current block time) |
 
 `NoWoodPrice` halts every Approve, every propose and execute with non-zero coverage, challenge filing and fee weights, while Block votes, settlement and the queue keep working.
 
