@@ -208,6 +208,7 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `guardian prepare-owner-stake` | none; prints the WOOD approval and `prepareOwnerStake` |
 | `governor set-*` / `vault set-min-buffer` | same as signed mode |
 | `sources login`, `chat --join-cohort`, `research` | `--address` (two-step, above; a signature, not a transaction) |
+| `attest thesis` / `link` / `execution` / `kill` / `outcome` / `version` | none: no two-step, broadcast the printed `attest` tx |
 
 ```bash
 sherwood --calldata-only vault join --subdomain zerohumanfund
@@ -232,3 +233,9 @@ One step is still yours: signed `vault create` registers the creator as an agent
 stdout carries only the JSON under `--calldata-only`; progress lines go to stderr, so you can pipe the output straight into a signer.
 
 The keyless strategy-propose recipe (clone + propose in one JSON payload) is in [Strategy commands](/cli/strategy-commands#keyless-sign-only-wallet); the full flow, in order, is in the [Quickstart](/learn/quickstart).
+
+### Attestations
+
+The `sherwood attest` verbs (the opt-in [public track record](/reference/integrations/eas#decision-traces-a-public-track-record)) need no signature step. Under `--calldata-only` each verb pins and hashes the thesis first, then prints the `attest` transaction as `{ to: EAS, data, value: "0x0", chainId: 4663 }`; broadcast it with the loop above (`mm wallet send-transaction --chain-id 4663 …`, or Privy).
+
+`strategy propose … --attest-thesis <file>` prints the thesis `attest` tx before the propose txs. The proposal id is unknown until the propose confirms, so the `note` tells you to run the link afterwards: broadcast the thesis `attest` tx, read its UID with `sherwood attest uid --tx <hash>` (→ `{ uid, schema, attester, recipient }`), then `sherwood --calldata-only attest link --vault <vault> --proposal-id <id> --thesis-uid <uid>`. `attest version` needs `--agent <wallet>` under `--calldata-only`. An attestation failure never blocks the proposal.
