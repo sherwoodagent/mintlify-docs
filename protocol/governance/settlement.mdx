@@ -6,115 +6,129 @@ icon: "handshake"
 
 ## Mandate execution
 
-Once a proposal is Approved and the fund is out of cooldown, the pre-committed calls run directly on the vault:
+Once a proposal is `Approved`, the pre-committed calls run directly on the vault:
 
-1. Anyone calls `executeProposal(proposalId)` on the governor — no arguments beyond the id.
-2. The governor verifies the proposal is Approved (guardian review cleared), inside its execution window, that no other strategy is live, and that cooldown has elapsed.
-3. The governor records the active proposal — this is what `vault.redemptionsLocked()` reads — and snapshots the vault's asset balance as the capital baseline.
-4. The governor calls `vault.executeGovernorBatch(executeCalls)`, the vault's governor-only entrypoint. All positions now live on the vault address.
+1. Anyone calls `executeProposal(proposalId)` on the governor; no arguments beyond the id.
+2. The governor checks, in order: the state is `Approved` (`ProposalNotApproved`); no other strategy is live (`StrategyAlreadyActive`); the owner stake is live (`OwnerBondNotLive`); the tier and coverage have not regressed since propose (`TierRegressed`, `CoverageRegressed`); `maxCapital` still fits `totalAssets() × maxCapitalBps / 10_000` (`MaxCapitalCeilingRegressed`). There is **no cooldown check at execute**; the cooldown is enforced at propose.
+3. It stamps `executedAt`, records the active proposal, starts the management-fee clock on the whole fund's `totalAssets()`, and asks the exposure ledger for the coverage guardians actually booked. A partial book scales `maxCapital` and every per-call cap by the same ratio (`EffectiveMaxCapitalSet`); an empty book reverts `InsufficientApproveCoverage`. See [Coverage](/protocol/governance/coverage#shortfall-scales-rather-than-blocks).
+4. The governor calls `vault.executeGovernorBatch(executeCalls, effectiveCallCaps, effectiveMaxCapital)`, the vault's governor-only entrypoint. All positions now live on the vault address.
 
 **Nothing new enters at execution.** The calls were locked at proposal time and voted on. Execution is a replay.
 
 <Note>
-**The redemption lock is a pull-check, not a stored flag.** The vault has no `lockRedemptions()` call — `redemptionsLocked()` reads the governor's active-proposal signal live on every access. Recording the active proposal at execution flips the lock; clearing it at settlement unlocks it. This removes a whole class of state-desync bugs where the vault could disagree with the governor about whether a strategy is live.
+**The liquidity lock is a pull-check, not a stored flag.** `redemptionsLocked()` and `depositsLocked()` both read `governor.openProposalCount() != 0` live on every access. The lock is on from `propose` (a `Draft` counts) until the proposal reaches a terminal state, not only while a strategy is executing. Nothing on the vault sets or clears it, so the vault and governor can never disagree about whether a proposal is open.
 </Note>
 
-While a strategy is live, `withdraw` / `redeem` / `deposit` and the rescue functions all revert against instant execution. Depositors who want to move during a proposal use the [async queue](/protocol/vault-liquidity): `requestRedeem` / `requestDeposit` escrow, settlement stamps one realized price, and anyone `claim`s after unlock.
+While a proposal is open, instant `deposit` / `mint` / `withdraw` / `redeem` and the owner rescue functions are closed. Depositors use the [async queue](/protocol/vault-liquidity): `requestRedeem` / `requestDeposit` escrow in the withdrawal queue, settlement stamps one realized price for redeems, and anyone `claim`s after unlock.
+
+### Batch guards
+
+`executeGovernorBatch(calls, callCaps, maxNetOutflow)` is the only path by which calldata reaches vault capital. It is `onlyGovernor nonReentrant whenNotPaused`, and it enforces:
+
+| Guard | Rule | Revert |
+|-------|------|--------|
+| Executor pin | The `BatchExecutorLib` the vault delegatecalls must still have the codehash stamped at `initialize` | `ExecutorCodehashMismatch` |
+| Targets | Every call targets the vault asset or a strategy registered on `StrategyFactory` | `NotARegisteredStrategy(target)` |
+| Asset-call shapes | Calls on the asset are limited to `transfer`, `transferFrom` from the vault, and the allowance family; every spender named by an allowance call is reset to zero after the batch | `TransferFromNotVault`, `UnrecognizedAssetSelector`, `MalformedAssetCall` |
+| Per-call caps | Gross outflow of call `i` ≤ `callCaps[i]` (an empty array is unmetered, the emergency escape valve) | `CallCapExceeded(i, outflow, cap)`, `CapsLengthMismatch` |
+| Net outflow | Balance out minus balance in across the batch ≤ `maxNetOutflow` | `MaxNetOutflowExceeded` |
+| Queue reserve | Float after the batch ≥ assets reserved for stamped queue claims | `QueueReserveBreached` |
+| Idle buffer | Float after the batch ≥ reserve + `balanceBefore × minBufferBps / 10_000` (`minBufferBps` 0 = off, ≤ 5,000) | `BufferBreached` |
 
 ## Two clocks
 
-Two separate timers govern the lifecycle:
+1. **Execution window** (`executionWindow`, 24 h at launch): time to *start* executing after approval. Miss it and the proposal is `Expired`.
+2. **Strategy duration** (`strategyDuration`, 1 h – 30 d): time the position *runs* before anyone may settle.
 
-1. **Execution window** — time to *start* executing after approval (governor parameter). Miss it and the proposal Expires.
-2. **Strategy duration** — time the position *runs* before it can be settled (agent-proposed, capped by `maxStrategyDuration`).
-
-```
+```text
 |-- voting --|-- review --|-- exec window --|----- strategy duration -----|-- cooldown --|
-   propose      guardians     execute calls      position is live    settle    withdrawals open
+   propose      guardians     execute calls      position is live    settle    next propose
+   ^ instant deposits and redemptions close here                           ^ and re-open here
 ```
 
 ## Settlement paths
 
-A live strategy runs for its committed duration, then settles by replaying the pre-committed `settlementCalls`. Because the exact onchain state at settlement can't be predicted — slippage, interest accrual, pool drift — those calls can revert. Sherwood provides the standard path plus a bonded, guardian-gated emergency split for stuck strategies.
+A live strategy runs for its committed duration, then settles by replaying the pre-committed `settlementCalls`. Because the exact onchain state at settlement can't be predicted (slippage, interest accrual, pool drift), those calls can revert. The protocol provides the standard path plus a bonded, guardian-gated emergency split for stuck strategies.
 
 | Function | Who | When | Calls |
 |------|-----|------|-------|
-| **`settleProposal`** | Proposer anytime after execute; anyone after `strategyDuration` | Happy path | Pre-committed `settlementCalls` |
-| **`unstick`** | Vault owner | Strategy stuck past its duration | Pre-committed `settlementCalls` only — no custom calldata, no bond, no review |
-| **`emergencySettleWithCalls`** | Vault owner | Pre-committed calls are broken | Owner-supplied custom calls; stored in the registry, opens a guardian review. Requires a sufficient owner bond |
+| **`settleProposal`** | Proposer from 1 h after execute; anyone after `strategyDuration` | Happy path | Pre-committed `settlementCalls` under the persisted (coverage-scaled) caps |
+| **`unstick`** | Vault owner | After `strategyDuration` | Pre-committed `settlementCalls` only — no custom calldata, no stake needed, no review |
+| **`emergencySettleWithCalls`** | Vault owner | After `strategyDuration`, pre-committed calls are broken | Owner-supplied custom calls; hashed into the registry, opens a block-only guardian review. Requires a live owner stake ≥ `requiredOwnerBond` |
 | **`cancelEmergencySettle`** | Vault owner | Before the review ends | Self-recall of the above, no slash |
-| **`finalizeEmergencySettle`** | Vault owner | After the review ends | Runs the stored calls if guardians didn't block; if they did, the owner bond is burned and this reverts |
+| **`finalizeEmergencySettle`** | Vault owner | After the review ends | Runs the stored calls if guardians didn't block; if they did, the owner stake is burned and this reverts `EmergencySettleBlocked` |
+
+Every settlement path runs the unwind batch with a **net egress budget of zero**: vault float may leave inside the batch only if at least as much comes back before it ends, so a settlement can repay a debt the vault fronts but cannot drain the fund.
 
 <Tabs>
   <Tab title="Standard settle">
-    The proposer can settle starting **1 hour** after execution — the early-close incentive, since the agent has the most context and only earns carry on profit. Once the full `strategyDuration` has elapsed, **anyone** — keeper, depositor, bot — can settle, so a disappearing agent never traps capital. Both paths run the same voted-on `settlementCalls`, close all positions, and return capital to the vault; P&L is booked and fees distributed on profit.
+    The proposer can settle from **1 hour** after execution (`MIN_STRATEGY_DURATION_BEFORE_SELF_SETTLE`), the early-close incentive, since the agent has the most context and only earns carry on profit. Once the full `strategyDuration` has elapsed, **anyone** can settle (`StrategyDurationNotElapsed` before then), so a disappearing agent never traps capital. After the batch, two checks guard the result:
+
+    - `StrategyNotSettled(strategy)` if the strategy clone still reports `executed() == true`: the unwind did not finish.
+    - `SettlePriceBelowFloor` if price per share fell below `ppsAtExecute × (10_000 − min(maxDrawdownBps, 9_000)) / 10_000`, the drawdown floor the proposal declared.
   </Tab>
   <Tab title="unstick (owner, pre-committed calls)">
-    When the committed unwind is still correct but nobody has triggered it, the owner calls `unstick(proposalId)` to force it. It runs the proposal's pre-committed `settlementCalls` only — no custom calldata, no fallback — and reverts if those calls revert. It needs **no** active owner bond, because the calls were already approved through governance and guardian review; an owner whose bond was slashed elsewhere can still `unstick` a legitimately-approved settlement here.
+    When the committed unwind is still correct but the standard settle cannot close (a settle that fell below the declared drawdown floor), the owner calls `unstick(proposalId)` after `strategyDuration`. It replays the proposal's pre-committed `settlementCalls` only and reverts if those calls revert or the strategy still reports `executed()`. It applies the rescue floor, `MAX_STAMP_DRAWDOWN_BPS` (9,000 bps, a floor at 10% of the execute-time price per share), instead of the proposal's own `maxDrawdownBps`. It needs **no** owner stake, because the calls were already approved through governance and guardian review.
   </Tab>
   <Tab title="emergencySettleWithCalls (guardian-reviewed)">
-    When the pre-committed calls are broken (stale params, a paused target, shifted pool state), the owner proposes custom settlement calldata through a guardian-reviewed window:
+    When the pre-committed calls are broken (stale params, a paused target, shifted pool state), the owner proposes custom settlement calldata through a block-only guardian review:
 
-    1. `emergencySettleWithCalls(proposalId, calls)` — reverts unless the owner bond covers the vault's current required bond. The governor stores the full calls array in the registry and opens the review. **Calls do not execute yet.**
+    1. `emergencySettleWithCalls(proposalId, calls)` reverts `OwnerBondInsufficient` unless the owner's stake is live and at least `requiredOwnerBond` (10,000 WOOD at launch). The governor stores the hash of the calls (at most 64) in the registry and opens a `reviewPeriod` window. **Calls do not execute yet.**
     2. During the window, active guardians can vote to block; the owner may self-recall with `cancelEmergencySettle` (no slash).
-    3. After the window, `finalizeEmergencySettle(proposalId)` — proposal id only; the registry returns the stored calls. If guardians reached the block quorum, the owner bond is burned and this reverts. Otherwise the governor runs the calls and settles.
+    3. After the window, `finalizeEmergencySettle(proposalId)` replays the same calls (`EmergencyHashMismatch` if they differ). If guardians reached the block quorum, the owner stake is burned and this reverts. Otherwise the batch runs with per-call caps disabled and the zero egress budget, and the proposal settles. This path is exempt from the `StrategyNotSettled` check.
 
-    The bond recheck at call time is sized to the vault's *current* value, closing a "stake small, drain large" gap.
+    A blocked round costs the stake; the owner can re-bond and open another round.
   </Tab>
 </Tabs>
 
-The split replaces a single all-in-one emergency function whose unbounded owner power was the primary escalation vector. It covers every failure mode without handing the owner an unbounded escape hatch: the happy path is trustless, `unstick` needs no new calldata, and any custom calldata is bonded and guardian-gated.
+The split covers every failure mode without handing the owner an unbounded escape hatch: the happy path is trustless, `unstick` needs no new calldata, and any custom calldata is bonded and guardian-gated.
 
 <Note>
-**Fees can't brick settlement.** Every fee transfer is wrapped so that a failure — a recipient a token has blacklisted, a paused token — escrows the owed amount against that recipient instead of reverting the whole settlement. The recipient pulls it later with `claimUnclaimedFees(vault, token)`, keyed to the origin vault. Settlement always completes.
+**Fees can't brick settlement.** Every fee transfer is wrapped so that a failure (a recipient the token has blacklisted, a paused token) escrows the owed amount against that recipient instead of reverting the settlement (`FeeTransferFailed`). The recipient pulls it later with `claimUnclaimedFees(vault, token)`, keyed to the origin vault and to `msg.sender`; nobody else can push it, and the pull waits while that vault has an active proposal (`VaultProposalActive`).
 </Note>
 
 ## Cooldown
 
-After settlement a cooldown runs before any new strategy can execute on the fund. During cooldown, redemptions are open and depositors can leave; proposals can still be submitted and voted on, but `executeProposal` reverts until cooldown ends. It is the deliberate exit window between strategies — if depositors don't like what's next, they get out first. Bounds: 1 hour to 30 days.
+Every terminal transition — settle, cancel, veto, reject, expire — stamps `cooldownEndsAt = now + cooldownPeriod` (1 h at launch; bounds 1 h – 30 d). The next `propose` on that vault reverts `CooldownNotElapsed` until then; `executeProposal` does not check it. As soon as no proposal is open, instant deposits and redemptions re-open, so the cooldown is the deliberate exit window between strategies: if depositors don't like what's next, they get out first.
 
 ## P&L and the two fees
 
-Only one strategy runs per vault at a time, so P&L is a simple balance snapshot: the vault's asset balance at settlement minus the capital baseline snapshotted at execution. Any non-asset dust the strategy failed to unwind counts as that much loss — strategies must fully return the underlying before settling.
+Only one strategy runs per vault at a time, so P&L is a balance snapshot: the vault's asset balance at settlement minus the baseline snapshotted at execution. Any non-asset dust the strategy failed to unwind counts as that much loss; strategies must fully return the underlying before settling.
 
-Settlement charges exactly two fees, at rates snapshotted at propose. The **management fee is charged on every settlement — profit, flat, or loss.** The **performance fee is charged only above the fund's previous peak price per share.** They are taken in a fixed order:
+Settlement charges exactly two fees, at rates and splits snapshotted at propose. The **management fee is charged on every settlement — profit, flat, or loss.** The **performance fee is charged only above the fund's previous peak price per share.** They are taken in a fixed order:
 
-```
+```text
 pnl = balanceAtSettle − capitalSnapshot
 
-# 1. Management fee — always charged, regardless of pnl
+# 1. Management fee — always charged, regardless of pnl.
+#    Base: the whole fund's totalAssets() stamped at execute, accrued only while Executed.
 managementFee = assetSeconds × managementFeeBps / (10_000 × 365 days)
 
 # 2. Performance fee — only on value above the high-water mark,
-#    measured after the management fee has lowered price per share
-gain = max(0, postMgmtValue − highWaterMarkValue)
-performanceFee = gain × min(agentFeeBps, maxPerformanceFeeBps)
+#    measured after the management fee has lowered price per share, and never more than the profit
+performanceFee = min(aboveHighWaterMark, max(pnl, 0)) × min(agentFeeBps, maxPerformanceFeeBps)
 
 # 3. Ratchet the high-water mark against the post-fee price
 # 4. Stamp the queue settle price at post-fee NAV
 # Everything left over stays in the vault, accruing to all depositors
 ```
 
-Each fee is then divided once by the splits held on `ProtocolConfig` — management 60/20/20 across agent, protocol and guardians; performance 50/15/25/10 across agent, protocol, guardians and the fund owner. There is no sequential waterfall of compounding haircuts. The guardian slice routes onchain to a fee-recipient multisig in the fund's asset, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the full breakdown, bounds, and the loss-case disclosure.
+Each fee is then divided once by the splits held on `ProtocolConfig`: management 60/20/20 across agent, protocol and guardians; performance 50/15/25/10 across agent, protocol, guardians and the fund owner. There is no sequential waterfall of compounding haircuts. The guardian slice routes onchain to a fee-recipient multisig in the fund's asset, then distributes to individual guardians off-chain, weekly, via Merkl. See [Economics](/protocol/governance/economics) for the bounds and the loss-case disclosure.
 
 ## Full lifecycle in the call arrays
 
-The proposal commits the complete lifecycle upfront — opening calls in `executeCalls`, closing calls in `settlementCalls`. A Portfolio-strategy proposal against a WETH-denominated fund looks like:
+The proposal commits the complete lifecycle upfront: opening calls in `executeCalls`, closing calls in `settlementCalls`. A Portfolio-strategy proposal against a USDG-denominated fund is two calls each way, because the strategy clone does the swapping:
 
-```
+```text
 executeCalls   (open the basket — run at execution)
-  1. approve WETH to the swap adapter
-  2. swap WETH → TSLA-weight
-  3. swap WETH → AMZN-weight
-  4. swap WETH → PLTR-weight
+  1. USDG.approve(strategyClone, totalAmount)
+  2. strategyClone.execute()        → pulls USDG, buys each basket token at its target weight
 
-settlementCalls (unwind back to WETH — run at settlement)
-  5. swap TSLA → WETH
-  6. swap AMZN → WETH
-  7. swap PLTR → WETH
+settlementCalls (unwind back to USDG — run at settlement)
+  3. strategyClone.settle()         → sells every token back to USDG, pushes it to the vault
 ```
 
-Depositors vote on the whole sequence — the exact tokens, weights, and venue — before it runs. After the unwind the vault should hold its deposit asset (WETH in this example) again; any leftover non-asset tokens are recoverable only via the owner's targeted rescue functions. Because the unwind calls are a prediction of future state, agents should use generous slippage tolerances; if the standard settle reverts, the owner uses `unstick` or the guardian-reviewed emergency path.
+Depositors vote on the whole sequence (the clone's tokens, weights, routes and slippage are fixed at init) before it runs. After the unwind the vault should hold its deposit asset again; leftover non-asset tokens are recoverable only through the owner's `rescueERC20`, which can move them only to a strategy clone of the same vault. Because the unwind is a prediction of future state, agents should leave slippage room; if the standard settle reverts, the owner uses `unstick` or the guardian-reviewed emergency path.
 
 <Note>
 The onchain track record is the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event emitted at settlement, which indexers aggregate into per-agent history. A richer EAS-based attestation is planned but not shipped.

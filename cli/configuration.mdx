@@ -6,19 +6,27 @@ icon: "gear"
 
 ## Network
 
-The CLI targets the **Robinhood mainnet fork (chain 9994663)** by default (since
-0.83.0), so most users never set a chain — that is where the live deployment and
-its funds are. The fork's RPC, `https://api.sherwood.sh/tenderly/rpc`, is
-bundled as the default; export `ROBINHOOD_FORK_RPC_URL` to override it. **Robinhood testnet (chain 46630)** is
-available via `--chain robinhood-testnet`; note its redeployed factory currently
-holds no funds. See [Deployments](/reference/deployments) for both chains'
-addresses and endpoints.
+The CLI targets **Robinhood Chain mainnet (chain 4663)** by default, so most users
+never set a chain; `--chain robinhood-mainnet` names it explicitly. The bundled RPC
+is the public `https://rpc.mainnet.chain.robinhood.com`, which sits behind Cloudflare
+and can challenge non-browser clients under load. For anything you rely on, point the
+CLI at your own endpoint (Alchemy or another provider that serves 4663) with
+`ROBINHOOD_RPC_URL`, or save it per network with `sherwood config set --rpc <url>`:
+
+```bash
+ROBINHOOD_RPC_URL=https://<your-4663-rpc> sherwood vault list
+sherwood config set --rpc https://<your-4663-rpc>
+```
+
+Resolution order: `--rpc` saved in config for the active chain, then
+`ROBINHOOD_RPC_URL`, then the bundled public endpoint. See
+[Deployments](/reference/deployments) for the chain's addresses and explorer.
 
 ## Wallet
 
-Use an agent wallet: [Privy](https://agents.privy.io/) or [MetaMask Agent Wallet](https://metamask.io/agent-wallet). The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. Privy is verified on the Robinhood fork. MetaMask Agent Wallet may not work there, because it only sends to chains that `mm chains list` shows. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
+Use a sign-only agent wallet: the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second. The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663; Privy signs and you broadcast to the 4663 RPC. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
 
-`config set --private-key` still exists for local testing with a throwaway key. It stores the key in plaintext in `~/.sherwood/config.json`, so we do not recommend it.
+`config set --private-key` still exists for a throwaway key. It stores the key in plaintext in `~/.sherwood/config.json`, so we do not recommend it for a wallet that holds WOOD or vault capital.
 
 ## Setting Config
 
@@ -30,8 +38,9 @@ Save settings to `~/.sherwood/config.json`.
 |--------|-------------|
 | `--private-key <key>` | Wallet private key (0x-prefixed) |
 | `--vault <address>` | Default SyndicateVault address |
-| `--rpc <url>` | Custom RPC URL for the current chain (saved per-network) |
+| `--rpc <url>` | Custom RPC URL for the active `--chain` network (saved per-network) |
 | `--notify-to <id>` | Destination for cron summaries (Telegram chat ID, phone, etc.) |
+| `--xmtp-group <subdomain:groupId>` | Cache an XMTP group ID for a vault |
 
 ### `sherwood config show`
 
@@ -43,10 +52,11 @@ State is stored in `~/.sherwood/config.json`.
 
 | Key | Description |
 |-----|-------------|
-| `privateKey` | Wallet private key |
-| `agentId` | ERC-8004 identity token ID |
-| `contracts.{chainId}.vault` | Default vault address per chain |
+| `privateKey` | Wallet private key (only if set) |
+| `agentId` | ERC-8004 identity token ID, saved by `identity mint` / `identity load` |
+| `contracts.{chainId}.vault` | Default vault address per chain (`4663`) |
 | `dbEncryptionKey` | XMTP database encryption key (auto-generated) |
+| `xmtpDbKey` | XMTP database key for sign-only wallets (cohort chat) |
 | `groupCache` | Local cache of subdomain to XMTP group ID |
 | `rpc` | Per-network custom RPC URLs |
 | `notifyTo` | Destination for cron summaries |

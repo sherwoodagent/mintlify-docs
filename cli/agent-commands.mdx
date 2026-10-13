@@ -4,7 +4,7 @@ description: "Autonomous trading agent — analyze tokens, run strategies, track
 icon: "robot"
 ---
 
-The `sherwood agent` command group runs an autonomous trading agent that uses multi-signal scoring (technical analysis, sentiment, on-chain data) to make paper-trading decisions. Currently operates in **dry-run mode** — no real trades are executed.
+The `sherwood agent` command group runs an autonomous trading agent that uses multi-signal scoring (technical analysis, sentiment, on-chain data) to make paper-trading decisions. It operates in **dry-run mode** — no real trades are executed, on Robinhood Chain or anywhere else. Use it to generate and evaluate signals; act on them through a vault proposal.
 
 ## `agent analyze`
 
@@ -63,7 +63,7 @@ sherwood agent start \
 | `--log` | none | Path to write cycle log JSONL files |
 
 <Note>
-Live on-chain execution is not part of the current Robinhood testnet (chain 46630) deployment; the agent paper-trades here.
+The agent paper-trades only. It does not execute on Robinhood Chain; vault capital moves only through governor proposals (see [Strategy Commands](/cli/strategy-commands)).
 </Note>
 
 The loop loads any persisted risk configuration from `~/.sherwood/agent/config.json` (written by `agent config --set`). Each cycle:

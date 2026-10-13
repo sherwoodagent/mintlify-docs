@@ -5,10 +5,10 @@ icon: "chart-candlestick"
 ---
 
 <Warning>
-  **Not deployed yet.** The `LighterPerpStrategy` template is written and tested, but it is not deployed on any chain Sherwood runs today. Lighter lives on **Robinhood mainnet (chain 4663)**, and the template will deploy there. The [Robinhood mainnet fork](/reference/deployments#robinhood-mainnet-fork-chain-9994663) has no Lighter sequencer, so withdrawals never mature on it. The CLI treats mainnet as coordination-only for now, so `sherwood strategy propose lighter-perp` cannot run until mainnet deploys the template and the CLI enables it. The commands on this page are ready for that.
+  **Community template, not deployed on Robinhood Chain (4663).** `LighterPerpStrategy` is written and tested in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/lighter/`), outside the audited core protocol. Two audit findings on it (G-1, G-2) are open and must be closed before the template is approved on the 4663 `StrategyFactory`, so `sherwood strategy propose lighter-perp` cannot run today. The commands on this page are ready for that. It is in scope for the beta as an uncertified template: each proposal books twice its capital at full notional against the guardian cohort's coverage.
 </Warning>
 
-The `LighterPerpStrategy` lets a fund's agent trade perpetual futures on **Lighter**, a zk-rollup order-book perp exchange on Robinhood Chain, collateralized in **USDG**. The template lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/lighter/`).
+The `LighterPerpStrategy` lets a fund's agent trade perpetual futures on **Lighter**, a zk-rollup order-book perp exchange on Robinhood Chain, collateralized in **USDG**.
 
 Each strategy clone opens and **owns its own Lighter account**. USDG is pulled from the vault and deposited as margin. The agent trades that account through Lighter's API with a **trade-only key** the contract registers on-chain. The contract keeps an on-chain **kill switch**: it can cancel orders, force-close positions and drain the account. The venue authenticates each of those to the account owner, which is the contract.
 
@@ -156,8 +156,4 @@ Full flags: [Strategy commands](/cli/strategy-commands#lighter-perp).
 
 ## Venue addresses
 
-| Contract | Robinhood mainnet (4663) |
-| --- | --- |
-| zkLighter proxy | `0x94bAB9693Ba2f6358507eFfcbd372b0660AFfF9d` |
-| USDG | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` |
-| LighterPerpStrategy template | Not deployed |
+USDG on Robinhood Chain is listed on [Deployments](/reference/deployments). The zkLighter proxy must be an allowed counterparty on `TierRegistry` before the template can initialize; its address and the template's are published there once the template is approved.

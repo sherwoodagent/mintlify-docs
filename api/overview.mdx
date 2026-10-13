@@ -11,6 +11,8 @@ The API never sees your private key. Every state-changing endpoint returns *unsi
 
 That host is already the v1 API. Paths are rooted there (`/chains`, `/prepare/deposit`, `/vaults/:address`) — **not** `/v1/chains`. `https://api.sherwood.sh/v1/...` 404s (the subdomain rewrites `/` to `/api/v1`, so a second `/v1` becomes `/api/v1/v1`). `https://www.sherwood.sh/api/v1` also 404s (www redirects to the apex, which has no `/api/v1` route). Catalog: `GET https://api.sherwood.sh/`.
 
+Sherwood's deployment is **Robinhood Chain mainnet, `chainId: 4663`**. Pass `4663` (or `chain=4663` on reads) in every request; it is the only chain with Sherwood contracts, and the same chain carries the ERC-8004 registry and EAS.
+
 ## Response envelope
 
 Every response — success or failure, every endpoint — uses the same shape:
@@ -21,8 +23,8 @@ Every response — success or failure, every endpoint — uses the same shape:
   "data": { /* endpoint payload */ },
   "meta": {
     "command": "health.shallow",
-    "chainId": 46630,
-    "timestamp": "2026-05-15T14:56:14.292Z"
+    "chainId": 4663,
+    "timestamp": "2026-10-11T14:56:14.292Z"
   }
 }
 ```
@@ -87,11 +89,11 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /prepare/execute` | `chainId, vault, proposalId` | `sherwood proposal execute` |
 | `GET\|POST /prepare/settle` | `chainId, vault, proposalId` | `sherwood proposal settle` |
 | `GET\|POST /prepare/cancel` | `chainId, vault, proposalId` | `sherwood proposal cancel` |
-| `GET\|POST /prepare/veto` | `chainId, vault, proposalId` | *(no CLI equivalent)* |
+| `GET\|POST /prepare/veto` | `chainId, vault, proposalId` | *(no CLI equivalent; vault owner only, `Pending` only)* |
 | `GET\|POST /prepare/unstick` | `chainId, vault, proposalId` | `sherwood proposal unstick` *(hidden)* |
 | `POST /prepare/emergency-settle` | `chainId, vault, proposalId, calls` | `sherwood proposal settle --calls <path>` |
 | `GET\|POST /prepare/governor-set` | `chainId, vault, param, value` | *(no CLI equivalent)* |
-| `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood vault create` |
+| `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood vault create` (the factory also requires a prepared owner stake and, unless sponsored, the 1,000,000 WOOD creation fee) |
 | `GET\|POST /prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood vault approve-depositor` |
 | `GET\|POST /prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood vault add` |
 | `GET\|POST /prepare/approve-agent` | `chainId, vault\|subdomain, agentAddress, agentId` | `sherwood vault approve` |
@@ -108,8 +110,9 @@ Sherwood reads fund and proposal metadata only through Pinata. Metadata pinned e
 
 Read `txs[i].chainId` — it is not always the `chainId` you asked for, and signing on the wrong chain is a silent failure.
 
-- **Attestations** (`/prepare/join`, the second tx of `/prepare/approve-agent`) always land on the **coordination chain**, currently Robinhood mainnet `4663`, whatever chain the fund runs on. The first tx of `approve-agent` (`registerAgent`) stays on the fund's chain, so that response spans two chains.
-- **`/prepare/identity-mint`** targets whichever chain holds the ERC-8004 registry. A `chainId` with no registry of its own — the `46630` testnet, the `9994663` fork — falls back to `4663`.
+- **Attestations** (`/prepare/join`, the second tx of `/prepare/approve-agent`) land on Robinhood Chain `4663`, which is also where every vault runs, so today both txs of `approve-agent` share one chain. The field exists because the encoders are chain-aware; always read it rather than assuming.
+- **`/prepare/identity-mint`** targets the chain that holds the ERC-8004 registry, Robinhood Chain `4663`.
+- **`/prepare/create-fund`** returns the WOOD approval for the creation fee before `createSyndicate` when a fee is due (with a `balance` precondition for it), and its `note` reminds you that the factory also requires a prepared owner stake (`StakedWood.prepareOwnerStake`) and that the caller owns the ERC-8004 NFT for `creatorAgentId`. The API does not check those two for you.
 
 ### Who may call
 
@@ -130,29 +133,29 @@ Edge-cacheable reads return state on the fly — no key required.
 |---|---|
 | `GET /` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://api.sherwood.sh/` (root — do not add `/v1` on this host). |
 | `GET /chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
-| `GET /funds?chain=46630&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/vaults/:address` for richer data. |
-| `GET /governor?chain=46630` | Live governor parameters (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
-| `GET /vaults/:address?chain=46630` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
-| `GET /proposals?chain=46630&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
-| `GET /proposals/:id?chain=46630` | Single proposal: against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
+| `GET /funds?chain=4663&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/vaults/:address` for richer data. |
+| `GET /governor?chain=4663` | Live governor parameters (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
+| `GET /vaults/:address?chain=4663` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
+| `GET /proposals?chain=4663&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
+| `GET /proposals/:id?chain=4663` | Single proposal: against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
 | `GET /health` | Shallow probe — always 200 if the worker is up. |
 | `GET /health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
 
-## Worked example: deposit 1 WETH into a Robinhood testnet vault
+## Worked example: deposit 1 USDG into a Robinhood Chain vault
 
 ```bash
 # 1. Look up the vault to confirm it's open + read the asset
-curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=46630' | jq
+curl -s 'https://api.sherwood.sh/vaults/0xVaultAddress?chain=4663' | jq
 
 # 2. Prepare the calldata (returns 1–2 txs depending on current allowance)
 #    GET form (one-liner) — returns identical calldata to POST below.
-curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=46630&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=1' | jq
+curl -s 'https://api.sherwood.sh/prepare/deposit?chainId=4663&vault=0xVaultAddress&receiver=0xYourAddress&amountDecimal=1' | jq
 
 # Or POST form — useful when args are dynamic / programmatically built.
 curl -sX POST https://api.sherwood.sh/prepare/deposit \
   -H 'content-type: application/json' \
   -d '{
-    "chainId": 46630,
+    "chainId": 4663,
     "vault": "0xVaultAddress",
     "receiver": "0xYourAddress",
     "amountDecimal": "1"
@@ -166,24 +169,26 @@ Response:
   "success": true,
   "data": {
     "txs": [
-      { "to": "0xWETHAddress", "data": "0x095ea7b3...", "value": "0x0", "chainId": 46630 },
-      { "to": "0xVaultAddress",   "data": "0x6e553f65...", "value": "0x0", "chainId": 46630 }
+      { "to": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "data": "0x095ea7b3...", "value": "0x0", "chainId": 4663 },
+      { "to": "0xVaultAddress", "data": "0x6e553f65...", "value": "0x0", "chainId": 4663 }
     ],
     "preconditions": [
-      { "type": "balance",   "asset": "0xWETHAddress", "assetSymbol": "WETH", "min": "1000000000000000000", "minDecimal": "1" },
-      { "type": "allowance", "token": "0xWETHAddress", "spender": "0xVaultAddress", "min": "1000000000000000000", "minDecimal": "1" },
+      { "type": "balance",   "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "assetSymbol": "USDG", "min": "1000000", "minDecimal": "1" },
+      { "type": "allowance", "token": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "spender": "0xVaultAddress", "min": "1000000", "minDecimal": "1" },
       { "type": "vault-not-locked",  "vault": "0xVaultAddress" },
       { "type": "depositor-approved","vault": "0xVaultAddress", "depositor": "0xYourAddress" }
     ],
-    "description": "Approve WETH for 0xVaultAddress, then deposit 1 WETH.",
-    "note": "Both txs are gated by vault state. If `redemptionsLocked()` is true the deposit reverts unless live NAV is available; check the vault read endpoint before broadcasting."
+    "description": "Approve USDG for 0xVaultAddress, then deposit 1 USDG.",
+    "note": "Both txs are gated by vault state. If `depositsLocked()` is true (a proposal is open) the deposit reverts; queue it with /prepare/request-deposit instead. The receiver must be an approved depositor while the factory's depositsRestricted flag is on."
   },
-  "meta": { "command": "prepare.deposit", "chainId": 46630, "timestamp": "..." }
+  "meta": { "command": "prepare.deposit", "chainId": 4663, "timestamp": "..." }
 }
 ```
 
 3. Sign each tx with viem / ethers / your wallet.
 4. Broadcast in order. Wait for receipt of tx[0] before broadcasting tx[1] — sequence matters.
+
+The `depositor-approved` precondition is not optional during the private beta: every vault takes deposits only from owner-approved receivers, whatever `openDeposits` says. Check it before broadcasting, or the deposit reverts `NotApprovedDepositor`.
 
 ## Versioning
 

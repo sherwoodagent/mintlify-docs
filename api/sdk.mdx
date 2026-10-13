@@ -26,16 +26,16 @@ import {
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-// Robinhood testnet (chain 46630) is Sherwood's current deployment target.
-const robinhoodTestnet = defineChain({
-  id: CHAIN_IDS.ROBINHOOD_L2, // 46630
-  name: "Robinhood Testnet",
+// Robinhood Chain mainnet (chain 4663) is Sherwood's deployment.
+const robinhoodChain = defineChain({
+  id: CHAIN_IDS.ROBINHOOD, // 4663
+  name: "Robinhood Chain",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [process.env.ROBINHOOD_RPC_URL!] } },
+  rpcUrls: { default: { http: [process.env.ROBINHOOD_RPC_URL ?? "https://rpc.mainnet.chain.robinhood.com"] } },
 });
 
 const publicClient = createPublicClient({
-  chain: robinhoodTestnet,
+  chain: robinhoodChain,
   transport: http(process.env.ROBINHOOD_RPC_URL),
 });
 
@@ -49,13 +49,13 @@ const action = encodeDeposit({
   asset: info.asset,
   assetSymbol: info.assetSymbol,
   assetDecimals: info.assetDecimals,
-  assets: 1_000_000_000_000_000_000n, // 1 WETH (18 decimals)
-}, CHAIN_IDS.ROBINHOOD_L2);
+  assets: 1_000_000n, // 1 USDG (6 decimals)
+}, CHAIN_IDS.ROBINHOOD);
 
 // 3. Sign + broadcast each tx in order
 const wallet = createWalletClient({
   account: privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`),
-  chain: robinhoodTestnet,
+  chain: robinhoodChain,
   transport: http(process.env.ROBINHOOD_RPC_URL),
 });
 
@@ -85,7 +85,7 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 | `encodePropose` | Submit a strategy proposal. |
 | `encodeVote` | Cast `For` / `Against` / `Abstain`. |
 | `encodeExecute` / `encodeSettle` / `encodeCancel` / `encodeVeto` | Lifecycle actions. |
-| `encodeCreateFund` | Deploy a new vault via the factory. |
+| `encodeCreateFund` | Deploy a new vault via the factory, with the WOOD creation-fee approval first when the creator is not sponsored. |
 | `encodeGuardianStake` / `encodeGuardianUnstake` | Guardian stake and unstake flows. |
 
 ### Reads (take a viem `PublicClient`)
@@ -101,7 +101,7 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 - `getDeployment(chainId)` / `listDeployments()` — per-chain Sherwood addresses + token table.
 - `SYNDICATE_VAULT_ABI`, `SYNDICATE_GOVERNOR_ABI`, `SYNDICATE_FACTORY_ABI`, `GUARDIAN_REGISTRY_ABI`, `ERC20_ABI` — minimal viem-shaped ABI fragments.
 - `SdkError` with codes `USAGE` / `UNSUPPORTED` / `UNAVAILABLE` / `INTERNAL` / `NOT_FOUND` — match the [HTTP API error model](/api/overview#error-codes).
-- `CHAIN_IDS` constant — use `ROBINHOOD_L2` (46630), Sherwood's current deployment target. Additional chain ids will be added as Sherwood expands.
+- `CHAIN_IDS` constant — use `ROBINHOOD` (4663), Sherwood's deployment on Robinhood Chain mainnet. The constant also carries ids for retired and coordination-only chains; none of them has a live Sherwood deployment.
 - `PROPOSAL_STATES` and `VOTE_TYPES` enum constants.
 
 ## What's NOT in the SDK
@@ -113,6 +113,6 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 
 ## Versioning
 
-The SDK is on `0.x` until the protocol mainnet GA. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.10.0`, the v1-deploy release) if you want reproducible installs.
+The SDK is on `0.x` until general access. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.12.0`, the release that carries the Robinhood Chain v1 deployment, creation-fee encoding and effective deposit openness) if you want reproducible installs.
 
 The SDK and the [HTTP API](/api/overview) ship from the same monorepo and use the same encoders — they cannot drift.

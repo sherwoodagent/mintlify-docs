@@ -6,7 +6,7 @@ icon: "layer-group"
 
 A **tier is a property of a `(target, selector)` pair**, set by governance on `TierRegistry` and consumed at propose and execute. It is **not** a property of a guardian. There is no guardian tier ladder in the protocol: every active guardian reviews every proposal. What changes with the pair is the **price of extractable value**, not who is allowed to vote.
 
-`TierRegistry.tierOf(target, selector)` is the read. The governor takes the **max** tier across execute calls as the proposal's envelope tier, and sums per-call `extractableBoundBps` into [`requiredCoverage`](/protocol/governance/coverage).
+`TierRegistry.tierOf(target, selector)` is the read. The governor takes the **max** tier across execute **and** settlement calls as the proposal's envelope tier, and sums per-call `cap × boundBps` over both legs into [`requiredCoverage`](/protocol/governance/coverage).
 
 ## The three tiers
 
@@ -27,6 +27,19 @@ Tier 0 and tier 1 are the **certified** tiers. Certification is keyed `keccak256
 
 Governance must not certify proxied adapters at tier 0/1. `tierOf` checks live `EXTCODEHASH` against the hash snapshotted at certification, which catches same-address bytecode mutation and **does not** catch a proxy implementation swap.
 
+### Certification is two steps
+
+A pair, or a whole template class, is certified in two owner-gated steps with a delay between them; there is no single call that certifies.
+
+| Step | Who | What |
+|------|-----|------|
+| `proposeCertification(target, selector, tier, boundBps, submitter, expectedCodehash)` | Registry owner | Records the intended tier (`InvalidTier` unless 0 or 1), bound (`BoundRequired` unless `0 < bound < 10_000`) and the target's current codehash (`NotAContract` on a codeless target) |
+| `certify(target, selector)` | Anyone once no submitter bond is pinned, otherwise the submitter | After `certifyDelay` (3 days; bounds 1 – 30 days), within a 14-day window (`CertifyDelayNotElapsed`, `CertificationExpired`). Reverts `CodehashChanged` if the code moved in between |
+
+The class path (`proposeClassCertification` → `certifyClass`) certifies every ERC-1167 clone of a `StrategyFactory` template at once; `classOf(target)` reports the class a clone belongs to. The Portfolio class certification at 2,000 bps is pending at launch, so Portfolio proposals price at full notional until it lands.
+
+Demotion is instant: the owner's `demote`, the challenge game's `demoteByChallenge`, or the permissionless `poke` on a codehash mismatch. A demotion between propose and execute makes `executeProposal` revert `TierRegressed`.
+
 ## The `(2, 10_000)` default
 
 Uncertified, demoted, or codehash-mismatched pairs all report `(2, 10_000)`:
@@ -43,7 +56,7 @@ function tierOf(address target, bytes4 selector) public view returns (uint8 tier
 | `2` | `TIER_ARBITRARY` | Arbitrary calldata. No certified extractable bound. |
 | `10_000` | `FULL_NOTIONAL_BPS` | 100% of the declared per-call cap, in bps. Coverage prices the full notional. |
 
-That pair is the **absence of a certification**, not a grant. With no `TierRegistry` wired, `SyndicateGovernor._resolveTierAndCoverage` returns `(2, maxCapital)` — full notional, fail-closed.
+That pair is the **absence of a certification**, not a grant. A governor always has a registry: `initialize` and `setTierRegistry` both refuse a codeless address (`TierRegistryNotWired`), so there is no un-wired path and no default other than this one.
 
 Coverage for a call is `(cap_i * boundBps) / 10_000`. Tier 0/1 uses the certified bound; tier 2 uses `10_000`. See [Coverage and underwriting](/protocol/governance/coverage).
 
@@ -69,23 +82,24 @@ Certifying the `(target, selector)` pair is what lifts a call out of tier 2 and 
 
 | Target | Rule | Revert |
 |--------|------|--------|
-| The vault's `asset()` | The call must name a first argument: `transferFrom` may only pull `from` the vault; any other selector's first argument is the **spender**, whose allowance the vault resets after the batch | `TransferFromNotVault(from)`, `MalformedAssetCall(selector)` (calldata under 36 bytes) |
-| Anything else | Must be a strategy registered on the protocol's `StrategyFactory` (`isRegisteredStrategy`) — a fixed `IStrategy` shape, not a trust check. Registration is permissionless | `NotARegisteredStrategy(target)` |
+| The vault's `asset()` | Only `transfer`, `transferFrom` with `from == vault`, and the allowance family (`approve`, `increaseAllowance`, `increaseApproval`, `decreaseAllowance`, `decreaseApproval`). After the batch the vault resets every spender named by an allowance call to zero | `TransferFromNotVault(from)`, `UnrecognizedAssetSelector(selector)`, `MalformedAssetCall(selector)` (calldata under 36 bytes) |
+| Anything else | Must be a strategy registered on the protocol's `StrategyFactory` (`isRegisteredStrategy`, which also requires the registered codehash to still match) — a fixed `IStrategy` shape, not a trust check. Registration is permissionless | `NotARegisteredStrategy(target)` |
 
-The vault resolves that factory by walking `governor() → tierRegistry() → strategyFactory()`. A hop that does not answer reads as zero, and an unwired factory registers nothing — fail-closed.
+The vault resolves that factory by walking `governor() → tierRegistry() → strategyFactory()`. A hop that does not answer reads as zero, and an unwired factory registers nothing — fail-closed. The governor runs the same target check at propose, so a bad target fails the proposal rather than the batch.
 
 A strategy clone reaches its own venue through its own reviewed code, not through proposer calldata. That is where the remaining registry axis applies.
 
 ## The counterparty axis
 
-`ITierRegistry` exposes one allowlist read, and it is not a tier:
+`TierRegistry` carries three allowlists that strategy templates, not the governor, consult. None of them is a tier:
 
 | Read | Question | Who consults it |
 |------|----------|-----------------|
-| `isCounterpartyAllowed(counterparty)` | May a strategy template **bind** this address (lending market, position manager, swap adapter, price feed)? | The strategy, at init and at every venue-touching call |
+| `isCounterpartyAllowed(counterparty)` | May a strategy template **bind** this address (Morpho singleton, position manager, swap adapter, price feed, collateral token)? The flag is paired with a codehash snapshot, so a code change self-revokes | The strategy, at init and at execute |
+| `isMorphoMarketAllowed(marketId)` | May a template supply or borrow in this Morpho Blue market? | `MorphoSupplyStrategy` and `ConcentratedLiquidityStrategy`, at init and at execute |
 | `isPriceSourceForToken(token, priceSource)` | Is this specific feed the one bound to this token? | `PortfolioStrategy`, per basket slot |
 
-Owner-set with `setCounterpartyAllowed(counterparty, allowed)`. It confers **nothing** to a governor batch: a listed counterparty is not a callable batch target, and an unlisted one is not thereby unreachable through a strategy the factory already registered. A concentrated-liquidity template still has to bind a Uniswap position manager — that is what this axis is for.
+Owner-set with `setCounterpartyAllowed(counterparty, allowed)`, `setMorphoMarketAllowed(id, allowed)` and `setPriceSourceForToken(token, priceSource, allowed)`. They confer **nothing** to a governor batch: a listed counterparty is not a callable batch target, and an unlisted one is not thereby unreachable through a strategy the factory already registered. A concentrated-liquidity template still has to bind a Uniswap position manager; that is what this axis is for.
 
 ## What this is not
 
@@ -99,6 +113,7 @@ Owner-set with `setCounterpartyAllowed(counterparty, allowed)`. It confers **not
 |------|---------|
 | `tierOf(target, selector)` | `(tier, boundBps)` — `(2, 10_000)` unless a live, codehash-matching certification (address or class) applies |
 | `isCounterpartyAllowed(counterparty)` | Counterparty axis — bindable by a strategy template, not callable by a batch |
+| `isMorphoMarketAllowed(marketId)` | Whether a template may use that Morpho Blue market |
 | `isPriceSourceForToken(token, priceSource)` | Whether that feed is the one bound to that token |
 | `classOf(target)` | The certified template class a clone belongs to, or `bytes32(0)` |
 | `strategyFactory()` | The `StrategyFactory` the vault's batch guard resolves through |

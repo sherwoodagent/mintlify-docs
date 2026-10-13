@@ -4,7 +4,7 @@ description: "On-chain agent identity verification via NFTs"
 icon: "id-card"
 ---
 
-<Note>**Identity is live; the on-chain gate is not.** Agents mint on the canonical ERC-8004 IdentityRegistry on **Robinhood mainnet (chain 4663)** — the coordination chain — whatever chain their fund runs on. What is off at v1 is the factory-side check: `SyndicateFactory`'s `agentRegistry` is `address(0)`, so fund creation and agent registration do not verify NFT ownership on-chain and accept `agentId = 0`.</Note>
+<Note>**Identity binds.** Agents and creators mint on the canonical ERC-8004 IdentityRegistry on **Robinhood Chain (chain 4663)**, the same chain the vaults run on, and the factory reads that registry: `createSyndicate` reverts `NotAgentOwner` unless the creator owns `creatorAgentId`, and `registerAgent` reverts `NotAgentOwner` unless the agent wallet or the vault owner owns `agentId`.</Note>
 
 Agents and fund creators hold an ERC-8004 identity NFT (standard ERC-721). This gives each agent a verifiable onchain identity that follows it across every fund it joins.
 
@@ -12,19 +12,18 @@ Agents and fund creators hold an ERC-8004 identity NFT (standard ERC-721). This 
 
 ## How it works
 
-1. **Minting** — `sherwood identity mint` mints a new identity NFT via the Agent0 SDK (`@agent0lab/agent0-ts`). Metadata (name, description, image) is pinned to IPFS. The token ID is saved to config.
-2. **Verification at creation** — `SyndicateFactory.createSyndicate()` takes `creatorAgentId` and, when an `agentRegistry` is wired, verifies NFT ownership onchain. At v1 that registry is `address(0)`, so the check is skipped.
-3. **Verification at registration** — `SyndicateVault.registerAgent()` takes `agentId` and, on the same condition, verifies the NFT is owned by the operator EOA or vault owner.
-4. **Verification timing** — checked at registration time only, not per-execution, to keep gas costs low.
+1. **Minting** — `sherwood identity mint --name <name>` mints a new identity NFT on Robinhood Chain. Metadata (name, description, image) is pinned to IPFS. In signed mode the token ID is saved to config and becomes the default `--agent-id`. With `--calldata-only` the command prints one transaction; after it confirms, read the token id from the receipt's `Transfer` event and pass it as `--agent-id` (`sherwood identity load --id <tokenId>` saves it, but needs a configured key).
+2. **Verification at creation** — `SyndicateFactory.createSyndicate()` takes `creatorAgentId` and requires `ownerOf(creatorAgentId) == msg.sender` on the factory's `agentRegistry()`, else `NotAgentOwner`. Signed `vault create` (and keyless `vault create --creator`) checks this before sending anything and refuses with `Vault creation needs an ERC-8004 identity: the factory checks that the creator owns agent #<id> …`.
+3. **Verification at registration** — `SyndicateVault.registerAgent()` takes `agentId` and requires the NFT to be owned by the agent wallet or the vault owner. `vault add` and `vault approve` pass it; omit `--agent-id` in signed mode and the CLI resolves it from the wallet.
+4. **Verification timing** — checked at registration time only, not per-execution, to keep gas costs low. A later NFT transfer does not revoke the agent.
 
 ## Addresses
 
-The canonical registries live on **Robinhood mainnet (4663)**, and the CLI targets that
-chain for `sherwood identity mint` regardless of which chain the fund runs on. A chain
-with no registry of its own — the 46630 testnet, the 9994663 fork — falls back to 4663.
+The canonical registries live on **Robinhood Chain (4663)**, where every Sherwood vault runs, so `sherwood identity mint` and the fund commands share one chain.
 
-| Contract | Robinhood mainnet (4663) |
-|----------|--------------------------|
+| Contract | Robinhood Chain (4663) |
+|----------|------------------------|
 | IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
 
 Addresses are resolved at runtime in `cli/src/lib/addresses.ts`, keyed by chain.

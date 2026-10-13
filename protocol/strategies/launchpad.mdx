@@ -5,9 +5,11 @@ description: "Launch a fund token on Sushi Launchpad V2 or StonkBrokers with vau
 icon: "rocket"
 ---
 
-The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vault capital to launch the token on a launchpad, holds back a **reserve** of the new token, and lets the fund's share holders **claim a pro-rata slice** of that reserve during a claim window. The venue plugs in through a launch adapter. Two are deployed: **Sushi Launchpad V2** and **StonkBrokers** Smart Launch V2.
+<Warning>
+  **Community template, not deployed on Robinhood Chain (4663).** `LaunchpadStrategy` lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), outside the audited core protocol, and has not been audited. It is not approved on the 4663 `StrategyFactory`, so `sherwood strategy propose launchpad` cannot run there today. This page documents the mechanics for when it is approved; a proposal that uses it prices as an uncertified tier-2 call at full notional.
+</Warning>
 
-The template lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), not in the core protocol repo.
+The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vault capital to launch the token on a launchpad, holds back a **reserve** of the new token, and lets the fund's share holders **claim a pro-rata slice** of that reserve during a claim window. The venue plugs in through a launch adapter. Two are written: **Sushi Launchpad V2** and **StonkBrokers** Smart Launch V2.
 
 <Warning>
   **A launch settles as a loss, by design.** v1 measures a proposal's P&L as the vault's change in asset balance. Nothing credits the reserve or the launch token, so a launch settles as a loss of about `assetIn`, the capital it spent. The reserve is a **dividend in kind** to holders, not an asset the vault books. Size `--max-drawdown-bps` for that loss. The CLI does it for you: see [Drawdown](#drawdown).
@@ -152,12 +154,4 @@ sherwood launchpad finalize <strategy>             # graduate + bond a StonkBrok
 
 ## Addresses
 
-| Contract | Robinhood fork (9994663) |
-| --- | --- |
-| LaunchpadStrategy template | `0x4435Aae199907f60588902Bcd7c4363a13Bb2951` |
-| SushiLaunchAdapter | `0x20348e428050031647d671F0e24752C01D4b7379` |
-| StonkLaunchAdapter | `0x36C45dC52FbC267d8536E8456ADe5255eC83A5ab` |
-| Sushi Launchpad V2 (proxy) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` |
-| StonkBrokers lens (V2) | `0x25b5Df581f4b2Ed450203f375ad8A28b17F115B3` |
-
-Source of truth: sherwood-strategies `deployments/9994663.json`. See [Deployments](/reference/deployments#fork-addresses-9994663).
+Not deployed on Robinhood Chain (4663). When the template and its launch adapters are approved there, their addresses will be published on [Deployments](/reference/deployments) from the sherwood-strategies `deployments/4663.json` book.

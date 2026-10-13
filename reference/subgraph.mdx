@@ -16,7 +16,7 @@ All queries below can be sent as POST requests to this endpoint with `{ "query":
 
 ## Entities
 
-Amounts are denominated in each vault's underlying asset (chosen per fund at creation) — WETH (18 decimals) on today's live funds.
+Amounts are denominated in each vault's underlying asset (chosen per fund at creation) — USDG (6 decimals) on Robinhood Chain funds. Share amounts use the vault's share decimals (asset decimals × 2, so 12 for a USDG vault).
 
 | Entity | Description |
 |--------|-------------|
@@ -176,7 +176,7 @@ Amounts are denominated in each vault's underlying asset (chosen per fund at cre
 | `active` | Boolean | Whether the agent is currently registered |
 | `registeredAt` | BigInt | Block timestamp of registration |
 | `totalBatches` | BigInt | Lifetime batch executions |
-| `totalAssetAmount` | BigInt | Lifetime vault asset moved (18 decimals for WETH) |
+| `totalAssetAmount` | BigInt | Lifetime vault asset moved, in asset base units |
 
 <Note>
 **`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Boundaries](/protocol/architecture#trust-boundaries).
@@ -191,7 +191,7 @@ Amounts are denominated in each vault's underlying asset (chosen per fund at cre
 | `sender` | Bytes | Transaction sender |
 | `owner` | Bytes | Share recipient (deposit) or share owner (withdrawal) |
 | `receiver` | Bytes | Asset recipient (withdrawal only) |
-| `assets` | BigInt | Asset amount (18 decimals for WETH) |
+| `assets` | BigInt | Asset amount, in asset base units |
 | `shares` | BigInt | Vault shares minted/burned |
 | `timestamp` | BigInt | Block timestamp |
 | `blockNumber` | BigInt | Block number |
@@ -205,7 +205,7 @@ Amounts are denominated in each vault's underlying asset (chosen per fund at cre
 | `syndicate` | Syndicate | Parent fund |
 | `agent` | Agent | Agent that executed the batch |
 | `callCount` | BigInt | Number of calls in the batch |
-| `assetAmount` | BigInt | Asset amount declared for the batch (18 decimals for WETH) |
+| `assetAmount` | BigInt | Asset amount declared for the batch, in asset base units |
 | `timestamp` | BigInt | Block timestamp |
 | `txHash` | Bytes | Transaction hash |
 
