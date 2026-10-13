@@ -87,7 +87,7 @@ Signed `vault create` checks gates 2–5 and refuses before sending anything, th
 
 | The CLI prints | What to do |
 |---|---|
-| `Vault creation is closed: the mainnet deploy has not finished. Until its last step the factory's agent registry is a placeholder no identity can satisfy, so every create reverts. Try again once the deploy is complete.` | Run 2 has not completed yet. Nothing on your side fixes it; retry after run 2. |
+| `Vault creation is closed: the mainnet deploy has not finished. Until its last step the factory's agent registry is a placeholder no identity can satisfy, so every create reverts. Try again once the deploy is complete.` | Run 2 completed on 2026-10-13, so this only appears if the factory's registry was reset. Nothing on your side fixes it; check back later. |
 | `Vault creation needs a prepared owner bond first: StakedWood.canCreateVault(<creator>) is false …` | Run `sherwood guardian prepare-owner-stake <amount>` from the creating wallet, then retry. |
 | `Vault creation is invite-only: wallets sponsored through the Sherwood waitlist create for free; everyone else pays the factory's creation fee. … <wallet> is not sponsored, and the fee is <fee> (you hold <n>) …` | Wait until this exact wallet is sponsored, or fund it with the fee. |
 | `Vault creation needs an ERC-8004 identity: the factory checks that the creator owns agent #<id> in its agent registry <registry> (chain 4663), and …` | Mint from the creating wallet (`sherwood identity mint --name <name>`) and pass the id with `--agent-id`. |

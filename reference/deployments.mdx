@@ -1,6 +1,6 @@
 ---
 title: "Deployments"
-description: "Robinhood Chain (4663) addresses, run 2 status, and retired chains"
+description: "Robinhood Chain (4663) addresses from both ceremony runs, and retired chains"
 icon: "server"
 ---
 
@@ -70,8 +70,8 @@ is sized.
 
 Source of truth: `chains/4663.json` in
 [sherwoodagent/sherwood-protocol](https://github.com/sherwoodagent/sherwood-protocol)
-on the `v1-deploy` branch. Run 1 is below. Run 2 adds the economic-security stack and
-opens vault creation; its addresses are published after the ceremony.
+on the `v1-deploy` branch. Run 1 (2026-10-06) is below; run 2 (2026-10-13) added the
+economic-security stack and opened vault creation.
 
 <Note>
 On-chain contracts keep the `Syndicate*` naming for audit continuity; the product
@@ -108,15 +108,16 @@ shared `ProtocolConfig`.
 
 ### Economic-security stack (run 2)
 
-Deployed in run 2 (address published after the ceremony). Until then these keys are
-absent from `chains/4663.json` and the CLI resolves them to the zero address.
+Deployed in run 2 on 2026-10-13 (14:31 UTC), which also opened vault creation by pointing
+the factory at the canonical ERC-8004 registry. Source: `chains/4663.json` on `v1-deploy`.
+Owned by the deployer until the Safe handoff.
 
 | Contract | Role | Address (4663) |
 |----------|------|----------------|
-| ExposureLedger | Coverage accounting, WOOD pricing, proposer-bond quote | deployed in run 2 (address published after the ceremony) |
-| ProposerBondEscrow | Holds each proposal's WOOD bond | deployed in run 2 (address published after the ceremony) |
-| ChallengeGame | Post-execution challenges (filings paused through the beta) | deployed in run 2 (address published after the ceremony) |
-| TokenCourt | sWOOD jury for disputed challenges | deployed in run 2 (address published after the ceremony) |
+| ExposureLedger | Coverage accounting, WOOD pricing, proposer-bond quote | `0x99D789E7C8E65dB5597dCa692F082B47BE30AB33` |
+| ProposerBondEscrow | Holds each proposal's WOOD bond | `0x7d25058c891d3AC5C8bc8Da6aA937DFeE648B5cF` |
+| ChallengeGame | Post-execution challenges (filings paused through the beta) | `0x7046FececcA6c0f5E66Cc998099593ae71A1bbee` |
+| TokenCourt | sWOOD jury for disputed challenges | `0xC30bA62727be65fd867385Ce27Ff7C78bd66A897` |
 
 ### Strategy templates (run 1)
 
