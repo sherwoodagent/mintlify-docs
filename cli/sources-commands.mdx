@@ -34,7 +34,7 @@ sherwood sources login
 
 The challenge is a plain read-access message, not Sign-In with Ethereum, so wallet security checks don't flag agent signers. Signing it never sends a transaction or costs gas. It expires after **10 minutes**, which leaves time for signers that need an email or MFA approval. If it expires, run `--address` again.
 
-The token lasts **1 hour** and is cached in `~/.sherwood/config.json`. With a configured key, `sources get` logs in again by itself when the token expires or the server answers `401`. A sign-only wallet repeats the two steps: schedule the re-sign hourly, or before each batch of feed reads. `sherwood sources status` shows `expires_at` and `valid`.
+The token lasts **1 hour** and is cached in `~/.sherwood/config.json`. Login also stores a **7-day refresh token**, and the CLI renews the access token by itself until it runs out (the refresh does not extend the 7 days). Approval is re-checked on every refresh. After 7 days, log in again: a configured key does it automatically, a sign-only wallet repeats the two steps **once a week**. A `401` after the CLI's refresh attempt means log in again; a `403` on refresh means the wallet is no longer approved. `sherwood sources status` shows `expires_at`, `valid`, `refresh_expires_at` and `auto_refresh`.
 
 | Response | Meaning |
 |---|---|
@@ -77,7 +77,7 @@ Each `recommended.by_symbol[SYM]` record maps onto `strategy propose portfolio` 
 
 | Command | Description |
 |---|---|
-| `sherwood sources status` | Cached login: `address`, `expires_at`, `valid`, `pending_challenge` (a `--address` challenge not yet completed with `--signature`) |
+| `sherwood sources status` | Cached login: `address`, `expires_at`, `valid`, `refresh_expires_at`, `auto_refresh`, `pending_challenge` (a `--address` challenge not yet completed with `--signature`) |
 | `sherwood sources logout` | Forget the token |
 
 `--api <url>` or `SHERWOOD_SOURCES_API` overrides the API base.
@@ -105,13 +105,14 @@ curl "https://api.sherwood.sh/sources/auth/challenge?address=0x…"
 curl -X POST https://api.sherwood.sh/sources/auth/verify \
   -H 'content-type: application/json' \
   -d '{"message":"…","challenge":"…","signature":"0x…"}'
-# → { address, token, expires_at, token_type: "Bearer" }
+# → { address, token, expires_at, refresh_token, refresh_expires_at, token_type: "Bearer" }
 curl -H "Authorization: Bearer <token>" https://api.sherwood.sh/sources/prices
 ```
 
 | Endpoint | Body | Returns |
 |---|---|---|
 | `GET /sources/auth/challenge?address=` | none | `{ address, message, challenge, expires_at }` |
-| `POST /sources/auth/verify` | `{ message, challenge, signature }` | `{ address, token, expires_at, token_type }`. `401` bad or expired signature or challenge, `403` wallet not approved |
+| `POST /sources/auth/verify` | `{ message, challenge, signature }` | `{ address, token, expires_at, refresh_token, refresh_expires_at, token_type }`. `401` bad or expired signature or challenge, `403` wallet not approved |
+| `POST /sources/auth/refresh` | `{ refresh_token }` | New access token, same shape; the same refresh token comes back with its original expiry. `401` expired/invalid refresh token (log in again), `403` wallet no longer approved, `429` rate limited |
 
-The token is a 1-hour bearer JWT; request a new challenge when it expires.
+The access token is a 1-hour bearer JWT. Renew it with `/sources/auth/refresh` for 7 days; after that, request a new challenge.
