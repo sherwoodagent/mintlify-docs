@@ -98,17 +98,19 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
   </Step>
 
   <Step title="Fund the wallet: ETH for gas + WOOD">
-    The creator wallet needs ETH on Robinhood Chain for gas, and WOOD for three pulls:
+    The creator wallet needs ETH on Robinhood Chain for gas, and WOOD for three pulls.
+
+    **You need WOOD twice.** The **owner stake** is locked once, at `vault create`, for the life of the vault. The **proposer bond** is paid on every proposal, scales with the coverage the proposal requests, needs its own WOOD approve to `ProposerBondEscrow`, and is returned when the proposal settles cleanly. Buy enough for the stake plus at least one bond. On the mainnet test, a 60 USDG basket needed a 366 WOOD bond on top of the 10,000 WOOD stake.
 
     | Pull | Amount | Returned? |
     |------|--------|-----------|
     | Owner stake | 10,000 WOOD (`StakedWood.minOwnerStake`) | Yes, after a 7-day cooldown once the vault has no open proposal |
     | Creation fee | 1,000,000 WOOD, unless the wallet is sponsored | No |
-    | Proposer bond | Quoted per proposal: 1% of the proposal's required coverage, in USD, converted at the ledger's haircut WOOD price (50% haircut at launch). For an uncertified Portfolio proposal coverage is about twice the deployed capital, so the bond is roughly 4% of deployed capital in WOOD at spot, and about 0.8% once the Portfolio class is certified at 2,000 bps | Yes, on any terminal state via `sherwood proposal reclaim-bond` |
+    | Proposer bond | Quoted per proposal in WOOD by the CLI: 1% of the proposal's required coverage. For an uncertified Portfolio proposal, plan on roughly 4% of deployed capital in WOOD, and about 0.8% once the Portfolio class is certified at 2,000 bps. The CLI approves the quote + 5% | Yes, when the proposal settles cleanly (or on any terminal state) via `sherwood proposal reclaim-bond` |
 
     **Reserve rule.** Hold the 10,000 WOOD stake plus roughly 10% of the capital you plan to deploy in WOOD (about 2% once Portfolio is certified), plus 1,000,000 WOOD if you are not sponsored. The CLI quotes the live bond at `strategy propose`; never treat any fixed WOOD figure or WOOD price as the requirement. A WOOD price fall raises the WOOD count of every new bond.
 
-    **Buying WOOD.** No CLI command buys WOOD. It trades against WETH on Uniswap on Robinhood Chain: V2 pair `0xBF3BB81de6285b8310A028d1C2Cd38F9419d54C1`, V3 pool `0xF6831AaF374B353757F0dE6B3DD2a74697671C69`, swap router `0xcaf681a66d020601342297493863e78c959e5cb2`. The pools are shallow, so quote first, buy in tranches and set a slippage limit. If you already hold WOOD elsewhere, a plain transfer to the agent wallet is cheaper than a swap. Addresses: [Deployments](/reference/deployments#wood).
+    **Buying WOOD.** No CLI command buys WOOD. With the MetaMask Agent Wallet, swap USDG for WOOD with `mm swap` (quote first). Expect price impact: 10,000 WOOD cost about $33 on the mainnet test, not the ~$16 spot implies. WOOD also trades against WETH on Uniswap on Robinhood Chain: V2 pair `0xBF3BB81de6285b8310A028d1C2Cd38F9419d54C1`, V3 pool `0xF6831AaF374B353757F0dE6B3DD2a74697671C69`, swap router `0xcaf681a66d020601342297493863e78c959e5cb2`. The pools are shallow, so quote first, buy in tranches and set a slippage limit. If you already hold WOOD elsewhere, a plain transfer to the agent wallet is cheaper than a swap. Addresses: [Deployments](/reference/deployments#wood).
 
     <Warning>
     **Ask before funds move.** An agent running this guide must show the user the ETH amount, the expected WOOD and the route, and wait for an explicit yes before swapping, staking, paying the fee or bonding. `-y` only skips the CLI's own prompt.

@@ -41,18 +41,25 @@ The clone is deployed and initialized on-chain. The proposer (your wallet) pays 
 <Warning>
 **Proposer bond (WOOD).** `propose` pulls a risk-scaled WOOD bond into
 `ProposerBondEscrow` — a **second** WOOD spend after the 10,000 WOOD owner stake.
-The CLI quotes `ExposureLedger.proposerBondWood`, sets allowance, and exits with
-`InsufficientProposerBondWood` if the wallet balance is short. The wallet must
-**hold** the WOOD. The bond is 1% of the proposal's required coverage in USD,
-converted at the ledger's haircut WOOD price (50% haircut at launch): for an
-uncertified Portfolio proposal that is roughly 4% of deployed capital in WOOD at
-spot, about 0.8% once the Portfolio class is certified. Do not treat a fixed WOOD
+Before signing, the CLI prints the bond quote (`ExposureLedger.proposerBondWood`),
+a 5% buffer, your free WOOD and your current allowance. It approves only the
+**quote + 5%** (never unlimited), re-quotes right before `propose`, and
+re-approves only if the fresh quote exceeds the allowance. It exits with
+`InsufficientProposerBondWood` if the wallet balance is short; the wallet must
+**hold** the WOOD. The bond is 1% of the proposal's required coverage, quoted in
+WOOD by the CLI: for an uncertified Portfolio proposal plan on roughly 4% of
+deployed capital in WOOD, about 0.8% once the Portfolio class is certified.
+It is returned when the proposal settles cleanly. Do not treat a fixed WOOD
 number as the requirement; reclaim it after the proposal ends with
 `sherwood proposal reclaim-bond`. See [Proposer bond](/protocol/governance/proposer-bond).
 </Warning>
 
 
 All-in-one command: clone + initialize + build batch calls + submit proposal (or write JSON files).
+
+- **Thesis attestation is on by default.** A public track-record attestation is made with each proposal unless you pass `--no-attest`. `--attest-thesis <file>` supplies the text; without it the thesis is built from `--name` and `--description`. It never blocks the proposal.
+- **App link.** After the propose confirms, the CLI prints `Proposal #<id> - view on the vault page: https://app.sherwood.sh/vault/<vault address>`. Share it with the owner. There is no per-proposal page.
+- **Guardian coverage.** For Cohort 1 vaults, the Sherwood team guardian covers cohort proposals by default.
 
 <Note>
 This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`, set by the vault owner via [`sherwood vault set-agent-fee`](/cli/governance-commands#sherwood-vault-set-agent-fee) within the protocol ceiling (for example 20%). Each proposal snapshots it at propose time; the governor clamps that snapshot to `maxPerformanceFeeBps` at settlement.

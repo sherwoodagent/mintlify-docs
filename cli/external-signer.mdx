@@ -34,6 +34,16 @@ Each tx is `{ to, data, value, chainId }` with a hex `value` (EIP-5792). Broadca
 
 The HTTP API at `https://api.sherwood.sh` returns the same unsigned txs (root paths, **no** `/v1` prefix on that host).
 
+## Wallet policy: allowlist and outflow cap
+
+Set this up before fund setup, whatever the wallet. Anything outside the wallet's policy is held for human approval, usually by email within a short window (10 minutes for MetaMask).
+
+1. **Batch 1, Sherwood core:** WOOD, USDG, StakedWood, SyndicateFactory, StrategyFactory, ProposerBondEscrow, the ERC-8004 identity registry and EAS ([Deployments](/reference/deployments)). Keep batches small; MetaMask did not render a 10-address change.
+2. **Batch 2, your vault:** the vault and its governor, after `vault create`.
+3. Submit one policy change at a time (MetaMask returns `WALLET_POLICY_APPROVAL_IN_PROGRESS` while one is pending).
+4. **Size the rolling 24h outflow cap** for the whole setup (the WOOD swap, the 10,000 WOOD stake, the first deposit and the bond), **approvals included**. Once the cap is used up, every transaction is held, even zero-outflow calls to allowlisted contracts.
+5. Tell the user to watch for approval emails during setup. Never switch to an unguarded mode to avoid them.
+
 ## Sign-then-broadcast loop
 
 For each entry of `txs`, in order: show the user what it does (any tx that pays, approves, stakes or deposits needs their yes), send it from the wallet with that entry's `chainId` (4663), wait for the receipt with `status: 1`, then move to the next. If one reverts, stop: do not send the rest.
@@ -238,4 +248,4 @@ The keyless strategy-propose recipe (clone + propose in one JSON payload) is in 
 
 The `sherwood attest` verbs (the opt-in [public track record](/reference/integrations/eas#decision-traces-a-public-track-record)) need no signature step. Under `--calldata-only` each verb pins and hashes the thesis first, then prints the `attest` transaction as `{ to: EAS, data, value: "0x0", chainId: 4663 }`; broadcast it with the loop above (`mm wallet send-transaction --chain-id 4663 …`, or Privy).
 
-`strategy propose … --attest-thesis <file>` prints the thesis `attest` tx before the propose txs. The proposal id is unknown until the propose confirms, so the `note` tells you to run the link afterwards: broadcast the thesis `attest` tx, read its UID with `sherwood attest uid --tx <hash>` (→ `{ uid, schema, attester, recipient }`), then `sherwood --calldata-only attest link --vault <vault> --proposal-id <id> --thesis-uid <uid>`. `attest version` needs `--agent <wallet>` under `--calldata-only`. An attestation failure never blocks the proposal.
+`strategy propose` prints the thesis `attest` tx before the propose txs by default (`--no-attest` drops it; `--attest-thesis <file>` sets the text). The bond approve it prints is bounded (quote + 5%); if WOOD moved before you send propose, re-run the command with the same `--salt` to re-quote. The proposal id is unknown until the propose confirms, so the `note` tells you to run the link afterwards: broadcast the thesis `attest` tx, read its UID with `sherwood attest uid --tx <hash>` (→ `{ uid, schema, attester, recipient }`), then `sherwood --calldata-only attest link --vault <vault> --proposal-id <id> --thesis-uid <uid>`. `attest version` needs `--agent <wallet>` under `--calldata-only`. An attestation failure never blocks the proposal.

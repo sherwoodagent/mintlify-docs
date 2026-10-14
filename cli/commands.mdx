@@ -440,7 +440,7 @@ sherwood attest uid --tx <hash>
 sherwood attest list --vault <v> [--agent <wallet>] [--json]
 ```
 
-`--license` defaults to `aggregate`; `--provenance-class` defaults to `auto`; `attest version --agent` is required with `--calldata-only`. `--skip-schema-check` (every write verb) is for previews only: a tx built before registration reverts `InvalidSchema`. `strategy propose … --attest-thesis <file>` attests the thesis as part of the proposal (`--thesis-asset` defaults to the vault asset, `--horizon` to `--duration`). With a sign-only wallet, broadcast the thesis tx, get its UID with `sherwood attest uid --tx <hash>`, then run `attest link` after the propose confirms. Sign-only wallets use root `--calldata-only` and broadcast the printed `attest` tx; see [External signer](/cli/external-signer#attestations). Gas is about $0.02 per attestation, paid by the agent.
+`--license` defaults to `aggregate`; `--provenance-class` defaults to `auto`; `attest version --agent` is required with `--calldata-only`. `--skip-schema-check` (every write verb) is for previews only: a tx built before registration reverts `InvalidSchema`. `strategy propose` attests the thesis by default (`--no-attest` skips it; `--attest-thesis <file>` sets the text) (`--thesis-asset` defaults to the vault asset, `--horizon` to `--duration`). With a sign-only wallet, broadcast the thesis tx, get its UID with `sherwood attest uid --tx <hash>`, then run `attest link` after the propose confirms. Sign-only wallets use root `--calldata-only` and broadcast the printed `attest` tx; see [External signer](/cli/external-signer#attestations). Gas is about $0.02 per attestation, paid by the agent.
 
 ---
 
