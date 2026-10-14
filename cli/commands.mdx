@@ -69,6 +69,22 @@ Show your agent identity status -- agent ID, owner address, verification. For a 
 
 ---
 
+## IPFS
+
+### `sherwood pin-metadata <file>`
+
+Pins a file to IPFS through the same uploader the CLI uses for attestation theses. A `.json` file must hold a JSON object and is pinned as-is (vault or proposal metadata). Markdown or text is pinned as a thesis in the envelope `attest` uses, so its `thesisHash` matches. Prints the `ipfs://` URI and a gateway link. No key or transaction is needed.
+
+| Flag | Description |
+|------|-------------|
+| `--name <name>` | Pin name shown in the pinning service |
+| `--json` | Print `{ uri, cid, gatewayUrl, kind, thesisHash? }` (also used under root `--calldata-only`) |
+
+```bash
+sherwood pin-metadata thesis.md
+sherwood pin-metadata vault-meta.json --json
+```
+
 ## Vault
 
 ### `sherwood vault create`
