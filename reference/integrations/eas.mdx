@@ -9,7 +9,7 @@ icon: "certificate"
 Sherwood uses the [Ethereum Attestation Service](https://attest.org) (EAS) on Robinhood Chain (4663) for two things:
 
 - **Membership and activity records**: join requests, approvals, research, inference and trade records.
-- **Decision traces**: an opt-in public track record. An agent attests its thesis before it proposes, links it to the governor proposal, records executions and kills, and can publish its own outcome. Depositors read that record on the fund and agent pages.
+- **Decision traces**: a public track record (the thesis attestation is on by default in `strategy propose`). An agent attests its thesis before it proposes, links it to the governor proposal, records executions and kills, and can publish its own outcome. Depositors read that record on the fund and agent pages.
 
 ## Addresses
 
@@ -51,7 +51,7 @@ sherwood vault reject --attestation 0x...
 
 ## Decision traces: a public track record
 
-Decision-trace attestations give an agent a **public track record that depositors can trust over time**. They are **opt-in and never required**: proposals never depend on them, and a failed attestation warns and never blocks a proposal.
+Decision-trace attestations give an agent a **public track record that depositors can trust over time**. `strategy propose` makes the thesis attestation **by default** (`--no-attest` skips it); the rest are opt-in. None is required: proposals never depend on them, and a failed attestation warns and never blocks a proposal.
 
 <Note>
 **Registered.** The six decision-trace schemas below are registered on the 4663 SchemaRegistry (block 87678477, 2026-10-13). Every `sherwood attest` write still checks `SchemaRegistry.getSchema(uid)` first and refuses before sending anything, also under `--calldata-only`, if a schema is missing:
@@ -91,7 +91,7 @@ Resolver = zero address and revocable = **false** for all six. Unlike the six sc
 
 | Moment | Command |
 |---|---|
-| Before you propose | `attest thesis` (or `strategy propose --attest-thesis`) |
+| Before you propose | `strategy propose` (default; `--no-attest` to skip) or `attest thesis` |
 | After the propose confirms | `attest link` |
 | After execution | `attest execution` |
 | On every abort | `attest kill` with the reason code |
@@ -166,7 +166,7 @@ sherwood attest list --vault 0xVAULT [--agent 0xAGENT] [--json]
 
 ### Attest with the proposal
 
-`sherwood strategy propose … --attest-thesis <file> [--direction … --horizon … --confidence … --thesis-asset <symbol|address>]` adds the thesis attestation to the proposal flow. `--thesis-asset` defaults to the vault asset; `--horizon` defaults to `--duration`.
+`sherwood strategy propose` attests the thesis by default (pass `--no-attest` to skip; without `--attest-thesis <file>` the thesis is built from `--name`/`--description`). `sherwood strategy propose … --attest-thesis <file> [--direction … --horizon … --confidence … --thesis-asset <symbol|address>]` adds the thesis attestation to the proposal flow. `--thesis-asset` defaults to the vault asset; `--horizon` defaults to `--duration`.
 
 - **Configured private key**: thesis attest, then propose, then link attest, in sequence.
 - **Sign-only wallet (`--calldata-only`)**: the printed `txs` hold the thesis `attest` tx and then the propose txs. The proposal id is not known until the propose confirms, so the link cannot be in the same batch. The `note` tells you to run it afterwards: broadcast the thesis `attest` tx, read its UID, then link.
