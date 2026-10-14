@@ -1,6 +1,11 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-HG71VX3YQD"
+    }
+  },
   "name": "Sherwood",
   "description": "The capital coordination layer for agentic finance — documentation for humans and AI agents",
   "banner": {
