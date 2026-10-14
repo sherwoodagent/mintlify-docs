@@ -137,7 +137,8 @@ sherwood proposal show <id> --vault <addr>
 Displays:
 
 - Proposal metadata (from IPFS if available)
-- State, timestamps (created, vote end, execution deadline, executed, settled)
+- State, timestamps (created, vote end, review end, execution deadline, executed, settled)
+- **Guardian coverage** (from `GuardianReview` on), read from the `ExposureLedger`: each approving guardian's WOOD lock and its USD value, total WOOD locked, required coverage in the vault asset (for example `60 USDG`) and its USD value, and a status: `FULL`, `PARTIAL` (with the share of capital execute would deploy), `NONE` (execute reverts `InsufficientApproveCoverage`) or `UNKNOWN` (feed unavailable; retry). The governor's `effectiveMaxCapital` is only written at execute, so do not use it to check coverage during review
 - Vote breakdown — voting is optimistic, so only AGAINST weight is tallied, against `votableSupply × vetoThresholdBps`. There is no `votesFor` / `votesAbstain`
 - The strategy's address and where it came from (**provenance**): `Cloned from the core protocol <name> template 0x… (sherwoodagent/sherwood-protocol).` for Portfolio, Morpho Supply and Concentrated Liquidity; `Cloned from the <name> template 0x… (sherwoodagent/sherwood-strategies).` followed by `This strategy is unaudited: …` for a community template; `Not cloned from any template: this strategy is hand-written code …` for a strategy registered directly on the `StrategyFactory`; or `Provenance could not be read (<reason>).` Signed `proposal vote` prints the same lines before it sends the vote
 - Decoded calls (show target names for known targets like the vault's swap adapter and ERC-20 approvals)
@@ -207,8 +208,10 @@ An Approve whose lock is worth less than the floor reverts `ApproveLockBelowFloo
 Execute an approved proposal (anyone can call).
 
 ```bash
-sherwood proposal execute --id <proposalId> --vault <addr> [--dry-run]
+sherwood proposal execute --id <proposalId> --vault <addr> [--dry-run] [--allow-partial-coverage]
 ```
+
+`--dry-run` first checks guardian coverage on the `ExposureLedger` (the same section `proposal show` prints) and exits non-zero when it is short: `NONE` (execute would revert `InsufficientApproveCoverage`), `PARTIAL` (unless you pass `--allow-partial-coverage`) or `UNKNOWN`. It then simulates the execute calls.
 
 ### Flow
 
@@ -256,7 +259,7 @@ sherwood proposal cancel --id <proposalId> --vault <addr> [--emergency]
 - **Proposer** (default): can cancel from `Draft`, `Pending` (while the voting window is open), `GuardianReview`, or `Approved`. A cancel during `GuardianReview` also drives `registry.cancelReview` so approvers can't be slashed by a stale resolution.
 - **Vault owner** (`--emergency`): can `emergencyCancel` only from `Draft` or `Pending`. Once a proposal reaches `GuardianReview` or `Approved`, only the proposer can cancel.
 
-A cancel releases the proposer bond; reclaim it with [`proposal reclaim-bond`](#sherwood-proposal-reclaim-bond).
+A cancel releases the proposer bond; reclaim it with [`proposal reclaim-bond`](#sherwood-proposal-reclaim-bond). It also starts the governor cooldown: the CLI prints the time the next proposal can be submitted, and `strategy propose` / `proposal create` refuse before then with `CooldownNotElapsed` and that time (with `--calldata-only` they warn instead). Reproposing the same strategy reuses the existing, never-executed clone, so no clone transaction is sent.
 
 ---
 
@@ -351,7 +354,7 @@ sherwood governor info --vault <addr>
   Min Buffer (vault):   0%    (default, inert)
 ```
 
-The factory defaults are a 24h voting period (bounds 1h–3d), 24h execution window (1h–7d), 20% veto threshold (20–80%), 20% max performance fee (ceiling 25%), 30d max strategy duration (1h–30d) and 1h cooldown (1h–30d). The last three lines are the per-vault caps to seed before the first proposal.
+The factory defaults are a 24h voting period (bounds 30 min–3d on mainnet 4663), 24h execution window (1h–7d), 20% veto threshold (20–80%), 20% max performance fee (ceiling 25%), 30d max strategy duration (1h–30d) and 1h cooldown (1h–30d). The last three lines are the per-vault caps to seed before the first proposal.
 
 <Note>
 There is no "Registered Vaults" list any more — each governor serves exactly one vault. The fee splits are not shown here either; they live on the shared `ProtocolConfig`, not the per-vault governor. See [Economics](/protocol/governance/economics).
@@ -380,12 +383,12 @@ The vault owner sets the governance periods. Change them while no proposal is op
 
 | Period | Setter | Bounds | Testing | Production |
 |---|---|---|---|---|
-| Voting period | `set-voting-period` | `MIN_VOTING_PERIOD` (1 hour on mainnet 4663) to 3 days | `3600` (1 hour) | 24 hours or more |
+| Voting period | `set-voting-period` | `MIN_VOTING_PERIOD` (30 min on mainnet 4663) to 3 days | `1800` (30 min) | 24 hours or more |
 | Execution window | `set-execution-window` | 1 hour to 7 days | `3600` | 1–2 days |
 | Cooldown | `set-cooldown` | `MIN_COOLDOWN_PERIOD` (1 hour on mainnet) to 30 days | `3600` | as needed |
 | Max strategy duration | `set-max-duration` | 1 hour to 30 days | — | match the strategy |
 
-The guardian review period after voting is protocol-set (`GuardianRegistry`), not owner-tunable. For a fast test cycle, set the voting period to 1 hour before the first proposal.
+The guardian review period after voting is protocol-set (`GuardianRegistry.reviewPeriod`, 30 min on mainnet 4663), not owner-tunable. A proposal keeps the periods it was created with, so a change applies to the next proposal. For a fast test cycle, set the voting period to 30 min (`1800`) before the first proposal: vote ends 30 min after propose, review 30 min after that.
 
 `set-max-capital` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault. The matching vault-side cap is [`sherwood vault set-min-buffer`](/cli/commands#sherwood-vault-set-min-buffer).
 

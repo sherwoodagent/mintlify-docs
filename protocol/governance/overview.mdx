@@ -54,10 +54,10 @@ Depositors cannot call `vetoProposal`; it reverts `NotVaultOwner`. Depositors bl
     At propose the governor prices the calls into [`requiredCoverage`](/protocol/governance/coverage), checks the covered-TVL cap and the 60-day horizon, and pulls the [proposer bond](/protocol/governance/proposer-bond) into `ProposerBondEscrow`. From this moment the vault's instant deposit and redeem paths are closed (`openProposalCount() != 0`), see [Deposits & Withdrawals](/protocol/vault-liquidity).
   </Step>
   <Step title="Depositors vote">
-    `votingPeriod` (24 h at launch). Weight is vault shares at the snapshot. Only `Against` counts.
+    `votingPeriod` (24 h by default; owner-set, 30 min minimum on 4663). Weight is vault shares at the snapshot. Only `Against` counts.
   </Step>
   <Step title="Guardians review and underwrite">
-    `reviewPeriod` (24 h). Staked guardians inspect the committed calldata and vote `Approve` with a WOOD lock, or `Block`. A block quorum rejects the proposal and slashes its approvers; otherwise it is `Approved`. See [Guardian Review](/protocol/governance/guardian-review).
+    `reviewPeriod` (30 min on 4663; protocol-set). Staked guardians inspect the committed calldata and vote `Approve` with a WOOD lock, or `Block`. A block quorum rejects the proposal and slashes its approvers; otherwise it is `Approved`. See [Guardian Review](/protocol/governance/guardian-review).
   </Step>
   <Step title="Anyone executes">
     Within `executionWindow` (24 h), `executeProposal(proposalId)` replays the opening calls through `vault.executeGovernorBatch`. Capital is scaled to the coverage guardians actually booked. Nothing new enters at execution.
@@ -116,7 +116,7 @@ Launch values are the factory defaults every new governor starts with. Bounds ar
 
 | Parameter | Launch value | Bounds | Setter |
 |-----------|--------------|--------|--------|
-| `votingPeriod` | 24 h | 1 h – 3 d | `setVotingPeriod` |
+| `votingPeriod` | 24 h | 30 min – 3 d | `setVotingPeriod` |
 | `vetoThresholdBps` | 2,000 (20%) | 2,000 – 8,000 | `setVetoThresholdBps` |
 | `executionWindow` | 24 h | 1 h – 7 d | `setExecutionWindow` |
 | `cooldownPeriod` | 1 h | 1 h – 30 d | `setCooldownPeriod` |
