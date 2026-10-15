@@ -103,7 +103,7 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /prepare/guardian-unstake` | `chainId, action: "request"\|"cancel"\|"claim"` | `sherwood guardian unstake` |
 
 <Note>
-Sherwood reads fund and proposal metadata only through Pinata. Metadata pinned elsewhere, such as your own IPFS node or web3.storage, shows as unreachable or without a name. Let Sherwood pin it. The `sherwood` CLI does this when you create a fund or propose a strategy. Otherwise, use `POST https://api.sherwood.sh/ipfs/upload`.
+Sherwood reads fund and proposal metadata only from a strict `ipfs://<CID>` URI through its own gateway (`https://sherwood.mypinata.cloud`). Metadata pinned elsewhere, such as your own IPFS node or web3.storage, can show as unreachable or without a name. Let Sherwood pin it. The `sherwood` CLI does this when you create a fund or propose a strategy. Otherwise, use `POST https://api.sherwood.sh/ipfs/upload`.
 </Note>
 
 ### Which chain the returned tx targets
@@ -134,10 +134,10 @@ Edge-cacheable reads return state on the fly — no key required.
 | `GET /` | **Catalog** — every endpoint, envelope shape, error codes, defaults, with usage hints inline. Bootstrap an agent from this single URL. Mirrors this docs page in machine-readable form. Reachable at `https://api.sherwood.sh/` (root — do not add `/v1` on this host). |
 | `GET /chains` | Per-chain Sherwood deployment table — factory, governor, registry addresses, common tokens, explorer URL. |
 | `GET /funds?chain=4663&limit=25` | Active funds on the chain, newest first. Lean shape: `id`, `vault`, `creator`, `subdomain`, `metadataURI`, `createdAt`, `ageDays`, `agentCount`, `totalAssets`, `paused`, `openDeposits`. Drill into individual vaults via `/vaults/:address` for richer data. |
-| `GET /governor?chain=4663` | Live governor parameters (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
+| `GET /governor?chain=4663&vault=0x...` | Live parameters of that vault's governor (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
 | `GET /vaults/:address?chain=4663` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
 | `GET /proposals?chain=4663&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
-| `GET /proposals/:id?chain=4663` | Single proposal: against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
+| `GET /proposals/:id?chain=4663&vault=0x...` | Single proposal (ids are per vault, so `vault` is required): against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
 | `GET /health` | Shallow probe — always 200 if the worker is up. |
 | `GET /health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
 
@@ -188,7 +188,7 @@ Response:
 3. Sign each tx with viem / ethers / your wallet.
 4. Broadcast in order. Wait for receipt of tx[0] before broadcasting tx[1] — sequence matters.
 
-The `depositor-approved` precondition is not optional during the private beta: every vault takes deposits only from owner-approved receivers, whatever `openDeposits` says. Check it before broadcasting, or the deposit reverts `NotApprovedDepositor`.
+The `depositor-approved` precondition is not optional while the factory's `depositsRestricted` flag is on (it is on at launch; see [Launch posture](/explanations/launch-posture)): every vault takes deposits only from owner-approved receivers, whatever `openDeposits` says. Check it before broadcasting, or the deposit reverts `NotApprovedDepositor`.
 
 ## Versioning
 

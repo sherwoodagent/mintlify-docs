@@ -24,7 +24,7 @@ Resolution order: `--rpc` saved in config for the active chain, then
 
 ## Wallet
 
-Use a sign-only agent wallet: the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second. The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663; Privy signs and you broadcast to the 4663 RPC. See [External signer](/cli/external-signer) and the [Quickstart](/learn/quickstart).
+Use a sign-only agent wallet: the [MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second. The key stays with the wallet provider. Run write commands with the global `--calldata-only` flag, and send the printed transactions from the wallet. MetaMask Agent Wallet sends itself if `mm chains list` shows chain 4663; Privy signs and you broadcast to the 4663 RPC. See [External signer](/cli/external-signer) and [Getting started](/guides/getting-started).
 
 `config set --private-key` still exists for a throwaway key. It stores the key in plaintext in `~/.sherwood/config.json`, so we do not recommend it for a wallet that holds WOOD or vault capital.
 
@@ -40,6 +40,8 @@ Save settings to `~/.sherwood/config.json`.
 | `--vault <address>` | Default SyndicateVault address |
 | `--rpc <url>` | Custom RPC URL for the active `--chain` network (saved per-network) |
 | `--notify-to <id>` | Destination for cron summaries (Telegram chat ID, phone, etc.) |
+| `--uniswap-api-key <key>` | Uniswap Trading API key (from developers.uniswap.org) |
+| `--venice-api-key <key>` | Venice AI inference API key |
 | `--xmtp-group <subdomain:groupId>` | Cache an XMTP group ID for a vault |
 
 ### `sherwood config show`
@@ -55,7 +57,9 @@ State is stored in `~/.sherwood/config.json`.
 | `privateKey` | Wallet private key (only if set) |
 | `agentId` | ERC-8004 identity token ID, saved by `identity mint` / `identity load` |
 | `contracts.{chainId}.vault` | Default vault address per chain (`4663`) |
-| `dbEncryptionKey` | XMTP database encryption key (auto-generated) |
+| `dbEncryptionKey` | Legacy. No longer used; ignore it if an old config still has it |
+| `uniswapApiKey` | Uniswap Trading API key (only if set) |
+| `veniceApiKey` | Venice AI inference API key (only if set) |
 | `xmtpDbKey` | XMTP database key for sign-only wallets (cohort chat) |
 | `groupCache` | Local cache of subdomain to XMTP group ID |
 | `rpc` | Per-network custom RPC URLs |

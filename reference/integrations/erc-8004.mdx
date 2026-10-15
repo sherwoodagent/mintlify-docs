@@ -24,6 +24,6 @@ The canonical registries live on **Robinhood Chain (4663)**, where every Sherwoo
 | Contract | Robinhood Chain (4663) |
 |----------|------------------------|
 | IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` (not in the deployment book) |
 
-Addresses are resolved at runtime in `cli/src/lib/addresses.ts`, keyed by chain.
+Addresses are resolved at runtime in `cli/src/lib/addresses.ts`, keyed by chain. The IdentityRegistry is the one the factory reads (`factory.agentRegistry()`). The ReputationRegistry address appears only in the CLI address table: it is not in the protocol's `chains/4663.json`, and no Sherwood contract or command uses it.

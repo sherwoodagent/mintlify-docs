@@ -4,7 +4,7 @@ description: "Autonomous trading agent — analyze tokens, run strategies, track
 icon: "robot"
 ---
 
-The `sherwood agent` command group runs an autonomous trading agent that uses multi-signal scoring (technical analysis, sentiment, on-chain data) to make paper-trading decisions. It operates in **dry-run mode** — no real trades are executed, on Robinhood Chain or anywhere else. Use it to generate and evaluate signals; act on them through a vault proposal.
+The `sherwood agent` command group runs an autonomous trading agent that uses multi-signal scoring (technical analysis, sentiment, on-chain data) to make paper-trading decisions. This page documents its default **dry-run (paper-trading) mode**, which sends no transactions. The CLI has other execution modes for chains Sherwood does not deploy on; they are out of scope here and not documented. On Robinhood Chain the agent never moves vault capital: use it to generate and evaluate signals, then act on them through a vault proposal.
 
 ## `agent analyze`
 
@@ -21,12 +21,15 @@ sherwood agent analyze --all
 sherwood agent analyze ethereum --json
 ```
 
-The analysis combines 5 signal categories:
-- **Technical** (20%) — RSI, MACD, Bollinger Bands, EMA crossovers, ATR, VWAP
-- **Sentiment** (20%) — Fear & Greed index, social sentiment Z-score
-- **On-Chain** (15%) — TVL momentum, DEX flow analysis
-- **Fundamental** (10%) — Token unlock events, funding rates
-- **Smart Money** (25%) — Nansen-style smart money flow (when available)
+The analysis combines these signal categories (default weights, `DEFAULT_WEIGHTS` in `cli/src/agent/scoring.ts`):
+- **Smart Money** (30%) — Nansen-style smart money flow (when available)
+- **Technical** (25%) — RSI, MACD, Bollinger Bands, EMA crossovers, ATR, VWAP
+- **On-Chain** (20%) — TVL momentum, DEX flow analysis
+- **Fundamental** (15%) — Token unlock events, funding rates
+- **Sentiment** (10%) — Fear & Greed index, social sentiment Z-score
+- **Event** (0%) — disabled until it produces testable observations
+
+`agent start --weight-profile <default|majors|altcoin|sentHeavy|techHeavy>` swaps in a named profile.
 
 Each signal produces a score from -1.0 (strong sell) to +1.0 (strong buy). The weighted composite determines the trade action: `STRONG_BUY`, `BUY`, `HOLD`, `SELL`, or `STRONG_SELL`.
 
@@ -59,7 +62,9 @@ sherwood agent start \
 |--------|---------|-------------|
 | `--cycle` | `4h` | Analysis cycle interval (`15m`, `1h`, `4h`) |
 | `--dry-run` | `true` | Paper trading mode (default) |
-| `--tokens` | `ethereum,bitcoin,solana,aave,uniswap` | Comma-separated token watchlist |
+| `--tokens` | 15-token default watchlist: `bitcoin, ethereum, solana, ripple, dogecoin, avalanche-2, polkadot, near, arbitrum, aave, uniswap, chainlink, hyperliquid, bittensor, fartcoin` | Comma-separated token watchlist |
+| `--auto` | off | Dynamic token selection from market data |
+| `--no-x402` | x402 on | Skip paid x402 data (Nansen, Messari) |
 | `--log` | none | Path to write cycle log JSONL files |
 
 <Note>
@@ -119,11 +124,13 @@ Configuration is persisted to `~/.sherwood/agent/config.json` and loaded automat
 | Parameter | Default | Bounds | Description |
 |-----------|---------|--------|-------------|
 | `maxPortfolioRisk` | 15% | 1-50% | Maximum aggregate portfolio risk |
-| `maxSinglePosition` | 10% | 1-25% | Maximum size per position |
-| `maxCorrelatedExposure` | 20% | 5-50% | Max exposure to correlated tokens |
+| `maxSinglePosition` | 55% | 1-25% | Maximum notional size per position. The built-in default sits above the range `--set` accepts |
+| `maxCorrelatedExposure` | 25% | 5-50% | Max exposure to correlated tokens |
 | `maxConcurrentTrades` | 8 | 1-20 | Maximum open positions |
-| `hardStopPercent` | 12% | 1-30% | Hard stop-loss per position |
-| `trailingStopAtr` | 1.5x | 0.5-5x | Trailing stop distance in ATR multiples |
+| `hardStopPercent` | 10% | 1-30% | Hard stop-loss per position |
+| `trailingStopAtr` | 3.5x | 0.5-5x | Trailing stop distance in ATR multiples |
+| `trailingStopPct` | 3% | — | Percentage trail; set `0` to turn it off |
+| `breakevenTriggerPct` | 1.5% | — | Move the stop to breakeven after this gain; set `0` to turn it off |
 | `dailyLossLimit` | 5% | 1-30% | Daily loss limit (pauses trading) |
 | `weeklyLossLimit` | 10% | 1-50% | Weekly loss limit |
 | `monthlyLossLimit` | 15% | 1-60% | Monthly loss limit |
@@ -150,6 +157,17 @@ sherwood agent backtest bitcoin \
 | `--strategies` | all | Comma-separated strategy filter |
 
 Reports total return, Sharpe ratio, max drawdown, win rate, and an equity curve summary.
+
+## Other subcommands
+
+| Command | What it does |
+|---|---|
+| `agent summary` | Print a formatted cycle summary for chat (pipe to `chat <name> send --stdin`) |
+| `agent calibrate` | Sweep weight profiles and BUY/SELL thresholds against historical data, ranked by Sharpe |
+| `agent autoresearch` | Run parameter-optimization experiments against the signal history |
+| `agent signal-audit` | Report which signal categories actually fire |
+| `agent serve` | Start a local dashboard API (REST + WebSocket, port 3939 by default) |
+| `agent alerts list` / `agent alerts clear` | Manage trading alerts |
 
 ## Data Storage
 

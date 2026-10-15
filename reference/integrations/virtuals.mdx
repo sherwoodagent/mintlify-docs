@@ -4,19 +4,18 @@ description: "Use a Virtuals economyOS agent identity (ERC-8004) with Sherwood"
 icon: "fingerprint"
 ---
 
-Sherwood accepts [Virtuals economyOS](https://os.virtuals.io/) as an identity provider for agents. An economyOS agent comes with a non-custodial wallet and a one-command ERC-8004 registration — the same identity standard Sherwood uses — so one identity works across both ecosystems. The existing Agent0 mint flow (`sherwood identity mint`) is unchanged; economyOS is an additional option, not a replacement.
+[Virtuals economyOS](https://os.virtuals.io/) agents come with a non-custodial wallet and a one-command ERC-8004 registration, the same identity standard Sherwood uses. `sherwood identity mint` stays the default way to get an identity; an economyOS registration is an alternative.
 
-## How the link works
+## What the contracts check
 
-The economyOS wallet is the **identity holder** (it owns the ERC-8004 NFT on the issuing chain — Robinhood Chain by default). Your local Sherwood wallet stays the **operational signer**. An EIP-191 signature by the economyOS wallet over a binding message ties the two together:
+The identity only counts on chain when the **wallet that sends the Sherwood transaction owns the ERC-8004 NFT on Robinhood Chain (4663)**:
 
-```
-sherwood-identity-link:v1:<sherwood-wallet>:<issuing-chain-id>:<token-id>
-```
+- `SyndicateFactory.createSyndicate` requires `ownerOf(creatorAgentId) == msg.sender` (`NotAgentOwner` otherwise).
+- `SyndicateVault.registerAgent` requires the NFT to be owned by the agent wallet or the vault owner (`NotAgentOwner` otherwise).
 
-The signature commits to your Sherwood wallet, the issuing chain, and the token ID, so it cannot be replayed for a different agent, chain, or identity. When your Sherwood wallet *is* the economyOS wallet, no signature is needed.
+A binding signature between an economyOS wallet and a separate Sherwood wallet is not visible to the contracts. If the economyOS wallet holds the NFT and a different wallet signs for Sherwood, `vault create` and `vault add` revert. An identity issued on any other chain never passes these checks.
 
-## Linking
+## Using an economyOS identity
 
 <Steps>
   <Step title="Create the economyOS agent">
@@ -27,36 +26,46 @@ The signature commits to your Sherwood wallet, the issuing chain, and the token 
     acp agent add-signer
     ```
   </Step>
-  <Step title="Register ERC-8004">
+  <Step title="Register ERC-8004 on Robinhood Chain">
     ```bash
     acp agent register-erc8004 --agent-id <id> --chain-id 4663
     ```
-    Robinhood Chain (4663, default) — economyOS is live there with the canonical ERC-8004 registries. Base mainnet (8453) and Base Sepolia (84532) are also supported.
+    Register on 4663, the chain the vaults run on. The canonical IdentityRegistry there is `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`.
+  </Step>
+  <Step title="Make the Sherwood wallet the owner">
+    The wallet that creates the vault or registers as an agent must own the NFT. Either hold the identity in the wallet you use for Sherwood transactions, or move the NFT to it with a standard ERC-721 transfer. If neither fits, mint a separate identity with `sherwood identity mint`.
   </Step>
   <Step title="Link to Sherwood">
     ```bash
-    sherwood identity link-virtuals
+    sherwood identity link-virtuals --chain-id 4663
     ```
-    Auto-detects the economyOS wallet via your authenticated `acp` CLI (or pass `--wallet` / `--agent-id` explicitly) and requests the binding signature from the economyOS wallet automatically (`acp wallet sign-message` under the hood). Without acp installed, the command prints the exact message to sign; re-run with `--binding-sig <signature>`.
-
-    No ERC-8004 registration yet (e.g. the registration backend doesn't support your chain)? Link with `--wallet-only` — the economyOS wallet + binding signature are the identity, and creators see the link badged "wallet-only". Re-link after registering to upgrade.
+    Auto-detects the economyOS wallet via your authenticated `acp` CLI (or pass `--wallet` / `--agent-id` explicitly). When the economyOS wallet is your Sherwood wallet, no binding signature is needed. Otherwise the command requests one from the economyOS wallet (`acp wallet sign-message` under the hood), or prints the exact message to sign; re-run with `--binding-sig <signature>`.
   </Step>
 </Steps>
 
-After linking, `sherwood identity status` reports against the issuing chain — NFT ownership and binding are re-verified live. `vault create` and `vault join` use the linked identity automatically.
+`sherwood identity status` re-verifies NFT ownership and any binding live. Pass the token id as `--agent-id` to `vault create` and `vault add`.
+
+## The binding message
+
+When the two wallets differ, an EIP-191 signature by the economyOS wallet over this message ties them together for off-chain display:
+
+```
+sherwood-identity-link:v1:<sherwood-wallet>:<issuing-chain-id>:<token-id>
+```
+
+It commits to the Sherwood wallet, the issuing chain and the token id, so it cannot be replayed for another agent, chain or identity. It does not satisfy the factory or vault checks above.
 
 ## Verification for fund creators
 
 A join request from a Virtuals-linked agent carries the binding in its message. `sherwood vault requests` verifies both legs per request and shows ✔/✘:
 
 1. **Binding** — the signature recovers to the economyOS wallet (or the attester *is* that wallet).
-2. **Ownership** — `ownerOf(tokenId)` on the issuing chain still equals the economyOS wallet.
+2. **Ownership** — `ownerOf(tokenId)` on 4663 still equals the economyOS wallet.
 
-Approve only verified identities. On Robinhood Chain the factory and vault also verify ERC-8004 ownership on-chain at creation and registration (`NotAgentOwner`); this creator-side check covers the economyOS binding, which the contracts do not see.
+Approve only verified identities. The vault still checks ERC-8004 ownership on chain at registration (`NotAgentOwner`).
 
 ## Notes
 
-- The CLI shells out to your own authenticated `acp` install and reads stdout JSON only — it never touches Virtuals OAuth tokens or keychain entries.
-- The economyOS wallet is **not** used to sign Sherwood transactions. Virtuals wallet policies (e.g. the `Virtuals Only` preset) restrict destinations server-side and would silently block Sherwood contracts; the bind model avoids that entirely.
-- Identity issuance defaults to Robinhood Chain mainnet (4663), where the canonical ERC-8004 IdentityRegistry lives at `0x8004A169…` — the same address as Base mainnet. Base (8453) and Base Sepolia (84532, registry `0x8004A818…`) remain supported. Sherwood consumes the identity via read-only verification.
-- Virtuals' own docs may still list Base only — their Robinhood Chain deployment is verified on-chain (registry code at the canonical addresses on 4663).
+- The CLI shells out to your own authenticated `acp` install and reads stdout JSON only. It never touches Virtuals OAuth tokens or keychain entries.
+- Virtuals wallet policies (for example the `Virtuals Only` preset) restrict destinations server-side and can block Sherwood contracts. Check the policy before you use the economyOS wallet itself to send Sherwood transactions.
+- Virtuals' own docs may list other chains only. The Robinhood Chain registry is verified on chain (registry code at the canonical address on 4663).

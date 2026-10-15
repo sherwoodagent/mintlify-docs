@@ -7,7 +7,7 @@ icon: "cubes"
 Strategy templates are ERC-1167 clonable contracts deployed once per chain. Each proposal clones a template, initializes it with custom parameters, then uses the clone in governor batch calls.
 
 <Note>
-On Robinhood Chain (chain 4663), the CLI default, `sherwood strategy list` shows three templates: **Portfolio**, **Morpho Supply** and **Concentrated Liquidity**, all from the core protocol. **Launchpad** and **Lighter Perp** (from `sherwood-strategies`) are not deployed on Robinhood Chain and appear under "Not available". `strategy list` is the source of truth for the active chain.
+On Robinhood Chain (chain 4663), the CLI default, `sherwood strategy list` shows three templates: **Portfolio**, **Morpho Supply** and **Concentrated Liquidity**, all from the core protocol. **Launchpad** and **Lighter Perp** (from `sherwood-strategies`) are not deployed on Robinhood Chain and appear under "Not available". So do older templates from earlier deployments (Moonwell Supply, Aerodrome LP, Venice Inference, wstETH Moonwell Yield, Mamo Yield, Hyperliquid Perp, Hyperliquid Grid); none of them can be proposed on 4663. `strategy list` is the source of truth for the active chain.
 </Note>
 
 <Info>
@@ -36,6 +36,33 @@ sherwood strategy clone portfolio \
 
 The clone is deployed and initialized on-chain. The proposer (your wallet) pays gas for both transactions.
 
+## `strategy init <template>`
+
+Initialize a clone that was deployed but not initialized, for example after a clone transaction confirmed and the init did not. It takes the same template flags as `strategy propose`.
+
+```bash
+sherwood strategy init portfolio --clone 0xClone --vault 0x... \
+  --amount 200 --tokens TSLA,AMZN --weights 6000,4000
+```
+
+| Flag | Description |
+|------|-------------|
+| `--clone <address>` | Clone to initialize. Required |
+| `--vault <address>` | Vault address. Required |
+
+## `strategy status <clone>`
+
+Portfolio only. Shows allocations, balances, drift from the target weights, and P&L. `--json` prints machine-readable output.
+
+## `strategy rebalance <clone>`
+
+Portfolio only. Trades each allocation back to its target weight. Weights and routes are frozen at init, so a rebalance can only restore the original basket.
+
+| Flag | Description |
+|------|-------------|
+| `--max-slippage <bps>` | Tighten the slippage tolerance first. Only a lower value is accepted |
+| `--dry-run` | Show what would happen without sending |
+
 ## `strategy propose <template>`
 
 <Warning>
@@ -46,12 +73,14 @@ a 5% buffer, your free WOOD and your current allowance. It approves only the
 **quote + 5%** (never unlimited), re-quotes right before `propose`, and
 re-approves only if the fresh quote exceeds the allowance. It exits with
 `InsufficientProposerBondWood` if the wallet balance is short; the wallet must
-**hold** the WOOD. The bond is 1% of the proposal's required coverage, quoted in
-WOOD by the CLI: for an uncertified Portfolio proposal plan on roughly 4% of
-deployed capital in WOOD, about 0.8% once the Portfolio class is certified.
-It is returned when the proposal settles cleanly. Do not treat a fixed WOOD
-number as the requirement; reclaim it after the proposal ends with
-`sherwood proposal reclaim-bond`. See [Proposer bond](/protocol/governance/proposer-bond).
+**hold** the WOOD. The bond is 1% of the proposal's required coverage, converted
+to WOOD at half the market price (`0.5 × min(feed, cap)`). `strategy propose`
+gives settle calls a cap of 0, so required coverage is about `--amount`, and the
+bond is about **2% of `--amount`** in WOOD at market. A WOOD price fall raises
+the WOOD count. Do not treat a fixed WOOD number as the requirement; read the
+quote. Reclaim the bond after the proposal ends with `sherwood proposal reclaim-bond`
+(a settled proposal waits out the 14-day challenge window). See
+[Proposer bond](/explanations/proposer-bond).
 </Warning>
 
 
@@ -59,7 +88,8 @@ All-in-one command: clone + initialize + build batch calls + submit proposal (or
 
 - **Thesis attestation is on by default.** A public track-record attestation is made with each proposal unless you pass `--no-attest`. `--attest-thesis <file>` supplies the text; without it the thesis is built from `--name` and `--description`. It never blocks the proposal.
 - **App link.** After the propose confirms, the CLI prints `Proposal #<id> - view on the vault page: https://app.sherwood.sh/vault/<vault address>`. Share it with the owner. There is no per-proposal page.
-- **Guardian coverage.** For Cohort 1 vaults, the Sherwood team guardian covers cohort proposals by default.
+- **Guardian coverage.** For Cohort 1 vaults, the Sherwood team guardian covers cohort proposals by default. Execute needs at least one covering guardian approval; see [Tiers and coverage](/explanations/tiers-and-coverage).
+- **Tier-2 call cap.** Every core template is tier 2 on 4663, and the whole `--amount` goes on one strategy call. The proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. The CLI does not pre-check this; read `sherwood governor info --vault <vault>` first.
 
 <Note>
 This command takes no agent-fee flag. The agent fee is the vault's `agentFeeBps`, set by the vault owner via [`sherwood vault set-agent-fee`](/cli/governance-commands#sherwood-vault-set-agent-fee) within the protocol ceiling (for example 20%). Each proposal snapshots it at propose time; the governor clamps that snapshot to `maxPerformanceFeeBps` at settlement.
@@ -84,7 +114,7 @@ sherwood --calldata-only strategy propose morpho-supply \
   --market-id <market_id from sources get morpho> --amount 1000 --duration 7d
 ```
 
-It prints one JSON payload: `WOOD.approve(bondEscrow)` (only when the allowance does not cover the bond), the strategy clone, then `governor.propose`. Broadcast them in order from the `--proposer` wallet; if the clone reverts, do not send the proposal. `--proposer` must be a registered agent on the vault (`vault add`) and, while `ownerOnlyProposals` is on, the vault owner. Set `--max-drawdown-bps` explicitly, tied to the kill criteria you tell the owner. The sign-then-broadcast loop is in [External signer](/cli/external-signer).
+It prints one JSON payload: `WOOD.approve(bondEscrow)` (only when the allowance does not cover the bond), the strategy clone, then `governor.propose`. Broadcast them in order from the `--proposer` wallet; if the clone reverts, do not send the proposal. `--proposer` must be a registered agent on the vault (`vault add`) and, while `ownerOnlyProposals` is on, the vault owner. Set `--max-drawdown-bps` explicitly, tied to the kill criteria you tell the owner. It bounds the fall of the whole vault's price per share, not of `--amount`. The sign-then-broadcast loop is in [External signer](/cli/external-signer).
 
 ### Write calls to files (for manual proposal creation)
 
@@ -133,12 +163,12 @@ Weighted basket of tokenized stocks with on-chain rebalancing, swapped through t
 | `--swap-routes <list>` | One route per token, same order: `v3:<fee>`, `v4:<fee>:<tickSpacing>` or `v4path:...`; an empty entry auto-detects from the registry's verified pools | auto |
 | `--feeds <list>` | Chainlink AggregatorV3 feed per token; an empty slot resolves from the address book | auto |
 | `--fee-tier <n>` | Pool fee tier when no route is given | 3000 |
-| `--max-drawdown-bps <bps>` | Declared loss allowance, in bps of `--amount` (0–10000). The envelope voters and guardians are asked to accept, and the basis the settle-price guard sizes its tolerance from | 2000 |
+| `--max-drawdown-bps <bps>` | Maximum fall of the **whole vault's** price per share between execute and settle, in bps (0–10000; the governor caps it at 9000). Settle reverts `SettlePriceBelowFloor` below `ppsAtExecute × (1 − bps/10,000)`. Idle vault assets dilute a basket loss, so the basket itself can lose more than this figure. See [Settlement and drawdown](/explanations/settlement-and-drawdown) | 2000 |
 | `--swap-adapter <address>` | Override swap adapter | the network's |
 
 **Vault asset.** The strategy's asset must be the vault's own asset, and the protocol's coverage ledger must price one unit of it within 1% of $1 (`AssetNotVaultAsset`, `AssetNotUsdPegged`, `ExposureLedgerUnresolved`). The CLI checks all three before anything is sent; the peg is checked again at execute. Use USDG.
 
-**Weekend feed gap.** Execute, settle and `rebalanceDelta` revert `StalePrice` when a basket token's feed is older than 26 hours. The stock feeds pause over the weekend (52–55 hours between updates), so a proposal holding stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. Do not put a stock in a basket across an announced split. `sherwood sources get prices` marks each token's `portfolio_price_ok`, and `sherwood sources get calendar` prints the live window; `sherwood sources get liquidity` gives the recommended USDG pool and a suggested `maxSlippageBps` per stock (see [Data feeds](/cli/sources-commands)).
+**Weekend feed gap.** Execute, settle and `rebalanceDelta` revert `StalePrice` when a basket token's feed is older than 26 hours. The stock feeds pause over the weekend (52–55 hours between updates), so a proposal holding stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. Do not put a stock in a basket across an announced split. Why the 26-hour bound exists: [Oracle staleness](/explanations/oracle-staleness). `sherwood sources get prices` marks each token's `portfolio_price_ok`, and `sherwood sources get calendar` prints the live window; `sherwood sources get liquidity` gives the recommended USDG pool and a suggested `maxSlippageBps` per stock (see [Data feeds](/cli/sources-commands)).
 
 **Routes.** Leave `--swap-routes` out and the CLI auto-detects a route per token by quoting the pools. No route table is fixed for 4663: pools and depth change, so re-quote before every proposal with `sherwood sources get liquidity` and pass the routes it picks.
 
