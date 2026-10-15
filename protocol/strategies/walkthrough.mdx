@@ -7,7 +7,7 @@ icon: "map"
 This guide walks through the complete strategy lifecycle on Robinhood Chain (4663) using the **Portfolio** strategy as the example — a weighted basket of tokenized stocks held by a USDG vault. The same flow applies to every strategy template; only the CLI flags and per-strategy parameters differ.
 
 <Note>
-  This guide assumes you've completed the [Quickstart](/learn/quickstart): wallet configured, identity minted, owner stake prepared, vault created, and capital deposited. During the private beta only the vault owner proposes (`ownerOnlyProposals`), so the proposer below is the owner, registered as an agent of its own vault.
+  This guide assumes you've completed [Getting started](/guides/getting-started): wallet configured, identity minted, owner stake prepared, vault created, and capital deposited. While `ownerOnlyProposals` is on, only the vault owner proposes, so the proposer below is the owner, registered as an agent of its own vault. See [Launch posture](/explanations/launch-posture).
 </Note>
 
 ## Lifecycle Overview
@@ -26,13 +26,13 @@ graph LR
     E -->|"proposer after 1h, anyone after duration"| S["Settled<br/>(P&L distributed)"]
 ```
 
-- **Pending**: Voting window (24h by default; owner-set, 30 min minimum). Optimistic governance: the proposal passes unless `Against` votes reach the veto threshold (20% of the votable supply, queued shares excluded). The **vault owner** can `vetoProposal()` while Pending, or `emergencyCancel()` while Pending.
+- **Pending**: Voting window (24h by default; owner-set, 30 min minimum; see [Governance timing](/explanations/governance-timing)). Optimistic governance: the proposal passes unless `Against` votes reach the veto threshold (20% of the votable supply, queued shares excluded). The **vault owner** can `vetoProposal()` while Pending, or `emergencyCancel()` while Pending.
 - **GuardianReview**: After voting passes, staked guardians review the calldata for the review period (30 min on 4663) and underwrite it with WOOD locks. If they reach the **block quorum** (30% of cohort stake at the snapshot) the proposal is Rejected and every approver is slashed. This is the only way to block a proposal once it has left Pending.
 - **Approved**: Review window ended without a block quorum; the proposal can be executed within the 24h execution window. It expires if left unexecuted.
 - **Executed**: The strategy is live; the vault's USDG is deployed into the basket, scaled to the coverage guardians booked.
 - **Settled**: The basket is sold back to USDG, fees are taken, and the queue price is stamped.
 
-Terminal states outside the happy path are **Rejected**, **Expired**, and **Cancelled**. A **Draft** state exists for [collaborative proposals](/protocol/governance/collaborative-proposals), which are disabled during the beta. From `propose` until a terminal state the vault's instant deposits and redemptions are closed; see [Deposits & Withdrawals](/protocol/vault-liquidity).
+Terminal states outside the happy path are **Rejected**, **Expired**, and **Cancelled**. A **Draft** state exists for [collaborative proposals](/protocol/governance/collaborative-proposals), which are disabled while `ownerOnlyProposals` is on. From `propose` until a terminal state the vault's instant deposits and redemptions are closed; see [Deposits & Withdrawals](/protocol/vault-liquidity).
 
 ## Step 1: Choose a Strategy
 
@@ -46,7 +46,7 @@ Templates the CLI can propose. Availability is per chain; `strategy list` shows 
 
 | Template | What it does | Robinhood Chain (4663) |
 |----------|-------------|-----|
-| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights ([details](/protocol/strategies/uniswap)) | Deployed; class certification pending, so it prices at full notional |
+| `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights ([details](/protocol/strategies/uniswap)) | Deployed; uncertified (tier 2), so it prices at full notional |
 | `morpho-supply` | Supply the vault asset to one allowlisted Morpho Blue market ([details](/protocol/strategies/morpho-supply)) | Deployed |
 | `concentrated-liquidity` | Uniswap V3 range funded by a Morpho borrow ([details](/protocol/strategies/concentrated-liquidity)) | Deployed |
 | `launchpad` | Launch a fund token on Sushi or StonkBrokers; holders claim a reserve ([details](/protocol/strategies/launchpad)) | Not deployed; unaudited community template |
@@ -59,13 +59,13 @@ Each vault picks its own deposit asset at creation. The Portfolio strategy requi
 The `strategy propose` command handles everything: clones the template, initializes it, builds the batch calls, quotes and locks the proposer bond, and submits the proposal.
 
 <Tip>
-**Before the first proposal on a new vault**, seed the caps the governor leaves inert: `setTier2CallCapBps(200)` and `setMaxCapitalBps(8000)` on the governor and `setMinBufferBps(500)` on the vault. They can only be changed while no proposal is open.
+**Before the first proposal on a new vault**, seed the caps the governor leaves inert: `setMaxCapitalBps` (for example 8000) and `setTier2CallCapBps` on the governor, and `setMinBufferBps` (for example 500) on the vault. Every core template is tier 2 today and the CLI puts the whole `--amount` on one strategy call, so a proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. Keep `tier2CallCapBps` at or above `maxCapitalBps` (for example 8000). A value like 200 limits every proposal to 2% of TVL. The caps can only be changed while no proposal is open. See [Tiers and coverage](/explanations/tiers-and-coverage).
 </Tip>
 
 Propose-time checklist:
 
-- **WOOD.** The owner stake must be live and the wallet must hold the [proposer bond](/protocol/governance/proposer-bond), roughly 4% of the deployed capital in WOOD at spot for an uncertified basket. The CLI prints the quote and refuses early if the balance is short.
-- **Feeds.** Every slot is priced off a Chainlink push feed with a 26-hour staleness bound, and execute, settle and rebalance all read it. Stock feeds stop over the weekend, so a stock basket cannot execute, settle or rebalance from about Saturday evening until Monday 00:00 UTC. Time the execution window and the settle around that gap, and leave out any stock with an announced split during the strategy.
+- **WOOD.** The owner stake must be live and the wallet must hold the [proposer bond](/protocol/governance/proposer-bond): 1% of required coverage at half the WOOD market price, about 2% of `--amount` in WOOD at market for an uncertified basket. The CLI prints the live quote and refuses early if the balance is short. See [Why every proposal locks WOOD](/explanations/proposer-bond).
+- **Feeds.** Every slot is priced off a Chainlink push feed with a 26-hour staleness bound, and execute, settle and rebalance all read it. Stock feeds stop over the weekend, so a stock basket cannot execute, settle or rebalance from about Saturday evening until Monday 00:00 UTC. Time the execution window and the settle around that gap, and leave out any stock with an announced split during the strategy. See [Oracle staleness](/explanations/oracle-staleness).
 - **Size.** `maxCapital` must fit `totalAssets() × maxCapitalBps`, each tier-2 call cap must fit `totalAssets() × tier2CallCapBps`, and the whole proposal must price under the $1,000,000 covered-TVL cap.
 
 ### Option A: Direct submission
@@ -94,9 +94,12 @@ sherwood strategy propose portfolio \
   --max-slippage 500 \
   --write-calls ./portfolio-calls
 
-# Review the generated files, then submit
+# Review the generated files, then submit. --max-capital is required;
+# pass the strategy clone the first command created as --strategy.
 sherwood proposal create \
   --vault 0x... \
+  --strategy 0xStrategyClone \
+  --max-capital 1000 \
   --name "Tokenized Stock Basket" \
   --description "Deploy 1,000 USDG across five tokenized stocks for 7 days" \
   --duration 7d \
@@ -109,7 +112,7 @@ The generated JSON files contain the raw batch calls the governor will execute:
 - **execute.json**: `[USDG.approve(strategy, totalAmount), strategy.execute()]`
 - **settle.json**: `[strategy.settle()]`
 
-On execute, the strategy pulls USDG from the vault and swaps it into each basket token at its target weight. On settle, it sells every token back to USDG. Both calls are priced for coverage at full notional until the Portfolio class is certified, so the proposal books about twice `--amount`.
+On execute, the strategy pulls USDG from the vault and swaps it into each basket token at its target weight. On settle, it sells every token back to USDG. Both calls are priced at full notional while the Portfolio class is uncertified, but the CLI gives the settle call a cap of 0, so required coverage is about `--amount` (1×, not 2×).
 
 ## Step 3: Monitor Voting & Guardian Review
 
@@ -147,7 +150,7 @@ The proposer can settle once **at least 1 hour** has passed since execute; anyon
 sherwood proposal settle --id <proposal-id> --vault 0x...
 ```
 
-Settlement sells every basket token back to USDG and returns the proceeds to the vault. The governor then calculates P&L and charges the two fees, in this order (rates snapshotted at propose time):
+Settlement sells every basket token back to USDG and returns the proceeds to the vault. It reverts `SettlePriceBelowFloor` if the whole vault's price per share fell more than the proposal's `maxDrawdownBps` (capped at 9,000) since execute; see [Settlement and drawdown](/explanations/settlement-and-drawdown). The governor then calculates P&L and charges the two fees, in this order (rates snapshotted at propose time):
 
 1. **Management fee** — the vault's `managementFeeBps` (2%/yr at launch) accrued on the whole fund's `totalAssets()` stamped at execute × the time the proposal was `Executed`. Charged **whether the strategy gained, broke even, or lost** — see [Economics](/protocol/governance/economics). Split 60/20/20 across the agent, the protocol, and the guardian network.
 2. **Performance fee** — the vault's `agentFeeBps` (owner-set, 20% by default, 25% protocol ceiling) applied only to value above the fund's previous peak price per share, measured after the management fee, and never to more than the realized profit. A strategy that ends below that peak pays nothing here. Split 50/15/25/10 across the agent, the protocol, the guardian network, and the fund owner.

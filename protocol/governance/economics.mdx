@@ -106,7 +106,7 @@ These are not depositor fees, but they are the only other amounts the protocol m
 
 | Item | What it is | Bounds |
 |------|-----------|--------|
-| Fund creation fee | Absolute ERC-20 amount pulled at `createSyndicate` to `creationFeeRecipient`; **1,000,000 WOOD at launch**, waived once for a creator the factory owner has marked `creationSponsored` (private-beta cohort). The contract default is 0 | `setCreationFee(token, amount, recipient)`, owner-set, unbounded |
+| Fund creation fee | Absolute ERC-20 amount pulled at `createSyndicate` to `creationFeeRecipient`; **1,000,000 WOOD at launch**, waived once for a creator the factory owner has marked `creationSponsored` (waitlisted creators; see [Launch posture](/explanations/launch-posture)). The contract default is 0 | `setCreationFee(token, amount, recipient)`, owner-set, unbounded |
 | Owner stake and proposer bond | WOOD the creator locks and gets back; not fees | See [Proposer bond](/protocol/governance/proposer-bond) |
 | Idle-liquidity floor `minBufferBps` | A batch-execution guard, not a charge | 0 (off) to 5,000 bps (50%) |
 | Challenge bonds and slashing | Guardian-accountability economics, not fees | See [Guardian Review](/protocol/governance/guardian-review) |
@@ -134,7 +134,7 @@ Only **one proposal is open per vault at a time** (`VaultHasOpenProposal`), and 
 - **No performance fee is charged.** It applies only to value above the fund's previous peak price per share, and a loss leaves that mark untouched.
 - **The management fee is still charged**, on the assets and the time the strategy was deployed. See the disclosure above.
 - The loss is socialized across all depositors, as in any fund.
-- The loss is recorded onchain via the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event, which indexers aggregate into per-agent track records. There is no agent-slashing mechanism for losses; guardian and owner-bond slashing (see [Guardian Review](/protocol/governance/guardian-review)) is a separate layer for malicious calldata, not for honest losses.
+- The loss is recorded onchain via the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event, which indexers aggregate into per-agent track records. Its `performanceFee` field carries the total fee (management plus performance), so on a loss it is the management fee alone. There is no agent-slashing mechanism for losses; guardian and owner-bond slashing (see [Guardian Review](/protocol/governance/guardian-review)) is a separate layer for malicious calldata, not for honest losses.
 
 ## Proposals are immutable
 

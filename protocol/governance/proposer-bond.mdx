@@ -4,7 +4,7 @@ description: "WOOD bond pulled at propose, priced at the haircut WOOD price — 
 icon: "shield-check"
 ---
 
-The proposer bond is a WOOD deposit the governor pulls into `ProposerBondEscrow` inside `propose`. It is released when the proposal reaches a terminal state and forfeited only on a challenge conviction. It is the second WOOD pull a vault creator makes; the first is the owner stake.
+The proposer bond is a WOOD deposit the governor pulls into `ProposerBondEscrow` inside `propose`. It is released when the proposal reaches a terminal state and forfeited only on a challenge conviction. It is the second WOOD pull a vault creator makes; the first is the owner stake. [Why every proposal locks WOOD](/explanations/proposer-bond) explains why the bond exists and why it is quoted at half price.
 
 ## Who needs WOOD
 
@@ -16,7 +16,7 @@ The proposer bond is a WOOD deposit the governor pulls into `ProposerBondEscrow`
 
 Depositors need no WOOD. Guardians stake separately (`minGuardianStake` 10,000 WOOD), see [Guardian Review](/protocol/governance/guardian-review).
 
-The owner stake is slashed only when guardians block an owner emergency settle (`finalizeEmergencySettle` burns it in full). Proposing and executing require the stake to be live (`OwnerBondNotLive`): an owner who has requested an unstake cannot propose until `cancelUnstakeOwner`.
+The owner stake is slashed only when guardians block an owner emergency settle. The burn takes effect when the blocked review resolves through the permissionless `GuardianRegistry.resolveEmergencyReview`, or when the owner opens the next emergency settle; a `finalizeEmergencySettle` on a blocked review reverts `EmergencySettleBlocked`, and that revert rolls back its own burn. See [Owner stake](/explanations/owner-stake). Proposing and executing require the stake to be live (`OwnerBondNotLive`): an owner who has requested an unstake cannot propose until `cancelUnstakeOwner`.
 
 ## Quote
 
@@ -26,21 +26,16 @@ proposerBondWood(asset, requiredCoverage)
 ```
 
 - `proposerBondBps` is **100 (1%)**, an `ExposureLedger` parameter (setter bound ≤ 10,000).
-- [`requiredCoverage`](/protocol/governance/coverage) is the sum over execute **and** settlement calls of `cap_i × boundBps_i / 10_000`. An uncertified (tier 2) call prices at full notional, so an uncertified Portfolio proposal books about twice its deployed capital.
-- `woodPriceX8()` is the **haircut** price: `min(feed, cap) × woodHaircutBps / 10_000`, with `woodHaircutBps` 5,000 (50%) at launch and the cap set at 4× spot. The haircut halves the dollar value of each WOOD, so the WOOD count is twice what the spot price implies.
+- [`requiredCoverage`](/protocol/governance/coverage) is the sum over execute **and** settlement calls of `cap_i × boundBps_i / 10_000`. An uncertified (tier 2) call prices at full notional. `sherwood strategy propose` gives the strategy's execute call the whole `--amount` and every settle call a cap of 0, so a CLI-built proposal on any core template books about its deployed capital (1×).
+- `woodPriceX8()` is the **haircut** price: `min(feed, cap) × woodHaircutBps / 10_000`, with `woodHaircutBps` 5,000 (50%, also the contract floor) and the cap seated at 2× spot when the feed was set (`CAP_OVER_SPOT_BPS` 20,000). The haircut halves the dollar value of each WOOD, so the WOOD count is twice what the market price implies. The reason is in the ledger source: collateral wants a floor, not a quote. The cap stops a pumped WOOD price from shrinking bonds.
 - A zero-coverage proposal quotes zero and needs no price. Any other proposal reverts `NoWoodPrice` while WOOD is unpriceable (feed older than its max delay, pool depth below the floors, or cap unset).
 
-Put together, at launch:
-
-| Strategy class | Bond in WOOD, at spot |
-|----------------|-----------------------|
-| Uncertified (tier 2, full notional on both legs) | ≈ 4% of deployed capital |
-| Portfolio class once certified at 2,000 bps (pending) | ≈ 0.8% of deployed capital |
+Put together: bond ≈ 1% × required coverage ÷ (0.5 × WOOD price). Nothing is certified on 4663 today, so for a CLI-built proposal on any core template the bond is **about 2% of `--amount`, in WOOD at market price**. Example (2026-10-15): a 60 USDG basket quoted 371 WOOD, about $1.20 at the feed price that day.
 
 The number scales with the book and with the WOOD price. A WOOD price fall raises the WOOD count of every new bond. **Never treat a fixed WOOD figure as the requirement**: quote it live from `ExposureLedger.proposerBondWood` (`sherwood strategy propose` prints it) at the moment you propose.
 
 <Tip>
-**Reserve rule for creators.** Hold, in the creator wallet and outside the vault: 10,000 WOOD for the owner stake plus roughly 10% of the capital you plan to deploy, in WOOD, for uncertified strategies (about 2% once the Portfolio class is certified). That covers the bond with room for a WOOD drawdown or two overlapping proposals. Add 1,000,000 WOOD if your creation is not sponsored. Acquisition is a Uniswap swap on Robinhood Chain; the token and pool addresses are on [Deployments](/reference/deployments).
+**Reserve rule for creators.** Hold, in the creator wallet and outside the vault: 10,000 WOOD for the owner stake plus about 3–4% of the capital you plan to deploy, in WOOD. That covers one bond with room for a 50% WOOD fall. A settled bond stays locked for the 14-day challenge window, so back-to-back proposals keep about `(duration + 14d) / cadence` bonds locked at once; size for that. Add 1,000,000 WOOD if your creation is not sponsored. Acquisition is a Uniswap swap on Robinhood Chain; the token and pool addresses are on [Deployments](/reference/deployments).
 </Tip>
 
 ## Pull and release
@@ -50,7 +45,7 @@ The number scales with the book and with the WOOD price. A WOOD price fall raise
   1. `now ≥ executedAt + strategyDuration + ExposureLedger.challengeWindow()` (14 days);
   2. the proposal's coverage is not frozen by a live challenge;
   3. `now` is past both the game's `executedAt + strategyDuration + ChallengeGame.challengeWindow()` and any re-armed `challengeableUntil`.
-- **Forfeit.** Only a challenge conviction (a guilty verdict, or silence for `autoSlashDelay` after a filing) forfeits the bond: `forfeitBond` pays `prosecutorFeeBps` (20%) to the challenger and burns the rest. A later `reclaimProposerBond` then emits `ProposerBondForfeitureAcknowledged` and clears the record. Challenge filings are paused through the private beta, so no bond can be forfeited until they are unpaused.
+- **Forfeit.** Only a challenge conviction (a guilty verdict, or silence for `autoSlashDelay` after a filing) forfeits the bond: `forfeitBond` pays `prosecutorFeeBps` (20%) to the challenger and burns the rest. A later `reclaimProposerBond` then emits `ProposerBondForfeitureAcknowledged` and clears the record. Challenge filings are paused until the juror reserve is 30 days old, so no bond can be forfeited until they are unpaused. See [Challenge window](/explanations/challenge-window).
 
 A guardian coverage shortfall at execute [scales the proposal](/protocol/governance/coverage#shortfall-scales-rather-than-blocks); it does not resize the bond.
 
@@ -63,4 +58,4 @@ A guardian coverage shortfall at execute [scales the proposal](/protocol/governa
 | `getRequiredCoverage(proposalId)` | `SyndicateGovernor` |
 | `requiredOwnerBond(vault)`, `ownerBondLive(vault)` | `StakedWood` |
 
-`ExposureLedger` and `ProposerBondEscrow` are part of the launch's second deployment run; their addresses are published on [Deployments](/reference/deployments) after the ceremony. The proposer bond is not a governor setter and does not appear in `sherwood governor info`.
+`ExposureLedger` and `ProposerBondEscrow` are deployed on 4663; their addresses are in `chains/4663.json` and on [Deployments](/reference/deployments). The proposer bond is not a governor setter and does not appear in `sherwood governor info`.

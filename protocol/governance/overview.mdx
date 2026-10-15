@@ -11,7 +11,7 @@ The vault owner proposes a strategy, the vault's depositors get an optimistic ve
 **Per-vault governor.** Each vault has its own governor, a `BeaconProxy` the factory deploys at creation and resolves with `factory.governorOf(vault)`. A proposal targets that one vault, and only its depositors vote. Every governor shares one implementation through `GovernorBeacon`, so there is no protocol-wide governor.
 
 <Info>
-**Launch posture (private beta).** `SyndicateFactory.ownerOnlyProposals` is on: only `vault.owner()` can call `propose`, and it must also be a registered agent of the vault. Co-proposers are refused (`CollaborationDisabled`), so every proposal opens directly in `Pending`. `depositsRestricted` is also on, so every vault is whitelist-only whatever its `openDeposits` flag. Both flags are factory-owner setters and will be relaxed for general access.
+**Launch posture.** `SyndicateFactory.ownerOnlyProposals` is on: only `vault.owner()` can call `propose`, and it must also be a registered agent of the vault. Co-proposers are refused (`CollaborationDisabled`), so every proposal opens directly in `Pending`. `depositsRestricted` is also on, so every vault is whitelist-only whatever its `openDeposits` flag. Both flags are factory-owner setters, read live, that the protocol Safe can lift. See [Launch posture](/explanations/launch-posture).
 </Info>
 
 ## Optimistic governance
@@ -54,10 +54,10 @@ Depositors cannot call `vetoProposal`; it reverts `NotVaultOwner`. Depositors bl
     At propose the governor prices the calls into [`requiredCoverage`](/protocol/governance/coverage), checks the covered-TVL cap and the 60-day horizon, and pulls the [proposer bond](/protocol/governance/proposer-bond) into `ProposerBondEscrow`. From this moment the vault's instant deposit and redeem paths are closed (`openProposalCount() != 0`), see [Deposits & Withdrawals](/protocol/vault-liquidity).
   </Step>
   <Step title="Depositors vote">
-    `votingPeriod` (24 h by default; owner-set, 30 min minimum on 4663). Weight is vault shares at the snapshot. Only `Against` counts.
+    `votingPeriod` (24 h by default; owner-set, 30 min minimum on 4663, read live from the governor's `MIN_VOTING_PERIOD()`). Weight is vault shares at the snapshot. Only `Against` counts. See [Governance timing](/explanations/governance-timing).
   </Step>
   <Step title="Guardians review and underwrite">
-    `reviewPeriod` (30 min on 4663; protocol-set). Staked guardians inspect the committed calldata and vote `Approve` with a WOOD lock, or `Block`. A block quorum rejects the proposal and slashes its approvers; otherwise it is `Approved`. See [Guardian Review](/protocol/governance/guardian-review).
+    `reviewPeriod` (30 min on 4663; protocol-set, read live from `GuardianRegistry.reviewPeriod()`). Staked guardians inspect the committed calldata and vote `Approve` with a WOOD lock, or `Block`. A block quorum rejects the proposal and slashes its approvers; otherwise it is `Approved`. See [Guardian Review](/protocol/governance/guardian-review).
   </Step>
   <Step title="Anyone executes">
     Within `executionWindow` (24 h), `executeProposal(proposalId)` replays the opening calls through `vault.executeGovernorBatch`. Capital is scaled to the coverage guardians actually booked. Nothing new enters at execution.
@@ -66,7 +66,7 @@ Depositors cannot call `vetoProposal`; it reverts `NotVaultOwner`. Depositors bl
     The proposer can settle one hour after execute; anyone can settle once `strategyDuration` has elapsed. The closing calls run, the management fee and (above the high-water mark) the performance fee are charged and split, the queue price is stamped and `ProposalSettled` is emitted. See [Execution & Settlement](/protocol/governance/settlement).
   </Step>
   <Step title="Cooldown and bond release">
-    Every terminal transition stamps `cooldownEndsAt = now + cooldownPeriod`; the next `propose` waits for it (`CooldownNotElapsed`). Instant deposits and redemptions re-open as soon as no proposal is open. The proposer bond is released by the permissionless `reclaimProposerBond`; a settled proposal waits out the challenge window first.
+    Every terminal transition stamps `cooldownEndsAt = now + cooldownPeriod`; the next `propose` waits for it (`CooldownNotElapsed`). Instant deposits and redemptions re-open as soon as no proposal is open. The proposer bond is released by the permissionless `reclaimProposerBond`; a settled proposal waits out the [challenge window](/explanations/challenge-window) first.
   </Step>
 </Steps>
 
@@ -75,7 +75,7 @@ Depositors cannot call `vetoProposal`; it reverts `NotVaultOwner`. Depositors bl
 ```solidity
 propose(
     address vault,
-    address strategy,               // registered strategy clone; address(0) for a queue-only proposal
+    address strategy,               // strategy clone registered on StrategyFactory; address(0) reverts StrategyNotRegistered
     string  metadataURI,            // ≤ 512 bytes
     uint256 strategyDuration,       // minStrategyDuration..maxStrategyDuration
     RiskEnvelope envelope,          // { maxCapital, maxDrawdownBps ≤ 10_000 }
@@ -89,7 +89,8 @@ propose(
 
 - **`executeCalls` / `settlementCalls`** are read back with `getExecuteCalls` / `getSettlementCalls`. Every target must be the vault asset (transfer and approve shapes only) or a strategy registered on `StrategyFactory`, else `NotARegisteredStrategy(target)`.
 - **`maxCapital`** must fit inside `totalAssets() × maxCapitalBps / 10_000`, checked at propose (`MaxCapitalExceedsCeiling`) and again at execute against live TVL (`MaxCapitalCeilingRegressed`).
-- **`maxDrawdownBps`** sets the settle price floor: settlement reverts `SettlePriceBelowFloor` if price per share falls below `ppsAtExecute × (10_000 − min(maxDrawdownBps, 9_000)) / 10_000`.
+- **`strategy`** must be a clone registered on `StrategyFactory`. There is no queue-only proposal: `address(0)` or an unregistered address reverts `StrategyNotRegistered`.
+- **`maxDrawdownBps`** sets the settle price floor: settlement reverts `SettlePriceBelowFloor` if the whole vault's price per share falls below `ppsAtExecute × (10_000 − min(maxDrawdownBps, 9_000)) / 10_000`. It is measured on the vault, not on `maxCapital`. See [Settlement and drawdown](/explanations/settlement-and-drawdown).
 - **Fee snapshot.** The performance-fee rate and both `ProtocolConfig` splits are snapshotted at propose, so a change after the vote cannot alter what voters approved.
 - **Strategies do not report a value.** `totalAssets()` is vault float minus the queue reserve minus escrowed fees.
 
@@ -128,7 +129,7 @@ Launch values are the factory defaults every new governor starts with. Bounds ar
 | `maxCoProposers` | 10 | 1 – 10 | `setMaxCoProposers` |
 
 <Tip>
-**Recommended seeds for a new vault.** Right after `createSyndicate` and before the first `propose`, set `setTier2CallCapBps(200)` and `setMaxCapitalBps(8000)` on the governor and `setMinBufferBps(500)` on the vault. The governor defaults leave both caps inert, and `minBufferBps` must never be raised while a proposal is open: the post-batch buffer check would make the committed settlement calls revert.
+**Seeding the caps on a new vault.** Right after `createSyndicate` and before the first `propose`, set `setMaxCapitalBps` (for example 8000) and `setTier2CallCapBps` on the governor and `setMinBufferBps` (for example 500) on the vault. The governor defaults leave both caps inert. Every core template is tier 2 today, so any single strategy call whose cap exceeds `totalAssets × tier2CallCapBps / 10_000` reverts `Tier2CallCapExceedsCeiling` at propose; keep `tier2CallCapBps` at or above `maxCapitalBps` while that holds. A value of 200 would limit every proposal to 2% of TVL. `minBufferBps` must never be raised while a proposal is open: the post-batch buffer check would make the committed settlement calls revert. See [Tiers and coverage](/explanations/tiers-and-coverage).
 </Tip>
 
 ## Proposer, agents and depositors

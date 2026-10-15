@@ -8,7 +8,7 @@ icon: "arrow-right-arrow-left"
 
 Vaults are standard ERC-4626. Instant `deposit` / `redeem` execute against idle float. They close for the whole life of a proposal, from `propose` until it settles or ends; the async queue is then the path in and out. The vault does not mark in-flight strategy positions.
 
-**The lock is one predicate.** `redemptionsLocked()` and `depositsLocked()` both read `governor.openProposalCount() != 0`, live, on every call. A `Draft`, a `Pending` vote, a guardian review, an `Approved` proposal waiting to execute and an `Executed` strategy all lock. Only a terminal state (`Settled`, `Rejected`, `Expired`, `Cancelled`) unlocks. Nothing on the vault stores the flag.
+**The lock is one predicate.** `redemptionsLocked()` and `depositsLocked()` both read `governor.openProposalCount() != 0`, live, on every call. A `Draft`, a `Pending` vote, a guardian review, an `Approved` proposal waiting to execute and an `Executed` strategy all lock. Only a terminal state (`Settled`, `Rejected`, `Expired`, `Cancelled`) unlocks. Nothing on the vault stores the flag. [Governance timing](/explanations/governance-timing) explains why the lock starts at propose.
 
 **No proposal open** (`redemptionsLocked() == false`): standard ERC-4626. `deposit` / `mint` mint at the live price for a whitelisted receiver; `redeem` / `withdraw` execute instantly against vault float, capped so they cannot drain assets reserved for already-stamped queue claims (`QueueReserveBreached`). `requestDeposit` reverts `NoOpenProposal` and `requestRedeem` reverts `RedemptionsNotLocked`: exactly one path is open at any time.
 
@@ -16,7 +16,7 @@ Vaults are standard ERC-4626. Instant `deposit` / `redeem` execute against idle 
 
 ## Who may deposit
 
-`SyndicateFactory.depositsRestricted` is on at launch, so every vault is whitelist-only whatever its own `openDeposits` flag: the vault owner approves receivers with `approveDepositor` / `approveDepositors` and removes them with `removeDepositor`. The check runs on the **receiver**, not the caller, so a third party can pay for an approved depositor. `deposit`, `mint`, `requestDeposit` and the deposit claim all enforce it (`NotApprovedDepositor`). Once the factory owner clears the flag, a vault whose owner set `setOpenDeposits(true)` accepts anyone.
+`SyndicateFactory.depositsRestricted` is on at launch, so every vault is whitelist-only whatever its own `openDeposits` flag: the vault owner approves receivers with `approveDepositor` / `approveDepositors` and removes them with `removeDepositor`. The check runs on the **receiver**, not the caller, so a third party can pay for an approved depositor. `deposit`, `mint`, `requestDeposit` and the deposit claim all enforce it (`NotApprovedDepositor`). Once the factory owner clears the flag, a vault whose owner set `setOpenDeposits(true)` accepts anyone. See [Launch posture](/explanations/launch-posture).
 
 For integrators, `maxDeposit(receiver)` / `maxMint(receiver)` return 0 when the vault is paused, when any proposal is open, or when the receiver is not allowed; otherwise they return `type(uint256).max`. `maxWithdraw` / `maxRedeem` return 0 when paused or locked, and otherwise the instant capacity (float minus the queue reserve; `maxRedeem` also excludes shares pending in the queue).
 
@@ -63,7 +63,7 @@ Only settlement stamps a price. Cancel, veto, guardian block, a missed execution
 
 Assets owed to stamped-but-unclaimed redeem requests stay in the vault. A subsequent proposal's execution, any instant withdrawal, any fee transfer and any settlement batch reverts if it would leave vault float below that reserve (`QueueReserveBreached`). Queued redeemers are always made whole; in-flight claims are never stranded.
 
-`minBufferBps` (owner-set, 0 = off, at most 5,000) adds an idle-float floor on top: after any governor batch, float must be at least the reserve plus `balanceBefore × minBufferBps / 10_000`, else `BufferBreached`. Set it before the first proposal and never raise it while one is open, because the committed settlement calls would then fail the check.
+`minBufferBps` (owner-set, 0 = off, at most 5,000) adds an idle-float floor on top: after any governor batch, float must be at least the reserve plus `balanceBefore × minBufferBps / 10_000`, else `BufferBreached`. Set it before the first proposal and never raise it while one is open, because the committed settlement calls would then fail the check. See [Tiers and coverage](/explanations/tiers-and-coverage) for how the buffer sits with the other owner caps.
 
 ## `totalAssets()`
 

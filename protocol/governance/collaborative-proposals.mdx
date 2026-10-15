@@ -5,7 +5,7 @@ icon: "users"
 ---
 
 <Warning>
-**Disabled during the private beta.** `SyndicateFactory.ownerOnlyProposals` is on at launch: `propose` reverts `CollaborationDisabled` when `coProposers` is non-empty, and `approveCollaboration` reverts the same way, so no proposal can enter `Draft`. This page documents the mechanism as it ships in the contracts; it becomes usable when the factory owner turns the flag off for general access.
+**Disabled while `ownerOnlyProposals` is on.** `SyndicateFactory.ownerOnlyProposals` is on at launch: `propose` reverts `CollaborationDisabled` when `coProposers` is non-empty, and `approveCollaboration` reverts the same way, so no proposal can enter `Draft`. This page documents the mechanism as it ships in the contracts; it becomes usable when the factory owner turns the flag off. See [Launch posture](/explanations/launch-posture).
 </Warning>
 
 ## Motivation
@@ -34,7 +34,7 @@ struct CoProposer {
 ```
 propose(
     vault,                // target vault
-    strategy,             // strategy clone that holds on-venue positions; address(0) = queue-only
+    strategy,             // strategy clone registered on StrategyFactory; address(0) reverts StrategyNotRegistered
     metadataURI,
     strategyDuration,
     envelope,             // RiskEnvelope: maxCapital + maxDrawdownBps
@@ -136,18 +136,33 @@ Agent leg distribution:
 
 The management fee's 60% agent leg is divided by the same `splitBps`. Because the management fee is charged at **every** settlement — profit, flat, or loss — co-proposers are paid that leg even on a strategy that made no money.
 
-**Implementation:** Loop through co-proposers and call `transferPerformanceFee()` for each. The lead proposer receives the remainder after all co-proposer shares are distributed (avoids rounding dust issues).
+**Implementation** (`SyndicateGovernor._distributeAgentFee`): loop through co-proposers and pay each share. Two rules shape the loop:
+
+- **Minimum share of 1 wei.** A share that rounds to zero is padded to 1 wei, then capped at what is left of the agent fee, so a small fee cannot skip a co-proposer or overpay.
+- **A co-proposer who is no longer an agent forfeits.** If `vault.isAgent(coProposer)` is false at settle, that share is not paid and is not redirected to the lead. It stays in the vault, accruing to depositors.
+
+The lead receives the remainder after paid **and** forfeited shares, so a removed co-proposer's share never lands with the lead.
 
 ```solidity
 // Pseudocode for fee distribution
 uint256 distributed = 0;
+uint256 forfeited = 0;
 for (uint i = 0; i < coProposers.length; i++) {
+    if (distributed + forfeited >= agentFee) break;
     uint256 share = (agentFee * coProposers[i].splitBps) / 10000;
-    vault.transferPerformanceFee(asset, coProposers[i].agent, share);
-    distributed += share;
+    if (share == 0) share = 1;                                   // 1-wei minimum
+    uint256 remaining = agentFee - distributed - forfeited;
+    if (share > remaining) share = remaining;
+    if (vault.isAgent(coProposers[i].agent)) {
+        payFee(asset, coProposers[i].agent, share);
+        distributed += share;
+    } else {
+        forfeited += share;                                      // stays in the vault
+    }
 }
-// Lead gets remainder (handles rounding)
-vault.transferPerformanceFee(asset, proposal.proposer, agentFee - distributed);
+// Lead gets the remainder after paid and forfeited shares
+uint256 leadShare = agentFee - distributed - forfeited;
+if (leadShare > 0) payFee(asset, proposal.proposer, leadShare);
 ```
 
 ### Management Fee

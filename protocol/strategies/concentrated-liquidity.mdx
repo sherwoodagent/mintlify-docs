@@ -42,7 +42,7 @@ The agent picks the band, the size, the target LTV and the swap split off-chain.
 | LTV sits at least 5 percentage points below the market's LLTV (`MIN_LLTV_BUFFER_BPS` 500) | `LtvInsideLiquidationBuffer` |
 | The minted liquidity is at most 10% of the pool's active liquidity (`MAX_POOL_SHARE_BPS` 1,000) | `PositionExceedsPoolShareCap` |
 | The ticks are ordered and aligned to the pool's tick spacing | `InvalidTickRange` |
-| Spot is within the configured bound of the TWAP (at most 10%, `MAX_TWAP_DEVIATION_BPS`; window at least 300 s) at every mint, rerange and settle | `SpotOutsideTwapBound` |
+| Spot is within the configured bound of the TWAP (at most 1,000 ticks, about 10.5%, `MAX_TWAP_DEVIATION_BPS`; the bound is compared in ticks; window at least 300 s) at every mint, rerange and settle | `SpotOutsideTwapBound` |
 | `settleSlippageBps` is within 50 – 1,000 bps | `InvalidBound` |
 
 A bad but in-bounds proposal is still possible. Voter and guardian review exists for that.
@@ -71,7 +71,7 @@ sherwood strategy propose concentrated-liquidity \
 
 The CLI runs every `_initialize` check before sending anything, including `CounterpartyNotAllowed`, `MorphoMarketNotAllowed` and `CollateralAssetMismatch`. It computes the expected liquidity from V3 liquidity math at spot and the swap split the range needs. Required: `--market-id`, `--collateral-amount`, `--borrow-amount`, a pool (`--pool`, or `--pair-token` with `--pool-fee`) and a range (`--range-pct`, or `--tick-lower` with `--tick-upper`). The full flag list is in [Strategy commands](/cli/strategy-commands#concentrated-liquidity).
 
-The template is uncertified at launch, so the proposal prices at full notional on both legs for [coverage](/protocol/governance/coverage) and the [proposer bond](/protocol/governance/proposer-bond).
+The template is uncertified (tier 2), so its calls price at full notional for [coverage](/protocol/governance/coverage) and the [proposer bond](/protocol/governance/proposer-bond). The CLI caps settle calls at 0, so required coverage is about the deployed amount. See [Tiers and coverage](/explanations/tiers-and-coverage).
 
 ## Risk notes
 

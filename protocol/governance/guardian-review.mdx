@@ -6,7 +6,7 @@ icon: "shield-halved"
 
 > Capital secures capital — \$WOOD is the stake behind every guardian verdict.
 
-Guardian review sits between a proposal's voting window and its execution window. Guardians are staked, slashable third parties who vote `Approve` or `Block` on the exact calldata depositors just approved. An `Approve` is underwriting: it locks WOOD behind the proposal and that lock is what a block or a conviction burns. Vault owners also post a slashable WOOD stake before their vault can create proposals; it is burned if they abuse the emergency-settle escape hatch.
+Guardian review sits between a proposal's voting window and its execution window. Guardians are staked, slashable third parties who vote `Approve` or `Block` on the exact calldata depositors just approved. An `Approve` is underwriting: it locks WOOD behind the proposal and that lock is what a block or a conviction burns. Vault owners also post a slashable WOOD stake before the factory creates their vault; it is burned if guardians block their emergency settle. See [Owner stake](/explanations/owner-stake).
 
 ## Where it sits in the lifecycle
 
@@ -20,7 +20,7 @@ Pending → GuardianReview → Approved → Executed → Settled
 - Guardians cannot act before voting ends; they review calldata that has already passed the depositor vote.
 - The owner's `vetoProposal` is limited to `Pending`. Once in `GuardianReview`, only the block quorum can reject.
 - After execution, `unstick` re-runs the pre-committed unwind calls with no review; custom settlement calldata goes through a separate, block-only review window (see [Settlement](/protocol/governance/settlement#settlement-paths)).
-- After settlement, a 14-day challenge window lets anyone bond a challenge against the approvers. Filings are paused through the private beta.
+- After settlement, a 14-day challenge window lets anyone bond a challenge against the approvers. Filings are paused until the juror reserve is 30 days old (see [Challenge window](/explanations/challenge-window)).
 
 ## Becoming a guardian
 
@@ -33,6 +33,8 @@ Pending → GuardianReview → Approved → Executed → Settled
 | `minSlashBps` / `maxSlashBps` | 1,000 (10%) / 10,000 (100%) | `min ≤ max ≤ 10,000` |
 
 `requestUnstakeGuardian` zeroes the guardian's vote weight at once and starts the cooldown; `claimUnstakeGuardian` pays out after it, and reverts `CoverageStillOpen` while the guardian still has an open or frozen coverage lock. A stake top-up re-anchors the stake age to the stake-weighted average.
+
+**Stake age.** Review votes use raw stake (`getPastStake`). Stake age matters only in `TokenCourt`, where a juror's weight is `getPastVotes`: raw stake times an age factor that starts at `ageFloorBps` and rises linearly to par at `maturationPeriod`, then stays flat (`StakedWood._ageFactorBps`). The deploy values are 2,500 bps (25%) and 30 days (`RobinhoodParams.sol`: `AGE_FLOOR_BPS`, `MATURATION`); read the live values from `StakedWood.ageFloorBps()` and `maturationPeriod()`. Age only shrinks weight, never adds to it, so freshly staked WOOD cannot swing a verdict at full weight.
 
 ## Guardian economics
 
@@ -52,6 +54,8 @@ Pending → GuardianReview → Approved → Executed → Settled
 <Warning>
 **A review nobody opens is a proposal that executes unreviewed.** `voteOnProposal` reverts `ReviewNotOpen` until `openReview` lands, and `resolveReview` returns *cleared* for a review that was never opened. Blocking is **two transactions**: `openReview` from `voteEnd`, then the vote. Both are permissionless, so a guardian that only watches for *opened* reviews cannot be the one that opens them.
 </Warning>
+
+Review timing is explained in [Governance timing](/explanations/governance-timing).
 
 **Block quorum.** A review resolves *blocked* when `blockStakeWeight × 10_000 ≥ blockQuorumBps × denominator`, with `blockQuorumBps` 3,000 (30%) at launch and both sides measured at `snapshotAt`. Stake checkpointed before the propose block counts in the denominator whether or not it votes; stake added in that block or later neither votes nor moves the bar. There is no cohort-size floor: only a zero denominator fails open, because nobody could have reviewed.
 
@@ -73,7 +77,7 @@ Slashing is onchain and final: slashed WOOD is **burned** to `0x…dEaD`, not se
 
 - **Approvers slashed** when a review resolves *blocked*. For each approver the registry asks `StakedWood` for `ceil(lockBps × severity / 10_000)`, where `lockBps` is the approver's lock over its stake and `severity` is a deterministic ramp of how decisively the cohort blocked, clamped into the `[minSlashBps, maxSlashBps]` envelope snapshotted at open. Severity is `minSlashBps` when the block side only just reached the quorum, `maxSlashBps` once it reaches a two-thirds supermajority (`6_667` bps), and `lo + (hi − lo) × t²` in between. Guardians do not choose the penalty, and a tiny lock still costs at least `minSlashBps` of the guardian's stake.
 - **Challenge conviction** (`slashVerdict`) burns each approver's lock, clamped into the same envelope, anchored at the stake the guardian held at `executedAt`.
-- **Owner stake slashed** when an emergency-settle review resolves blocked: burned in full.
+- **Owner stake slashed** when an emergency-settle review resolves blocked: burned in full, and the bond slot is deleted. The burn sticks only through the permissionless `GuardianRegistry.resolveEmergencyReview(governor, proposalId)`, callable by anyone once the window has ended. A blocked `finalizeEmergencySettle` reverts and rolls its own burn back (see the Finalize row below). There is no re-bond path for an existing vault, so a vault whose owner bond was burned cannot propose or execute again.
 - Approver slashing is bounded by the 100-slot cap to keep gas deterministic; blockers are uncapped, since capping honest defence would be a griefing vector.
 
 ## Emergency-settle review
@@ -82,18 +86,18 @@ When a strategy's pre-committed unwind calls are broken, the owner can submit cu
 
 | Step | Who | What |
 |---|---|---|
-| **Open** | Governor, from `emergencySettleWithCalls` | Reverts `OwnerBondInsufficient` unless the owner's stake is live and at least `requiredOwnerBond`. Stores the hash of the calls (`EmergencyHashMismatch` on finalize if they differ; at most 64 calls) and opens a `reviewPeriod`-long window. Calls do not execute yet. |
+| **Open** | Governor, from `emergencySettleWithCalls` | Reverts `OwnerBondInsufficient` unless the owner's stake is live and at least `requiredOwnerBond`. Stores the calls and their hash in the registry (at most 64 calls; finalize replays exactly the stored calls) and opens a `reviewPeriod`-long window. Calls do not execute yet. |
 | **Block** | Active guardian | `voteBlockEmergencySettle`: block-only, weighted at the snapshot. No approve side; absence of a block is an implicit allow. |
-| **Finalize** | Governor, from `finalizeEmergencySettle` | After the window: if the block quorum was reached the owner's stake is burned and finalize reverts `EmergencySettleBlocked`; otherwise the stored calls run and the proposal settles. |
+| **Finalize** | Governor, from `finalizeEmergencySettle` | After the window: if the block quorum was reached, finalize reverts `EmergencySettleBlocked`. That revert also rolls back the burn the registry attempted inside the same call, so a finalize never burns the owner stake. The burn sticks only through the permissionless `GuardianRegistry.resolveEmergencyReview(governor, proposalId)`, callable by anyone once the window has ended. If not blocked, the stored calls run and the proposal settles. |
 
 The owner can self-recall with `cancelEmergencySettle` before the window closes, with no slash. See [Settlement — Settlement paths](/protocol/governance/settlement#settlement-paths).
 
 ## After execution: the challenge window
 
-Every executed proposal stays challengeable for `challengeWindow` (14 days) after `executedAt + strategyDuration`. `ChallengeGame.file` is permissionless and bonds 1.5% of the cohort's liability in WOOD; a filing freezes the approvers' locks and starts a 7-day `autoSlashDelay`. Silence convicts: the approvers' locks are burned, the proposer bond is forfeited (20% to the challenger, the rest burned) and the adapter pair is demoted. A counter-bond that fills the pool sends the case to `TokenCourt`, a single WOOD-vote with a 5-day window where the accused, the challenger, the proposer and the counter-bond contributors cannot vote and stake younger than 30 days weighs nothing.
+Every executed proposal stays challengeable for `challengeWindow` (14 days) after `executedAt + strategyDuration`. `ChallengeGame.file` is permissionless and bonds 1.5% of the cohort's liability in WOOD; a filing freezes the approvers' locks and starts a 7-day `autoSlashDelay`. Silence convicts: the approvers' locks are burned, the proposer bond is forfeited (20% to the challenger, the rest burned) and the adapter pair is demoted. A counter-bond that fills the pool sends the case to `TokenCourt`, a single WOOD-vote with a 5-day window where the accused, the challenger, the proposer and the counter-bond contributors cannot vote. Juror weight is age-weighted sWOOD at `executedAt − 1`; a juror whose raw stake grew over the 30 days before that votes at most its weight from 30 days earlier, and an address with no stake then cannot vote.
 
 <Info>
-**Filings are paused through the private beta** (`ChallengeGame.filingsPaused`). Every court path is unreachable until the protocol multisig unpauses, so approvers carry review-path slash risk only, and proposer bonds on settled proposals are released once the 14-day window has run. The owner stake, the guardian locks and the review quorum are unaffected.
+**Filings are paused** (`ChallengeGame.filingsPaused`). The deploy script pauses them until the fleet's juror reserve is 30 days old: before that, one aged outsider, or 7 days of silence after a filing, could convict every approving key. Every court path is unreachable until the protocol multisig calls `setFilingsPaused(false)`, so approvers carry review-path slash risk only, and proposer bonds on settled proposals are released once the 14-day window has run. The owner stake, the guardian locks and the review quorum are unaffected. See [Challenge window](/explanations/challenge-window).
 </Info>
 
 ## Appeals
@@ -129,5 +133,5 @@ There is no minimum cohort stake. Any positive at-open stake decides its own rev
 ## Known limitations
 
 - **Blockers have no stake at risk.** Slashing only hits approvers, so a large-stake party could block proposals at the cost of capital alone. `stakeAsGuardian` is permissionless, so a third party can also raise the denominator the cohort must clear.
-- **No ex-post challenge backstop during the beta.** With filings paused, a bad execution that cleared review can only be answered by the vault owner's whitelist and veto, which is why both launch flags are on.
+- **No ex-post challenge backstop while filings are paused.** A bad execution that cleared review can only be answered by the vault owner's whitelist and veto, which is one reason both launch flags are on ([Launch posture](/explanations/launch-posture)).
 - **Resolve is permissionless but gas-heavy.** If no keeper resolves a blocked review, the next state read forces resolution and that caller pays.
