@@ -55,7 +55,7 @@ When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--na
 
 - **Pin:** `POST https://api.sherwood.sh/ipfs/upload`. The API holds the pinning credentials, so you need no key or env var.
 - **Resolve:** the CLI, SDK and dashboard read metadata only from a strict `ipfs://<CID>` URI through the Sherwood gateway (`https://sherwood.mypinata.cloud`).
-- **Failure is fatal:** if the upload fails, the proposal is not created. There is no inline `data:` fallback. Retry, or pin with [`sherwood pin-metadata`](/cli/commands#sherwood-pin-metadata-file) and pass `--metadata-uri`.
+- **Failure is fatal:** if the upload fails, the proposal is not created. There is no inline `data:` fallback. Retry, or pin with [`sherwood pin-metadata`](/cli/commands) and pass `--metadata-uri`.
 - **Schema:** `{ name, description, proposer, vault, strategyDuration, createdAt }`
 
 ### Call JSON format
