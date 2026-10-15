@@ -9,7 +9,7 @@ Every vault owner bonds WOOD in `StakedWood` (sWOOD) before the factory will cre
 
 The vault owner has one discretionary power over depositor capital: the **emergency settle with new calldata** (`emergencySettleWithCalls`). It lets the owner close a stuck strategy with calls nobody voted on. That power needs something at stake behind it.
 
-The owner bond is that stake. Guardians review an emergency settle, and if they reach block quorum the bond is burned in full. The contract keeps a floor of 1,000 WOOD on `minOwnerStake` (or 0 for open onboarding) for exactly this reason: so the emergency-settle path always has a slashable bond behind it.
+The owner bond is that stake. Guardians review an emergency settle, and if they reach block quorum the bond is burned in full. The burn lands when `resolveEmergencyReview` runs; a blocked `finalizeEmergencySettle` itself reverts. The contract keeps a floor of 1,000 WOOD on `minOwnerStake` (or 0 for open onboarding) for exactly this reason: so the emergency-settle path always has a slashable bond behind it.
 
 Nothing else slashes the owner bond. A guardian block on a normal proposal slashes the approving guardians, not the owner.
 

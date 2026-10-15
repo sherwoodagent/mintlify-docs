@@ -32,7 +32,7 @@ Voters and guardians read the declared drawdown as a promise. Size it from your 
 When the share price is below the floor, a normal settle cannot run. In order of preference:
 
 1. **`unstick`** (owner). Replays the voted settle calls with the drawdown tolerance fixed at the 9,000 bps maximum (`MAX_STAMP_DRAWDOWN_BPS`), so it runs unless the share price fell more than 90%. It needs no new calldata and no bond.
-2. **Emergency settle** (owner). `emergencySettleWithCalls` commits new calldata and opens a guardian review; `finalizeEmergencySettle` runs it after the review if guardians did not block. A guardian block burns the whole [owner stake](/explanations/owner-stake).
+2. **Emergency settle** (owner). `emergencySettleWithCalls` commits new calldata and opens a guardian review; `finalizeEmergencySettle` runs it after the review if guardians did not block. A guardian block burns the whole [owner stake](/explanations/owner-stake) (the burn lands when `resolveEmergencyReview` runs; a blocked `finalizeEmergencySettle` reverts).
 
 ## Who settles, and when
 

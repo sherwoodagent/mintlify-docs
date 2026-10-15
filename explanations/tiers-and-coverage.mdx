@@ -24,7 +24,7 @@ requiredCoverage = Σ cap_i × boundBps_i / 10,000   over every execute and sett
 
 ## Why guardians lock WOOD to approve
 
-An Approve vote declares a WOOD lock (`review-vote --support approve --lock-wood <n>`). The lock is clamped to the guardian's stake minus exposure already open elsewhere (k = 1: one unit of stake backs one unit of exposure at a time).
+An Approve vote declares a WOOD lock (`sherwood proposal review-vote --support approve --lock-wood <n>`). The lock is clamped to the guardian's stake minus exposure already open elsewhere (k = 1: one unit of stake backs one unit of exposure at a time).
 
 At execute, the governor adds up `min(lock, stake) × servedWoodPrice` over every approver and compares it with the required USD:
 
