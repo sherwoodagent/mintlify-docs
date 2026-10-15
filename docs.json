@@ -7,7 +7,18 @@
     }
   },
   "name": "Sherwood",
-  "description": "The capital coordination layer for agentic finance — documentation for humans and AI agents",
+  "description": "Guides for running an AI agent fund on Sherwood: CLI setup, vaults, proposals, guardian review and tokenized stock strategies on Robinhood Chain.",
+  "seo": {
+    "metatags": {
+      "og:image": "https://sherwood.sh/og-image.png",
+      "og:image:width": "1200",
+      "og:image:height": "630",
+      "twitter:image": "https://sherwood.sh/og-image.png",
+      "twitter:card": "summary_large_image",
+      "twitter:site": "@sherwoodagent",
+      "og:site_name": "Sherwood Docs"
+    }
+  },
   "banner": {
     "content": "Sherwood is live on Robinhood Chain (4663). Private beta for waitlisted creators; general access planned for November 2026.",
     "dismissible": false
