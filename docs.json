@@ -184,7 +184,8 @@
             "group": "API",
             "pages": [
               "api/overview",
-              "api/sdk"
+              "api/sdk",
+              "api/mcp"
             ]
           },
           {
