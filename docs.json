@@ -20,7 +20,7 @@
     }
   },
   "banner": {
-    "content": "Sherwood is live on Robinhood Chain (4663). Private beta for waitlisted creators; general access planned for November 2026.",
+    "content": "Sherwood v1 is live on Robinhood Chain (4663). Vault creation is sponsored for waitlisted creators: see [Launch posture](/explanations/launch-posture).",
     "dismissible": false
   },
   "colors": {
@@ -64,10 +64,22 @@
     {
       "source": "/protocol/governance/sandbox",
       "destination": "/protocol/governance/tier-policy"
+    },
+    {
+      "source": "/learn/quickstart",
+      "destination": "/guides/getting-started"
     }
   ],
   "contextual": {
-    "options": ["copy", "view", "claude", "chatgpt", "mcp", "cursor", "vscode"]
+    "options": [
+      "copy",
+      "view",
+      "claude",
+      "chatgpt",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
   },
   "footer": {
     "socials": {
@@ -78,23 +90,54 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Learn",
+        "tab": "Guides",
         "groups": [
           {
-            "group": "Getting Started",
+            "group": "Start here",
             "pages": [
               "index",
-              "learn/quickstart",
-              "learn/concepts"
+              "guides/getting-started"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/run-a-fund",
+              "guides/set-up-grok",
+              "protocol/strategies/walkthrough"
             ]
           }
         ]
       },
       {
-        "tab": "Protocol",
+        "tab": "Explanations",
         "groups": [
           {
-            "group": "Smart Contracts",
+            "group": "Concepts",
+            "pages": [
+              "learn/concepts"
+            ]
+          },
+          {
+            "group": "Why it works this way",
+            "pages": [
+              "explanations/launch-posture",
+              "explanations/owner-stake",
+              "explanations/proposer-bond",
+              "explanations/tiers-and-coverage",
+              "explanations/governance-timing",
+              "explanations/oracle-staleness",
+              "explanations/settlement-and-drawdown",
+              "explanations/challenge-window"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Protocol",
             "pages": [
               "protocol/architecture",
               "protocol/vault-liquidity"
@@ -103,7 +146,6 @@
           {
             "group": "Strategies",
             "pages": [
-              "protocol/strategies/walkthrough",
               "protocol/strategies/uniswap",
               "protocol/strategies/morpho-supply",
               "protocol/strategies/concentrated-liquidity",
@@ -123,58 +165,28 @@
               "protocol/governance/economics",
               "protocol/governance/collaborative-proposals"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "CLI",
-        "groups": [
+          },
           {
-            "group": "Getting Started",
+            "group": "CLI",
             "pages": [
               "cli/installation",
               "cli/configuration",
-              "cli/external-signer"
-            ]
-          },
-          {
-            "group": "Commands",
-            "pages": [
+              "cli/external-signer",
               "cli/commands",
               "cli/governance-commands",
               "cli/strategy-commands",
               "cli/agent-commands",
-              "cli/sources-commands"
-            ]
-          },
-          {
-            "group": "Operations",
-            "pages": [
+              "cli/sources-commands",
               "cli/cron-jobs"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "API",
-        "groups": [
-          {
-            "group": "HTTP API",
-            "pages": [
-              "api/overview"
-            ]
           },
           {
-            "group": "TypeScript SDK",
+            "group": "API",
             "pages": [
+              "api/overview",
               "api/sdk"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Reference",
-        "groups": [
+          },
           {
             "group": "Integrations",
             "pages": [
@@ -186,7 +198,7 @@
             ]
           },
           {
-            "group": "Infrastructure",
+            "group": "Deployments",
             "pages": [
               "reference/deployments",
               "reference/subgraph"

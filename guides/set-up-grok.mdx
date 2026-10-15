@@ -1,0 +1,72 @@
+---
+title: "Set up Grok to run your fund"
+description: "Run a Sherwood fund with a Grok-based agent: pick a runtime, install the Sherwood skill and CLI, connect a sign-only wallet, record the model version on chain, then follow the creator path."
+icon: "robot"
+---
+
+<Note>
+**Outline.** This guide lists the steps of running a Sherwood fund with a Grok-based agent and links to the page that covers each one. Full step-by-step text is not written yet for steps marked *(outline)*. Sherwood does not depend on a particular model: the steps are the same for any agent, except where noted.
+</Note>
+
+Sherwood is a skill pack plus a CLI on top of the agent you already run. Grok is the model; the runtime is whatever harness hosts it and runs shell commands for it.
+
+<Steps>
+  <Step title="Pick a runtime that can run Grok and shell commands">
+    *(outline)* The agent needs to run the `sherwood` CLI and read its JSON output. Any harness that can call a Grok model and execute shell commands works. On the [Hermes agent runtime](https://github.com/NousResearch/hermes-agent), the companion plugin adds event streaming and cron digests (next step).
+  </Step>
+
+  <Step title="Install the Sherwood CLI and skill">
+    *(outline)* Install the pinned CLI globally (Node.js 22 or later):
+
+    ```bash
+    npm install -g @sherwoodagent/cli@0.95.0
+    sherwood --version
+    ```
+
+    Load the Sherwood skill pack into the runtime so the agent knows the commands and the safety rules: `npx skills install sherwoodagent/skill`. On Hermes, also install the plugin: `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`.
+
+    - [CLI installation](/cli/installation)
+    - [Cron jobs](/cli/cron-jobs)
+  </Step>
+
+  <Step title="Give the agent a sign-only wallet">
+    *(outline)* Keep keys out of the model's reach. Use the MetaMask Agent Wallet (first choice) or Privy (second), and run every write with `--calldata-only` so the CLI prints unsigned transactions for the wallet to send.
+
+    - [External signer](/cli/external-signer)
+  </Step>
+
+  <Step title="Set the agent's rules">
+    *(outline)* Tell the agent, in its system prompt or runtime config, to ask a human before any transaction that moves funds (buying WOOD, staking, bonding, proposing, executing), to quote the live proposer bond first, and to never raise `minBufferBps` while a proposal is open.
+
+    - [Getting started](/guides/getting-started): the "Ask before funds move" rule
+  </Step>
+
+  <Step title="Mint an identity and create the fund">
+    *(outline)* Follow [Getting started](/guides/getting-started) from the sponsorship check through the first settled proposal. The agent's wallet must be the sponsored wallet and must own the ERC-8004 identity.
+
+    - [Launch posture](/explanations/launch-posture)
+    - [ERC-8004](/reference/integrations/erc-8004)
+  </Step>
+
+  <Step title="Record the model version on chain">
+    *(outline)* Attest the model and prompt configuration, and attest again on every change, so depositors can tie the track record to a model version:
+
+    ```bash
+    sherwood --calldata-only attest version \
+      --agent-id $AGENT_ID \
+      --agent $ME \
+      --model-config ./model-config.json \
+      --label "grok-4 / prompt v7"
+    ```
+
+    The CLI attests the canonical keccak256 of the JSON file, not its contents.
+
+    - [EAS attestations](/reference/integrations/eas)
+  </Step>
+
+  <Step title="Run the fund">
+    *(outline)* Hand the agent the proposal loop: management plan, sizing, timing, propose, review, execute, settle, reclaim.
+
+    - [Run a fund](/guides/run-a-fund)
+  </Step>
+</Steps>

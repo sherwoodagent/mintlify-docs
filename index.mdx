@@ -8,7 +8,7 @@ Sherwood Protocol enables any agent to manage an onchain fund with vaults, gover
 
 A fund is a non-custodial ERC-4626 vault with an agent at the desk. Depositors pool capital and receive shares — and every share is a vote. An agent proposes a strategy with its exact execution and settlement calls committed up front. If depositors don't vote it down and guardians don't block it, the contracts run precisely those calls and nothing else. Proceeds settle back into the vault. A fund charges two fees: a management fee on assets under management (2%/yr at launch, capped at 3%), charged at every settlement whether the fund gains or loses, and a performance fee (20% by default, protocol ceiling 25%) charged only on value above the fund's previous peak. See [Economics](/protocol/governance/economics).
 
-Sherwood v1 is live on **Robinhood Chain mainnet (chain 4663)**, in a **private beta** for waitlisted creators. Vaults hold **USDG** and trade the chain's tokenized stocks through Uniswap, lend on Morpho Blue, or run a concentrated-liquidity position. General access is planned for November 2026; join the waitlist at [sherwood.sh](https://sherwood.sh).
+Sherwood v1 is live on **Robinhood Chain mainnet (chain 4663)**. Vault creation is sponsored for waitlisted creators; join the waitlist at [sherwood.sh](https://sherwood.sh). Vaults hold **USDG** and trade the chain's tokenized stocks through Uniswap, lend on Morpho Blue, or run a concentrated-liquidity position. See [Launch posture](/explanations/launch-posture) for the rules that apply today.
 
 ## Three gates before capital moves
 
@@ -22,11 +22,11 @@ Security, by economics: every party watching your money has something to lose, t
 
 ## Who is Sherwood for?
 
-**Depositors** pool capital into a fund's vault and receive shares that double as votes. An agent runs the strategy — you keep the shares, the votes, and the exit. While a proposal is open, deposits and redemptions queue and settle at the realized price; otherwise standard ERC-4626 deposit and redeem run against vault float. Depositors need no \$WOOD. During the beta, every vault takes deposits only from addresses its owner approved.
+**Depositors** pool capital into a fund's vault and receive shares that double as votes. An agent runs the strategy — you keep the shares, the votes, and the exit. While a proposal is open, deposits and redemptions queue and settle at the realized price; otherwise standard ERC-4626 deposit and redeem run against vault float. Depositors need no \$WOOD. For now, every vault takes deposits only from addresses its owner approved.
 
-**Agent operators** give an agent a fund to manage. One command deploys the whole fund — vault, its own governor, and withdrawal queue. The agent brings the strategy, with every call committed up front, and is paid out of the fund's two fees. During the beta only the vault owner proposes. Turn any agent into a fund manager.
+**Agent operators** give an agent a fund to manage. One command deploys the whole fund — vault, its own governor, and withdrawal queue. The agent brings the strategy, with every call committed up front, and is paid out of the fund's two fees. For now, only the vault owner proposes. Turn any agent into a fund manager.
 
-**Guardians** stake \$WOOD and get paid to review. Block a malicious call to earn; wave one through and your stake is slashed and burned. Capital secures capital — \$WOOD is the stake behind every guardian verdict.
+**Guardians** stake \$WOOD and get paid to review. Block a malicious call to earn; approve one that a block quorum or a challenge later convicts and your locked stake is slashed and burned. Capital secures capital — \$WOOD is the stake behind every guardian verdict.
 
 ## What a creator needs
 
@@ -34,11 +34,11 @@ Security, by economics: every party watching your money has something to lose, t
 |------|-----|
 | A sign-only agent wallet ([MetaMask Agent Wallet](https://metamask.io/agent-wallet) first, [Privy](https://agents.privy.io/) second) with ETH on 4663 for gas | Every write runs with `--calldata-only`; the key never leaves the wallet provider |
 | An ERC-8004 identity minted on Robinhood Chain | The factory checks that the creator owns the id passed as `--agent-id` |
-| 10,000 \$WOOD for the owner stake | Bonded before `vault create`, returned after a 7-day cooldown |
-| Sponsorship through the waitlist, or 1,000,000 \$WOOD for the creation fee | Vault creation is invite-only during the beta |
-| A \$WOOD reserve of roughly 10% of the capital you plan to deploy | The proposer bond on each proposal is quoted live, pulled at propose and returned when the proposal ends |
+| 10,000 \$WOOD for the [owner stake](/explanations/owner-stake) | Bonded before `vault create`, returned after a 7-day cooldown |
+| Sponsorship through the waitlist, or 1,000,000 \$WOOD for the creation fee | Vault creation is invite-only for now ([why](/explanations/launch-posture)) |
+| A \$WOOD reserve worth about 3–4% of the capital you plan to deploy | The [proposer bond](/explanations/proposer-bond) on each proposal is about 2% of the amount deployed at market, quoted live, pulled at propose and returned after the proposal ends |
 
-The [Quickstart](/learn/quickstart) walks through each of these, including where to buy \$WOOD.
+[Getting started](/guides/getting-started) walks through each of these, including where to buy \$WOOD.
 
 ## How it works
 
@@ -50,11 +50,17 @@ Every strategy travels the same loop:
 4. **The strategy executes and settles**: proceeds land back in the vault, the management and performance fees are charged, queued redeemers get their price, and the bond returns to the proposer.
 
 <CardGroup cols={2}>
-  <Card title="Quickstart" icon="rocket" href="/learn/quickstart">
+  <Card title="Getting started" icon="rocket" href="/guides/getting-started">
     Install the CLI, mint an identity, fund the wallet, create a vault and settle a first strategy on Robinhood Chain
+  </Card>
+  <Card title="Run a fund" icon="chart-line" href="/guides/run-a-fund">
+    The proposal loop after the first strategy: sizing, timing, coverage, settle and bonds
   </Card>
   <Card title="Core Concepts" icon="lightbulb" href="/learn/concepts">
     Understand funds, vaults, agents, and the governance model
+  </Card>
+  <Card title="Explanations" icon="book-open" href="/explanations/tiers-and-coverage">
+    Why each mechanism exists: bonds, coverage, timing, drawdown, staleness
   </Card>
   <Card title="Protocol Deep-Dive" icon="code" href="/protocol/architecture">
     Smart contract architecture, governance mechanics, and settlement paths
