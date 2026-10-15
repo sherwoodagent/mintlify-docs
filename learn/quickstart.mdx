@@ -25,7 +25,7 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     Requires Node.js 22 or later.
 
     ```bash
-    npm install -g @sherwoodagent/cli@0.94.0
+    npm install -g @sherwoodagent/cli@0.95.0
     sherwood --version
     ```
   </Step>
@@ -259,12 +259,12 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     ```
 
     <Warning>
-    **Weekend feed gap.** Stock feeds pause over the weekend, so a proposal that holds stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. With the default windows (24h vote, 24h review, 24h execution) a proposal made after Wednesday has its execution window reach into the gap, so propose by Wednesday for a Friday execute, or wait until Monday. Do not put a stock in a basket across an announced split. `sherwood sources get calendar` prints the live window.
+    **Weekend feed gap.** Stock feeds pause over the weekend, so a proposal that holds stock tokens cannot execute, settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an execution window that falls inside the gap expires the proposal. With the default windows (24h vote, 30 min review, 24h execution) the execution window runs from 24.5h to 48.5h after propose, so propose by about Thursday 18:00 UTC, or from Saturday 23:30 UTC. With a 30 min test vote the window is 1h to 25h after propose: propose by about Friday 17:30 UTC. Do not put a stock in a basket across an announced split. `sherwood sources get calendar` prints the live window.
     </Warning>
   </Step>
 
   <Step title="Vote, execute, settle">
-    Voting opens one second after the propose block and runs 24 hours (the vault default). Only `Against` votes count: the proposal is rejected if `Against` weight reaches the veto threshold (20% of the electorate snapshotted at propose), otherwise it passes. Shareholders vote with:
+    Voting opens one second after the propose block and runs 24 hours by default. The vault owner sets it (`sherwood governor set-voting-period`, 30 min minimum on mainnet 4663). Only `Against` votes count: the proposal is rejected if `Against` weight reaches the veto threshold (20% of the electorate snapshotted at propose), otherwise it passes. Shareholders vote with:
 
     ```bash
     sherwood --calldata-only proposal vote --vault $VAULT --id 1 --support against
@@ -272,7 +272,7 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
 
     A vote sent in the propose second reverts `NotWithinVotingPeriod`; signed `proposal vote` waits it out, keyless mode does not, so broadcast after the next block.
 
-    After the vote, staked guardians review the calls for 24 hours. Guardians who vote Approve underwrite the book with their WOOD; execution needs at least one covering approval (`InsufficientApproveCoverage` otherwise), and partial coverage deploys a proportionally smaller amount. See [Coverage](/protocol/governance/coverage).
+    After the vote, staked guardians review the calls for the protocol's review period (30 min on mainnet 4663). Guardians who vote Approve underwrite the book with their WOOD; execution needs at least one covering approval (`InsufficientApproveCoverage` otherwise), and partial coverage deploys a proportionally smaller amount. During review, check coverage with `sherwood proposal show <id> --vault <vault>` (the **Guardian Coverage** section shows the WOOD each guardian locked, its USD value, and covered vs required), and run `sherwood proposal execute --id <id> --vault <vault> --dry-run` before executing: it fails when coverage is short. See [Coverage](/protocol/governance/coverage).
 
     Once the proposal is `Approved`, execute it within the execution window (24 hours by default):
 

@@ -26,8 +26,8 @@ graph LR
     E -->|"proposer after 1h, anyone after duration"| S["Settled<br/>(P&L distributed)"]
 ```
 
-- **Pending**: Voting window (24h). Optimistic governance: the proposal passes unless `Against` votes reach the veto threshold (20% of the votable supply, queued shares excluded). The **vault owner** can `vetoProposal()` while Pending, or `emergencyCancel()` while Pending.
-- **GuardianReview**: After voting passes, staked guardians review the calldata for 24h and underwrite it with WOOD locks. If they reach the **block quorum** (30% of cohort stake at the snapshot) the proposal is Rejected and every approver is slashed. This is the only way to block a proposal once it has left Pending.
+- **Pending**: Voting window (24h by default; owner-set, 30 min minimum). Optimistic governance: the proposal passes unless `Against` votes reach the veto threshold (20% of the votable supply, queued shares excluded). The **vault owner** can `vetoProposal()` while Pending, or `emergencyCancel()` while Pending.
+- **GuardianReview**: After voting passes, staked guardians review the calldata for the review period (30 min on 4663) and underwrite it with WOOD locks. If they reach the **block quorum** (30% of cohort stake at the snapshot) the proposal is Rejected and every approver is slashed. This is the only way to block a proposal once it has left Pending.
 - **Approved**: Review window ended without a block quorum; the proposal can be executed within the 24h execution window. It expires if left unexecuted.
 - **Executed**: The strategy is live; the vault's USDG is deployed into the basket, scaled to the coverage guardians booked.
 - **Settled**: The basket is sold back to USDG, fees are taken, and the queue price is stamped.
