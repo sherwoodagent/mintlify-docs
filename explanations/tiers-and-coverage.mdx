@@ -1,0 +1,94 @@
+---
+title: "Tiers and coverage"
+description: "Why uncertified strategies need full guardian coverage, why guardians lock WOOD to approve, and how to size maxCapitalBps, tier2CallCapBps and minBufferBps so your first proposal does not revert."
+---
+
+Before a proposal executes, staked guardians must underwrite what its calls could extract, with their own WOOD. The protocol prices that with **tiers**, and the vault owner bounds it with three **caps**. This page explains both, and how to set the caps so a normal proposal goes through.
+
+## Tiers price what a call could extract
+
+`TierRegistry` assigns each `(target, selector)` pair, or a strategy template class, a tier and an extractable bound in bps:
+
+- **Tier 0 and 1** are certified. The Safe proposes a certification and can apply it only after `certifyDelay` (3 days), so a grant cannot be slipped in under a live proposal.
+- **Tier 2** is everything uncertified. It is priced at the full notional: 10,000 bps.
+
+**On 4663 today, every core template is tier 2.** `classTierOf(template, execute|settle)` returns `(2, 10000)` for Portfolio, Morpho Supply and Concentrated Liquidity. Nothing is certified.
+
+## Required coverage
+
+```
+requiredCoverage = Σ cap_i × boundBps_i / 10,000   over every execute and settle call
+```
+
+`sherwood strategy propose` gives the strategy's execute call the whole `--amount` and gives settle calls a cap of 0. With everything at tier 2, **required coverage is about 1× `--amount`**. Read it per proposal with `getRequiredCoverage(proposalId)` on the vault's governor, or in `sherwood proposal show`.
+
+## Why guardians lock WOOD to approve
+
+An Approve vote declares a WOOD lock (`review-vote --support approve --lock-wood <n>`). The lock is clamped to the guardian's stake minus exposure already open elsewhere (k = 1: one unit of stake backs one unit of exposure at a time).
+
+At execute, the governor adds up `min(lock, stake) × servedWoodPrice` over every approver and compares it with the required USD:
+
+| Coverage raised | Result |
+|---|---|
+| Full | Executes at the voted size |
+| Partial | Executes smaller: `effectiveMaxCapital = maxCapital × raised / required`, and every per-call cap scales with it |
+| Zero | Reverts `InsufficientApproveCoverage` |
+
+A shortfall scales instead of reverting so that a thin guardian set can still move small, fully covered amounts. Guardians value WOOD at the same 50% haircut as the [proposer bond](/explanations/proposer-bond).
+
+A lock is held until the end of its 7-day epoch plus the 14-day [challenge window](/explanations/challenge-window): about settle + 14 to 21 days. That is the period in which a conviction could slash it. An expired proposal still holds guardian capacity for that time.
+
+<Warning>
+A plain `sherwood proposal execute` does not check coverage. Run `sherwood proposal execute --id <id> --vault <vault> --dry-run` first: it fails when coverage is short.
+</Warning>
+
+## The owner's three caps
+
+These bound the blast radius regardless of tier. All are set by the vault owner and **frozen while any proposal is open, Drafts included**.
+
+| Cap | Unset value | What it limits | Setter |
+|---|---|---|---|
+| `maxCapitalBps` | 10,000 (inert) | One proposal's capital, as a share of TVL | `governor set-max-capital` |
+| `tier2CallCapBps` | 10,000 (inert) | Any **single** tier-2 call's cap, as a share of TVL | `governor set-tier2-call-cap` |
+| `minBufferBps` | 0 | Share of pre-batch float that must stay idle (max 5000) | `vault set-min-buffer` |
+
+### Sizing `tier2CallCapBps`
+
+The governor checks this at propose, per call:
+
+```
+cap_i ≤ totalAssets × tier2CallCapBps / 10,000      else Tier2CallCapExceedsCeiling(i)
+```
+
+Because the CLI puts the whole `--amount` on one strategy call, and that call is tier 2, the rule for a single-strategy proposal is:
+
+```
+--amount ≤ totalAssets × tier2CallCapBps / 10,000
+```
+
+**A value of 200 limits every proposal to 2% of TVL.** On a 90 USDG vault that is 1.80 USDG, so a 60 USDG basket reverts. The CLI does not pre-check this; you find out from an on-chain revert after the strategy clone has already been paid for.
+
+While every template is tier 2, set `tier2CallCapBps` **at least as high as `maxCapitalBps`**. If one proposal may deploy up to 80% of TVL, set both to 8000:
+
+```bash
+sherwood --calldata-only governor set-max-capital    --vault $VAULT --bps 8000
+sherwood --calldata-only governor set-tier2-call-cap --vault $VAULT --bps 8000
+```
+
+Lower `tier2CallCapBps` below `maxCapitalBps` only if you want to force multi-call proposals or wait for certified templates. CLI 0.95.0 still prints `200` as a post-create suggestion; do not follow it.
+
+### Sizing `minBufferBps`
+
+At most `(1 − minBufferBps)` of the pre-batch float can leave in a batch. 500 (5%) is a reasonable buffer. **Never raise it while a proposal is open**: settle, `unstick` and emergency finalize all revert until it is lowered again.
+
+## Protocol-wide ceilings
+
+- **$1,000,000 covered TVL per proposal** (`coveredTvlCapUsd`). It bounds what one proposal can ask the guardian set to underwrite. Above it, propose reverts `CoveredTvlCapExceeded`.
+- **60-day coverage horizon.** `executeBy + duration` must be within 60 days of now (`CoverageHorizonExceeded`), so guardian locks cannot be pinned indefinitely.
+
+## Related
+
+- [Tier policy](/protocol/governance/tier-policy)
+- [Coverage](/protocol/governance/coverage)
+- [Guardian review](/protocol/governance/guardian-review)
+- [Governance commands](/cli/governance-commands)

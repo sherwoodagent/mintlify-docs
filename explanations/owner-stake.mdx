@@ -1,0 +1,64 @@
+---
+title: "Owner stake"
+description: "Why a vault owner bonds 10,000 WOOD before creating a vault, what can slash it, and how getting it back works."
+---
+
+Every vault owner bonds WOOD in `StakedWood` (sWOOD) before the factory will create the vault. The live minimum is **10,000 WOOD** (`StakedWood.minOwnerStake()`). This page explains why the bond exists and how it behaves over the life of a vault.
+
+## Why it exists
+
+The vault owner has one discretionary power over depositor capital: the **emergency settle with new calldata** (`emergencySettleWithCalls`). It lets the owner close a stuck strategy with calls nobody voted on. That power needs something at stake behind it.
+
+The owner bond is that stake. Guardians review an emergency settle, and if they reach block quorum the bond is burned in full. The contract keeps a floor of 1,000 WOOD on `minOwnerStake` (or 0 for open onboarding) for exactly this reason: so the emergency-settle path always has a slashable bond behind it.
+
+Nothing else slashes the owner bond. A guardian block on a normal proposal slashes the approving guardians, not the owner.
+
+## How big it is
+
+- `minOwnerStake` is 10,000 WOOD on 4663.
+- `requiredOwnerBond(vault)` is the larger of `minOwnerStake` and the 1,000 WOOD floor. In v1 it does not scale with the vault's TVL.
+- It is a fixed WOOD amount, not a USD amount. A WOOD price move changes its dollar value but not the requirement.
+
+## Prepared first, bound once
+
+1. `prepareOwnerStake(amount)` escrows WOOD in sWOOD. The amount must be at least `minOwnerStake`. One unbound escrow per address; `cancelPreparedStake()` refunds it if you change your mind.
+2. `createSyndicate` binds the **whole** prepared amount to the new vault in the same transaction. Without a prepared stake the factory reverts `PreparedStakeNotFound`.
+3. There is no top-up path after binding. Each new vault needs a fresh prepared stake.
+
+With the CLI:
+
+```bash
+sherwood --calldata-only guardian prepare-owner-stake 10000
+```
+
+<Warning>
+The signed (non-keyless) `guardian prepare-owner-stake` approves an **unlimited** WOOD allowance to sWOOD. The `--calldata-only` path is the one this documentation uses; it also checks the minimum before printing transactions.
+</Warning>
+
+## The bond must stay live
+
+The governor checks `ownerBondLive(vault)` at **propose** and again at **execute**. If the bond is not live, both revert `OwnerBondNotLive`.
+
+Requesting an unstake makes the bond not live immediately. That is deliberate: it stops an owner from starting an exit, then executing a harmful strategy while the exit is pending.
+
+## Getting it back
+
+1. `requestUnstakeOwner` is refused while any proposal on the vault is open.
+2. Once requested, the vault cannot propose or execute.
+3. After the 7-day cooldown (`coolDownPeriod()` = 604,800 s), `claimUnstakeOwner` returns the WOOD.
+
+The cooldown is fixed at request time. It must be at least the guardian review period, so a bonded party cannot unstake inside a review and escape a slash.
+
+There is no CLI command for the owner unstake in CLI 0.95.0. It is a direct contract call. Do not request it while you still intend to run strategies on the vault.
+
+## What to do
+
+- Budget 10,000 WOOD per vault, on top of the [proposer bond](/explanations/proposer-bond) reserve.
+- Prepare the stake from the same wallet that will create the vault. That wallet must also be the [sponsored](/explanations/launch-posture) one.
+- Treat the emergency settle as a last resort. A guardian block burns the whole bond. See [Settlement and drawdown](/explanations/settlement-and-drawdown) for the exits that come first.
+
+## Related
+
+- [Getting started](/guides/getting-started)
+- [Guardian review](/protocol/governance/guardian-review)
+- [Settlement](/protocol/governance/settlement)

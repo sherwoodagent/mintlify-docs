@@ -1,0 +1,67 @@
+---
+title: "Proposer bond"
+description: "Why every proposal locks WOOD, why the bond is quoted at half the WOOD price, how big it is in practice (about 2% of the amount you deploy), and when it comes back."
+---
+
+Every proposal pulls a WOOD bond from the proposer into `ProposerBondEscrow` at propose time. This page explains why, how the size is set, and how much WOOD to keep on hand.
+
+## Why it exists
+
+The bond is the proposer's skin in the game against a rug. If a proposal turns out to be a drain, anyone can file a challenge against it during the [challenge window](/explanations/challenge-window). A conviction forfeits the **whole** bond: up to 20% goes to the challenger and the rest is burned. There is no partial forfeit and no other way to lose it.
+
+The ledger's own design note sums it up: honest proposers should not be priced out, and a rug should forfeit something meaningful.
+
+## How big it is
+
+```
+bondWood = coverageUsd(asset, requiredCoverage) × proposerBondBps / 10,000 ÷ servedWoodPrice
+```
+
+- `proposerBondBps` is **100** (1%) on 4663 (`ExposureLedger.proposerBondBps()`).
+- `requiredCoverage` is the USD amount guardians must underwrite before execute. See [Tiers and coverage](/explanations/tiers-and-coverage). For a proposal built by `sherwood strategy propose`, it is about **1× `--amount`**: the CLI puts the whole amount on the strategy's execute call and gives settle calls a cap of 0.
+- `servedWoodPrice` is **half** the market price (next section).
+
+So the bond is 1% of the deployed amount, priced at half the WOOD price. **At market, that is about 2% of `--amount` in WOOD.**
+
+Worked example, using the 2026-10-15 feed price: a 60 USDG basket had a required coverage of 60 USDG and a quoted bond of 371 WOOD (`proposerBondWood(USDG, 60e6)`). At the feed price of about $0.0032 per WOOD, that is about $1.20, or 2% of 60.
+
+Never plan from a fixed WOOD figure. The CLI quotes the live bond at `strategy propose`, and the WOOD count changes with the WOOD price.
+
+## Why the bond is quoted at half price
+
+The ledger serves WOOD at `0.5 × min(feed, cap)`:
+
+- **The 50% haircut** (`woodHaircutBps` = 5000, also the floor the parameter cannot go below). Collateral wants a floor, not a quote. Valuing a bond at half of market means a sharp WOOD drop still leaves a meaningful forfeit behind every proposal. Valuing bonds below half of market would be a mis-set parameter, so 5000 is also the minimum.
+- **The cap.** `woodUsdPriceX8` is a ceiling set at deploy at 2× the spot price of the time. A pumped WOOD price cannot shrink bonds below what that ceiling allows.
+- **The feed.** A 1-hour Uniswap V3 TWAP times Chainlink ETH/USD (`WOOD_USD_TWAP_FEED`, max age 1 hour). If WOOD cannot be priced, `propose` reverts `NoWoodPrice`. That halt is deliberate: halting proposal creation costs nothing that cannot wait, while admitting an unbonded proposal does.
+
+The practical effect is that a WOOD price fall raises the WOOD count of every new bond.
+
+## When it comes back
+
+| Proposal ends as | Bond released |
+|---|---|
+| Rejected, Expired or Cancelled | Immediately |
+| Settled | After `executedAt + duration + 14 days`, once no challenge is pending |
+
+The bond outlives settle because a proposer who drains a vault and self-settles would otherwise walk away with it. See [Challenge window](/explanations/challenge-window).
+
+`sherwood proposal reclaim-bond --vault <vault> --id <id>` is permissionless and always pays the recorded proposer. Before the window closes it reverts `ChallengeWindowOpen`.
+
+## How much WOOD to hold
+
+- The [owner stake](/explanations/owner-stake): 10,000 WOOD, once per vault.
+- One bond: about 2% of the capital you plan to deploy in that proposal.
+- Headroom: a WOOD price fall increases the bond, so hold about **3–4% of planned capital** for one proposal.
+- Overlapping bonds: each settled bond stays locked for `duration + 14 days`. With back-to-back proposals you hold about `(duration + 14 days) / cadence` bonds at once. Seven-day proposals run weekly keep about three bonds in flight.
+
+The CLI approves the quote plus a 5% buffer to the escrow, never an unlimited amount. If the quote is 0 (WOOD unpriced), it emits no approve, and the propose then reverts in the escrow pull.
+
+WOOD trades in shallow pools. Quote before you buy, buy in tranches, and get the live bond from a keyless `strategy propose` dry run first.
+
+## Related
+
+- [Proposer bond reference](/protocol/governance/proposer-bond)
+- [Coverage](/protocol/governance/coverage)
+- [Getting started](/guides/getting-started)
+- [Deployments](/reference/deployments): ExposureLedger, ProposerBondEscrow, WOOD pools

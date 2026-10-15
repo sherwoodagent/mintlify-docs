@@ -1,0 +1,45 @@
+---
+title: "Challenge window"
+description: "Why proposer bonds and guardian locks stay locked for 14 days after a proposal ends, how a challenge works, and why filings are paused today."
+---
+
+Guardian review happens before execute. The challenge game is the check that happens **after**: for 14 days after a strategy's planned end, anyone can accuse an executed proposal of having been a drain. This page explains why that window exists and what it means for your WOOD.
+
+## How a challenge works
+
+- **Who can file:** anyone, against an executed proposal, until `executedAt + duration + 14 days` (`ChallengeGame.challengeWindow()` = 1,209,600 s).
+- **Silence convicts.** If nobody disputes a filing within `autoSlashDelay` (7 days), it convicts. Seven days is long enough to survive a weekend, an operator outage or a short chain halt.
+- **Disputes go to TokenCourt:** a 5-day, age-weighted WOOD vote. A tie is NotGuilty.
+
+## Who pays on a conviction
+
+- The approving guardians' WOOD locks are slashed at their slash rate.
+- The proposer forfeits the **whole** [proposer bond](/explanations/proposer-bond).
+
+The protocol punishes the people who let the drain through. It does not reimburse the vault.
+
+## Why bonds and locks outlive settle
+
+A conviction can only take what still exists. If the proposer bond came back at settle, a proposer could execute a drain, self-settle an hour later and walk away with the bond before anyone filed. So:
+
+- A settled proposal's bond is released after `executedAt + duration + 14 days`, and only when no challenge is pending. Before that, `reclaim-bond` reverts `ChallengeWindowOpen`.
+- Guardian locks are held until their 7-day epoch ends plus the 14-day window: about settle + 14 to 21 days.
+
+Rejected, Expired and Cancelled proposals never executed, so their bonds come back at once.
+
+## Why filings are paused today
+
+`ChallengeGame.filingsPaused()` is `true` on 4663. Disputed challenges are decided by WOOD jurors, and the deploy keeps filings paused until the juror reserve is 30 days old. A young reserve would be easier to capture for the first cases.
+
+While filings are paused, the 14-day window still delays bond release, but nothing can be filed during it. The Safe lifts the pause; read the flag live rather than relying on a date.
+
+## What it costs you
+
+Each settled proposal keeps its bond locked for about two more weeks. With back-to-back proposals, bonds overlap: about `(duration + 14 days) / cadence` of them at once. Weekly 7-day proposals keep about three bonds locked. Size your WOOD reserve for that.
+
+## Related
+
+- [Proposer bond](/explanations/proposer-bond)
+- [Launch posture](/explanations/launch-posture)
+- [Guardian review](/protocol/governance/guardian-review)
+- [Settlement and drawdown](/explanations/settlement-and-drawdown)
