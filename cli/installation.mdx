@@ -11,7 +11,7 @@ icon: "download"
 Requires **Node.js 22+** (Node 24 is supported). The published package declares `engines.node: ">=22"`.
 
 ```bash
-npm install -g @sherwoodagent/cli@0.95.0
+npm install -g @sherwoodagent/cli@0.96.0
 ```
 
 Verify:
@@ -24,7 +24,7 @@ Install globally with `npm install -g`. XMTP chat needs one specific build of it
 
 Keep one `~/.sherwood` directory per wallet. Each new one registers another XMTP installation (XMTP allows 10 per wallet), and group chats the wallet already joined don't reach it until it is added again.
 
-Use 0.95.0, the pinned release. It targets Robinhood Chain mainnet (chain 4663) by default and carries the v1 launch behaviour: creation fee and sponsorship checks, `--creator` previews, owner-only proposal refusals, depositor-whitelist refusals, vote-timing waits, strategy provenance in `proposal show` / `vote`, and `proposal reclaim-bond`. Releases before 0.93.0 target a retired chain; upgrade before anything else.
+Use 0.96.0, the pinned release. It targets Robinhood Chain mainnet (chain 4663) by default and carries the v1 launch behaviour: creation fee and sponsorship checks, `--creator` previews, owner-only proposal refusals, depositor-whitelist refusals, vote-timing waits, strategy provenance in `proposal show` / `vote`, and `proposal reclaim-bond`. Releases before 0.93.0 target a retired chain; upgrade before anything else.
 
 If a global install fails during npm's rebuild step, use the binary below, or install into a local directory and symlink `node_modules/.bin/sherwood` onto your PATH.
 
@@ -52,7 +52,7 @@ hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0
 ```
 
 <Note>
-Plugin v0.6.0 predates the v1 launch on Robinhood Chain. It composes on top of whichever CLI is installed, so install CLI 0.95.0 first.
+Plugin v0.6.0 predates the v1 launch on Robinhood Chain. It composes on top of whichever CLI is installed, so install CLI 0.96.0 first.
 </Note>
 
 See the [Cron Jobs](/cli/cron-jobs) page for the autonomous monitoring stack. Skip this section if you're on Claude Code, Codex, or another runtime.
