@@ -59,7 +59,7 @@ Each vault picks its own deposit asset at creation. The Portfolio strategy requi
 The `strategy propose` command handles everything: clones the template, initializes it, builds the batch calls, quotes and locks the proposer bond, and submits the proposal.
 
 <Tip>
-**Before the first proposal on a new vault**, seed the caps the governor leaves inert: `setMaxCapitalBps` (for example 8000) and `setTier2CallCapBps` on the governor, and `setMinBufferBps` (for example 500) on the vault. Every core template is tier 2 today and the CLI puts the whole `--amount` on one strategy call, so a proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. Keep `tier2CallCapBps` at or above `maxCapitalBps` (for example 8000). A value like 200 limits every proposal to 2% of TVL. The caps can only be changed while no proposal is open. See [Tiers and coverage](/explanations/tiers-and-coverage).
+**Before the first proposal on a new vault**, seed `setMaxCapitalBps` (for example 8000) on the governor and `setMinBufferBps` (for example 500) on the vault. Leave `tier2CallCapBps` at its default (10,000, inert) while the strategy is uncertified. Every core template is tier 2 today and the CLI puts the whole `--amount` on one strategy call, so a proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. A value like 200 limits every proposal to 2% of TVL. The caps can only be changed while no proposal is open. See [Tiers and coverage](/explanations/tiers-and-coverage).
 </Tip>
 
 Propose-time checklist:

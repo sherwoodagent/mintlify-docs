@@ -129,7 +129,7 @@ Launch values are the factory defaults every new governor starts with. Bounds ar
 | `maxCoProposers` | 10 | 1 – 10 | `setMaxCoProposers` |
 
 <Tip>
-**Seeding the caps on a new vault.** Right after `createSyndicate` and before the first `propose`, set `setMaxCapitalBps` (for example 8000) and `setTier2CallCapBps` on the governor and `setMinBufferBps` (for example 500) on the vault. The governor defaults leave both caps inert. Every core template is tier 2 today, so any single strategy call whose cap exceeds `totalAssets × tier2CallCapBps / 10_000` reverts `Tier2CallCapExceedsCeiling` at propose; keep `tier2CallCapBps` at or above `maxCapitalBps` while that holds. A value of 200 would limit every proposal to 2% of TVL. `minBufferBps` must never be raised while a proposal is open: the post-batch buffer check would make the committed settlement calls revert. See [Tiers and coverage](/explanations/tiers-and-coverage).
+**Seeding the caps on a new vault.** Right after `createSyndicate` and before the first `propose`, set `setMaxCapitalBps` (for example 8000) on the governor and `setMinBufferBps` (for example 500) on the vault. Leave `tier2CallCapBps` at its default (unset reads as 10,000, inert) until the strategy is certified. Every core template is tier 2 today, so any single strategy call whose cap exceeds `totalAssets × tier2CallCapBps / 10_000` reverts `Tier2CallCapExceedsCeiling` at propose. A value of 200 would limit every proposal to 2% of TVL. `minBufferBps` must never be raised while a proposal is open: the post-batch buffer check would make the committed settlement calls revert. See [Tiers and coverage](/explanations/tiers-and-coverage).
 </Tip>
 
 ## Proposer, agents and depositors

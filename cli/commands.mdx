@@ -127,7 +127,7 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 
 In keyless mode the printed transactions only approve the fee (when due) and deploy the vault. Register the creator yourself afterwards with `sherwood --calldata-only vault add --vault <vault> --wallet <creator> --agent-id <id>`, reading the vault address from `sherwood vault info <subdomain>`.
 
-After creation, and before the first proposal, seed the three per-vault caps: `sherwood governor set-max-capital --vault <vault> --bps 8000`, `sherwood governor set-tier2-call-cap --vault <vault> --bps 8000` and `sherwood vault set-min-buffer --vault <vault> --bps 500`. Every core template is tier 2 on 4663, and `strategy propose` puts the whole `--amount` on one strategy call, so a proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. Keep `tier2CallCapBps` at or above `maxCapitalBps` while every template is tier 2. The CLI's post-create hint still prints `--bps 200`; that value limits every proposal to 2% of TVL. See [Tiers and coverage](/explanations/tiers-and-coverage), [`vault set-min-buffer`](#sherwood-vault-set-min-buffer) and [Governance Commands](/cli/governance-commands#sherwood-governor-set).
+After creation, and before the first proposal, seed two per-vault caps: `sherwood governor set-max-capital --vault <vault> --bps 8000` and `sherwood vault set-min-buffer --vault <vault> --bps 500`. Leave the tier-2 per-call cap (`set-tier2-call-cap`) at its default (100%, inert) until the strategy is certified. Every core template is tier 2 on 4663, and `strategy propose` puts the whole `--amount` on one strategy call, so a proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. CLI versions before 0.96.2 printed `--bps 200` as a post-create hint; that value limits every proposal to 2% of TVL. See [Tiers and coverage](/explanations/tiers-and-coverage), [`vault set-min-buffer`](#sherwood-vault-set-min-buffer) and [Governance Commands](/cli/governance-commands#sherwood-governor-set).
 
 ### `sherwood vault list`
 
@@ -184,7 +184,7 @@ Remove an address from the depositor whitelist. Owner only. Signed mode only (no
 
 ### `sherwood vault set-min-buffer`
 
-Set the vault's idle-reserve floor. Owner only. Works with `--calldata-only`, which prints the `setMinBufferBps(bps)` transaction for an agent wallet to send. After every governor batch the vault must hold at least this share of its pre-batch balance (plus the queue reserve), or the batch reverts `BufferBreached`. A fresh vault has `0` (inert); seed `500` (5%) before the first proposal, together with the governor's `set-max-capital` and `set-tier2-call-cap`.
+Set the vault's idle-reserve floor. Owner only. Works with `--calldata-only`, which prints the `setMinBufferBps(bps)` transaction for an agent wallet to send. After every governor batch the vault must hold at least this share of its pre-batch balance (plus the queue reserve), or the batch reverts `BufferBreached`. A fresh vault has `0` (inert); seed `500` (5%) before the first proposal, together with the governor's `set-max-capital`.
 
 <Warning>
 Never raise `minBufferBps` while a proposal is open. With idle reserve outstanding, settle, unstick and emergency finalize revert until it is lowered again.

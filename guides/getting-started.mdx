@@ -191,16 +191,15 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     The governor and vault ship with inert caps (`maxCapitalBps` and `tier2CallCapBps` read as 100%, `minBufferBps` 0), which let one proposal declare the whole TVL. Set them from the owner wallet before the first proposal, while no proposal is open:
 
     ```bash
-    sherwood --calldata-only governor set-max-capital --vault $VAULT --bps 8000      # one proposal may deploy at most 80% of TVL
-    sherwood --calldata-only governor set-tier2-call-cap --vault $VAULT --bps 8000   # any single tier-2 call may carry at most 80% of TVL
-    sherwood --calldata-only vault set-min-buffer --vault $VAULT --bps 500           # 5% of the vault stays idle after any batch
+    sherwood --calldata-only governor set-max-capital --vault $VAULT --bps 8000   # one proposal may deploy at most 80% of TVL
+    sherwood --calldata-only vault set-min-buffer --vault $VAULT --bps 500        # 5% of the vault stays idle after any batch
     ```
 
     <Warning>
-    **Keep `tier2CallCapBps` at least as high as `maxCapitalBps`.** Every strategy template on 4663 is tier 2, and `strategy propose` puts the whole `--amount` on one tier-2 call, so propose reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. A value of 200 would cap every proposal at 2% of TVL. The CLI does not pre-check this, and CLI 0.96.0 still prints 200 as a post-create suggestion. See [Tiers and coverage](/explanations/tiers-and-coverage).
+    **Leave `tier2CallCapBps` at its default until the strategy is certified.** Every strategy template on 4663 is tier 2, and `strategy propose` puts the whole `--amount` on one tier-2 call, so propose reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. A value of 200 would cap every proposal at 2% of TVL. The CLI does not pre-check this, and CLI versions before 0.96.2 printed 200 as a post-create suggestion. See [Tiers and coverage](/explanations/tiers-and-coverage).
     </Warning>
 
-    All three setters print calldata with `--calldata-only`, so an agent wallet broadcasts them like any other transaction. `sherwood governor info --vault $VAULT` shows all three, marked `(default, inert)` until seeded. Governor setters are frozen while any proposal is open, Drafts included, and **never raise `minBufferBps` while a proposal is open**: settle, unstick and emergency finalize revert until it is lowered again.
+    Both setters print calldata with `--calldata-only`, so an agent wallet broadcasts them like any other transaction. `sherwood governor info --vault $VAULT` shows all three caps, marked `(default, inert)` until seeded. Governor setters are frozen while any proposal is open, Drafts included, and **never raise `minBufferBps` while a proposal is open**: settle, unstick and emergency finalize revert until it is lowered again.
   </Step>
 
   <Step title="Approve a depositor">

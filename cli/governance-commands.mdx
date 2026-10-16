@@ -19,13 +19,14 @@ The vault owner submits a strategy proposal with pre-committed execute + settle 
 ```bash
 sherwood proposal create \
   --vault <addr> \
+  --strategy <clone> \
   --name "Tech Stock Basket" \
   --description "Weighted basket of tokenized stocks for 7 days" \
   --duration <seconds|7d|24h> \
   --max-capital <amount> \
   --execute-calls <path-to-json> \
   --settle-calls <path-to-json> \
-  [--strategy <clone>] [--metadata-uri <ipfs://...>]
+  [--metadata-uri <ipfs://...>]
 ```
 
 | Flag | Required | Description |
@@ -39,7 +40,7 @@ sherwood proposal create \
 | `--execute-calls` | Yes | Path to JSON file with execute Call[] array (open positions) |
 | `--settle-calls` | Yes | Path to JSON file with settlement Call[] array (close positions) |
 | `--execute-caps` / `--settle-caps` | No | Per-call gross-outflow caps in asset units, one per call; each list must sum to at most `--max-capital`. Default: the whole allowance on the last execute call, 0 on settlement calls |
-| `--strategy` | Yes, in practice | The registered strategy clone the calls target. The CLI help says the default is none (queue-only), but `propose` reverts `StrategyNotRegistered` for `address(0)` or any unregistered address |
+| `--strategy` | Yes | The strategy clone the calls target, registered on the `StrategyFactory` (deploy it with `strategy propose` or `strategy clone`). `propose` reverts `StrategyNotRegistered` for `address(0)` or any unregistered address. CLI 0.96.2 makes the flag required; earlier help text called it optional (queue-only), which no v1 governor accepts |
 | `--proposer` | With `--calldata-only` | The wallet that will send `propose`; enables the proposer-bond balance and allowance preflight and the owner check |
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
@@ -375,7 +376,7 @@ sherwood governor set-max-fee          --vault <addr> --bps <n>
 sherwood governor set-max-duration     --vault <addr> --seconds <n>
 sherwood governor set-cooldown         --vault <addr> --seconds <n>
 sherwood governor set-max-capital     --vault <addr> --bps <n>   # 1–10000; seed 8000 after create
-sherwood governor set-tier2-call-cap  --vault <addr> --bps <n>   # 1–10000; keep it >= max-capital, e.g. 8000
+sherwood governor set-tier2-call-cap  --vault <addr> --bps <n>   # 1–10000; leave at default until the strategy is certified
 ```
 
 ### Governance timing (owner-set)
@@ -389,7 +390,7 @@ The vault owner sets the governance periods. Change them while no proposal is op
 | Cooldown | `set-cooldown` | `MIN_COOLDOWN_PERIOD` (1 hour on mainnet) to 30 days | `3600` | as needed |
 | Max strategy duration | `set-max-duration` | 1 hour to 30 days | — | match the strategy |
 
-The guardian review period after voting is protocol-set (`GuardianRegistry.reviewPeriod()`, 30 min on mainnet 4663), not owner-tunable. The 30-minute voting minimum and review period are the live on-chain values (`MIN_VOTING_PERIOD()` and `reviewPeriod()` both return `1800`); the CLI's `set-voting-period` help text still says 1 hour. Why these windows exist: [Governance timing](/explanations/governance-timing). A proposal keeps the periods it was created with, so a change applies to the next proposal. For a fast test cycle, set the voting period to 30 min (`1800`) before the first proposal: vote ends 30 min after propose, review 30 min after that.
+The guardian review period after voting is protocol-set (`GuardianRegistry.reviewPeriod()`, 30 min on mainnet 4663), not owner-tunable. The 30-minute voting minimum and review period are the live on-chain values (`MIN_VOTING_PERIOD()` and `reviewPeriod()` both return `1800`); `set-voting-period` help text before CLI 0.96.2 said 1 hour. Why these windows exist: [Governance timing](/explanations/governance-timing). A proposal keeps the periods it was created with, so a change applies to the next proposal. For a fast test cycle, set the voting period to 30 min (`1800`) before the first proposal: vote ends 30 min after propose, review 30 min after that.
 
 `set-max-capital` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault.
 
