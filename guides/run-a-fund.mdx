@@ -1,92 +1,147 @@
 ---
-title: "Run a fund"
-description: "Operate a Sherwood vault after its first proposal: management plan, sizing each proposal, timing around feeds, coverage, settling, bonds, depositors and fees."
+title: "How to run an AI-managed fund onchain"
+description: "Run a Sherwood vault with an AI agent: plan, size and time each proposal, pass the vote and guardian review, execute, settle and reclaim the bond."
 icon: "chart-line"
 ---
 
-<Note>
-**Outline.** This guide lists the steps of running a fund and links to the page that covers each one. Full step-by-step text is not written yet for steps marked *(outline)*. Start with [Getting started](/guides/getting-started) if you do not have a vault yet.
-</Note>
+**How do I run an AI-managed fund onchain?** On Sherwood, your agent runs the fund as a loop of proposals: it writes a plan, sizes it against the caps you set on the vault, and proposes it. Depositors can veto during the vote, staked guardians review the exact calldata and lock WOOD as coverage, and only then can the proposal execute; the proposer settles it later and the result is stamped into the vault's share price. Every write can be printed as an unsigned transaction, so a human-approved wallet signs anything that moves funds.
 
-This guide assumes you have a vault on Robinhood Chain (4663) with seeded caps, at least one approved depositor, and one settled proposal behind you.
+This guide assumes you already have a vault on Robinhood Chain (4663) with seeded caps, at least one approved depositor, and one settled proposal behind you. If not, start with [Getting started](/guides/getting-started). To hand the loop to an agent, give it the [MCP server](/api/mcp) and a [sign-only wallet](/cli/external-signer).
+
+<Note>
+Examples use `$VAULT` for your vault address and `<id>` for the proposal id. If your agent uses a sign-only wallet, put the root flag `--calldata-only` before each write command and broadcast the printed transactions in order. See [External signer](/cli/external-signer).
+</Note>
 
 ## The proposal loop
 
 <Steps>
   <Step title="Write a private management plan">
-    *(outline)* Before every proposal, write down the thesis, the kill criteria, the planned settle date and the drawdown you will declare. Keep the plan private: `strategy propose` publishes a **public, permanent** thesis attestation by default (`--no-attest` turns it off), and the protocol never reads it.
+    Before every proposal, write down four things: the thesis, the kill criteria (the price or loss at which you settle early), the planned settle date, and the drawdown you will declare with `--max-drawdown-bps`.
 
+    Keep the plan private. The protocol never reads it, and `strategy propose` publishes a **public, permanent** thesis attestation by default. Pass `--no-attest` if you do not want the thesis on chain. The drawdown limit is measured on the **whole vault's** price per share between execute and settle, not on `--amount` (default 2000, capped at 9000).
+
+    - [Settlement and drawdown](/explanations/settlement-and-drawdown)
     - [EAS attestations](/reference/integrations/eas)
-    - [Settlement and drawdown](/explanations/settlement-and-drawdown): size `--max-drawdown-bps` on the whole vault's share price
   </Step>
 
   <Step title="Size the proposal">
-    *(outline)* Check three limits before choosing `--amount`:
+    Read the live caps first:
+
+    ```bash
+    sherwood governor info --vault $VAULT
+    ```
+
+    Then pick an `--amount` that clears all three limits:
 
     1. `--amount ≤ totalAssets × maxCapitalBps / 10,000`
-    2. `--amount ≤ totalAssets × tier2CallCapBps / 10,000` (every template is tier 2 today)
-    3. Required coverage (about `--amount`) must be underwritten by guardians, up to $1,000,000 per proposal
+    2. `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. Every strategy template on 4663 is tier 2, and `strategy propose` puts the whole amount on one call, so a low `tier2CallCapBps` makes propose revert `Tier2CallCapExceedsCeiling`. The CLI does not pre-check this.
+    3. Required coverage is about the full `--amount`, and guardians must lock WOOD to cover it, up to $1,000,000 per proposal. Partial coverage executes a smaller amount; zero coverage reverts.
 
-    Read the live caps with `sherwood governor info --vault $VAULT`. See [Tiers and coverage](/explanations/tiers-and-coverage).
+    - [Tiers and coverage](/explanations/tiers-and-coverage)
+    - [Tier policy](/protocol/governance/tier-policy)
+    - [Coverage](/protocol/governance/coverage)
   </Step>
 
   <Step title="Check the WOOD reserve">
-    *(outline)* Quote the bond with a keyless `strategy propose` before sending anything. Hold about 2% of `--amount` per bond, plus headroom, plus every bond still inside its 14-day challenge window.
+    Every proposal locks a proposer bond of about 2% of `--amount` in WOOD at market. The exact quote moves with the WOOD price, so never plan from a fixed number: `strategy propose` prints the live quote, a 5% buffer and your free WOOD before anything is signed, and approves only the quote plus 5%.
+
+    Hold enough WOOD for this bond, some headroom, and every earlier bond still inside its 14-day challenge window. If the quote comes back as 0 (WOOD cannot be priced), do not broadcast: the propose would revert. Wait and run it again.
 
     - [Proposer bond](/explanations/proposer-bond)
+    - [Proposer bond reference](/protocol/governance/proposer-bond)
     - [Challenge window](/explanations/challenge-window)
   </Step>
 
   <Step title="Time the proposal">
-    *(outline)* Work back from the execution window. Stock feeds go stale over the weekend, and an execution window that closes inside the gap expires the proposal. Pull `sherwood sources get calendar` and `sherwood sources get prices` first.
+    Work back from the execution window. All three end times (vote end, review end, execute-by) are fixed at propose. The fastest live path is a 30-minute vote plus a 30-minute review, so execute is possible about one hour after propose. With outside depositors, keep a longer vote, such as the 24-hour default.
+
+    Sherwood refuses to trade or value against a price feed older than 26 hours. Stock feeds stop while US markets are closed, so a stock basket cannot move across the weekend gap, and an execution window that closes inside the gap expires the proposal. Check the feeds before you propose:
+
+    ```bash
+    sherwood sources get calendar
+    sherwood sources get prices
+    ```
+
+    Set `--duration` so the planned settle lands on a weekday. Data feeds need a cohort login first (`sherwood sources login`, see [Data feeds](/cli/sources-commands)).
 
     - [Oracle staleness](/explanations/oracle-staleness)
     - [Governance timing](/explanations/governance-timing)
   </Step>
 
   <Step title="Propose">
-    *(outline)* Run `strategy propose` with the template's flags. Your caps are frozen from now until the proposal ends.
+    Run `sherwood strategy propose <template>` with the template's flags, `--amount`, `--duration` and `--max-drawdown-bps`. It clones and initializes the strategy, builds the execute and settle calls, quotes and locks the bond, and submits the proposal. With `--calldata-only`, also pass `--proposer` (your signing wallet) and `--metadata-uri`.
+
+    While `ownerOnlyProposals` is on, only the vault owner can propose. From this moment until the proposal ends, the vault is locked to instant deposits and redeems, and every governor setter is frozen.
 
     - [Strategy commands](/cli/strategy-commands)
     - [Strategy walkthrough](/protocol/strategies/walkthrough)
-    - [Portfolio](/protocol/strategies/uniswap), [Morpho Supply](/protocol/strategies/morpho-supply), [Concentrated Liquidity](/protocol/strategies/concentrated-liquidity)
+    - Templates: [Portfolio](/protocol/strategies/uniswap), [Morpho Supply](/protocol/strategies/morpho-supply), [Concentrated Liquidity](/protocol/strategies/concentrated-liquidity)
   </Step>
 
   <Step title="Watch the vote and the guardian review">
-    *(outline)* Track `sherwood proposal show <id> --vault $VAULT`. The **Guardian Coverage** section shows locked WOOD and covered vs required USD. Partial coverage executes a smaller amount; zero coverage reverts.
+    ```bash
+    sherwood proposal show <id> --vault $VAULT
+    ```
+
+    A proposal passes unless `Against` votes reach the veto threshold (20% of votable supply by default). After the vote, guardians review the calldata and either approve, locking WOOD as coverage, or block. The **Guardian Coverage** section of `proposal show` shows the locked WOOD and covered vs required USD. A review that no guardian opens resolves Cleared.
 
     - [Guardian review](/protocol/governance/guardian-review)
+    - [Governance overview](/protocol/governance/overview)
     - [Governance commands](/cli/governance-commands)
   </Step>
 
   <Step title="Execute">
-    *(outline)* Run `sherwood proposal execute --id <id> --vault $VAULT --dry-run` first; a plain execute does not check coverage. Then execute inside the execution window.
+    Dry-run first. Only the dry run checks guardian coverage; a plain execute does not:
+
+    ```bash
+    sherwood proposal execute --id <id> --vault $VAULT --dry-run
+    sherwood proposal execute --id <id> --vault $VAULT
+    ```
+
+    Add `--allow-partial-coverage` to the dry run if you accept a scaled-down amount. Execute before the execution window closes, or the proposal becomes `Expired`.
   </Step>
 
   <Step title="Monitor the position">
-    *(outline)* Track position value against your kill criteria. Portfolio weights are frozen; `rebalance` only restores them.
+    Track the position against your kill criteria. Check the vault and proposal with `proposal show`, and the feeds with `sources get prices`. For a Portfolio basket, weights and routes are frozen at init: `sherwood strategy rebalance <clone>` only trades each holding back to its target weight. To run checks on a schedule, see [Cron jobs](/cli/cron-jobs).
 
     - [Strategy commands](/cli/strategy-commands)
-    - [Cron jobs](/cli/cron-jobs)
   </Step>
 
   <Step title="Settle">
-    *(outline)* As proposer, settle from 1 hour after execute; anyone can settle after the full duration, and nothing settles on its own. If settle reverts `SettlePriceBelowFloor`, use `unstick` before considering an emergency settle, which puts the owner stake at risk.
+    ```bash
+    sherwood proposal settle --id <id> --vault $VAULT
+    ```
+
+    As proposer you can settle from 1 hour after execute. Anyone can settle after the full duration. Nothing settles on its own: if nobody calls settle, the strategy keeps running and the management fee keeps accruing.
+
+    If settle reverts `SettlePriceBelowFloor`, the vault's share price fell past your declared drawdown. The owner's first exit is `unstick`, which replays the voted settle calls with the tolerance set to the 9,000 bps maximum. Only after that, consider an emergency settle with new calldata, which goes through guardian review and puts the whole [owner stake](/explanations/owner-stake) at risk if guardians block it.
 
     - [Settlement and drawdown](/explanations/settlement-and-drawdown)
     - [Settlement reference](/protocol/governance/settlement)
   </Step>
 
   <Step title="Reclaim the bond">
-    *(outline)* `sherwood proposal reclaim-bond` after the 14-day challenge window. Rejected, Expired and Cancelled proposals release it at once.
+    ```bash
+    sherwood proposal reclaim-bond --id <id> --vault $VAULT
+    ```
+
+    A settled proposal releases its bond after the 14-day challenge window. Rejected, Expired and Cancelled proposals release it right away.
+
+    - [Challenge window](/explanations/challenge-window)
   </Step>
 </Steps>
 
 ## Between proposals
 
-- **Depositors.** *(outline)* Approve new depositors with `vault approve-depositor`; deposits and redeems are instant only while no proposal is open, otherwise they go through the queue and are stamped at settle. Tell depositors about orphaned queue requests after a cancel, reject or expiry. See [Vault liquidity](/protocol/vault-liquidity) and [Launch posture](/explanations/launch-posture).
-- **Cooldown.** *(outline)* At least 1 hour after a proposal ends before the next propose. It is the depositors' exit window. See [Governance timing](/explanations/governance-timing).
-- **Adjust parameters.** *(outline)* Change caps, voting period and execution window only while no proposal is open. See [Governance commands](/cli/governance-commands).
-- **Fees.** *(outline)* Management fee accrues only between execute and settle; the performance fee is charged above the high-water mark. See [Economics](/protocol/governance/economics).
-- **Track record.** *(outline)* Your public attestations and settled P&L are your track record. See [EAS attestations](/reference/integrations/eas).
+- **Depositors.** At launch, every vault takes deposits only from addresses the owner approved. Add one with `sherwood vault approve-depositor --vault $VAULT --depositor <address>`. Instant deposits and redeems work only while no proposal is open; otherwise depositors use the queue, and queued redeems are priced at settle. A redeem queued under a proposal that ends Cancelled, Rejected or Expired is never priced, so tell its holder to cancel it. See [Vault liquidity](/protocol/vault-liquidity), [stranded redeems](/cli/commands#stranded-redeems) and [Launch posture](/explanations/launch-posture).
+- **Cooldown.** After every proposal ends, cancel included, a cooldown of at least 1 hour runs before the next propose. It is the depositors' guaranteed exit window. See [Governance timing](/explanations/governance-timing).
+- **Adjust parameters.** Change caps, the voting period, the execution window and the cooldown (`governor set-max-capital`, `set-tier2-call-cap`, `set-voting-period`, `set-execution-window`, `set-cooldown`) only while no proposal is open, Drafts included. Keep `tier2CallCapBps` at least as high as `maxCapitalBps`. See [Governance commands](/cli/governance-commands).
+- **Fees.** The management fee accrues only from execute to settle, on gains and losses alike. The performance fee is charged only on value above the vault's previous peak share price. See [Economics](/protocol/governance/economics).
+- **Track record.** Your public thesis attestations and settled results are your track record for depositors. See [EAS attestations](/reference/integrations/eas).
 - **Owner stake.** Do not request an owner unstake while you plan more proposals: it blocks propose and execute at once. See [Owner stake](/explanations/owner-stake).
+
+## Related
+
+- [Getting started](/guides/getting-started)
+- [Concepts](/learn/concepts)
+- [MCP server](/api/mcp)
