@@ -8,10 +8,10 @@ Guardians who **Approve** are underwriters. `ExposureLedger` is the coverage boo
 
 A coverage **shortfall does not disqualify the proposal**. It **scales** how much capital may leave the vault. Guardian daemons that treat a shortfall as a hard fail are implementing a rule the contracts do not enforce.
 
-The [proposer bond](/protocol/governance/proposer-bond) is a separate WOOD pull at propose, quoted from this same `requiredCoverage`.
+The [proposer bond](/protocol/governance/proposer-bond) is a separate WOOD pull at propose, quoted from this same `requiredCoverage`. [Tiers and coverage](/explanations/tiers-and-coverage) explains why the mechanism exists and how the owner caps sit around it.
 
 <Note>
-`ExposureLedger` is part of the launch's second deployment run. Until a governor has a ledger wired, it skips the covered-TVL cap, the horizon, the bond and the execute-time quorum, and runs every proposal at its declared `maxCapital`. Addresses: [Deployments](/reference/deployments).
+`ExposureLedger` is deployed on 4663 and wired into every vault's governor at creation. A governor with no ledger wired would skip the covered-TVL cap, the horizon, the bond and the execute-time quorum; no vault on 4663 is in that state. Addresses: [Deployments](/reference/deployments).
 </Note>
 
 ## requiredCoverage
@@ -29,9 +29,9 @@ coverage += (cap_i * boundBps_i) / 10_000;
 - **Tier 0 / 1**: the certified extractable bound for that `(target, selector)` pair.
 - **Tier 2 or uncertified**: `10_000`, the full notional of the declared cap.
 
-The proposal's tier is the **max** tier across execute **and** settlement calls. An uncertified strategy therefore books roughly twice its deployed capital: the execute leg and the settle leg each price at full notional. The Portfolio class is uncertified at launch; its certification at 2,000 bps is pending. See [Tier policy](/protocol/governance/tier-policy).
+The proposal's tier is the **max** tier across execute **and** settlement calls. Every core template is uncertified (tier 2) on 4663, so each call prices at its full declared cap. `sherwood strategy propose` puts the whole `--amount` on the strategy's execute call and caps every settle call at 0, so a CLI-built proposal books about its deployed capital (1×). A hand-built batch that declares non-zero settle caps books more. See [Tier policy](/protocol/governance/tier-policy).
 
-A tier-2 call carries a second, independent propose-time limit: its declared `cap_i` must fit inside `totalAssets() × tier2CallCapBps / 10_000`, or propose reverts `Tier2CallCapExceedsCeiling(i)`.
+A tier-2 call carries a second, independent propose-time limit: its declared `cap_i` must fit inside `totalAssets() × tier2CallCapBps / 10_000`, or propose reverts `Tier2CallCapExceedsCeiling(i)`. For a CLI-built proposal that means `--amount ≤ totalAssets × tier2CallCapBps / 10_000`. The CLI does not pre-check it.
 
 <Note>
 Zero coverage is specified, not a hole. An all-zero-cap batch prices to zero regardless of tier. `requiredCoverage == 0` skips the approve-quorum gate and needs no bond; a proposal that can extract nothing has nothing to underwrite. The per-call meter is the protection: `cap_i == 0` makes `BatchExecutorLib` revert `CallCapExceeded` on any outflow.

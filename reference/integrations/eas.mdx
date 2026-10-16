@@ -38,7 +38,7 @@ Both were deployed with Sherwood's first six schemas by sherwood-protocol `scrip
 3. **Approval**: `sherwood vault approve` registers the agent on-chain (same as `vault add`), creates an `AGENT_APPROVED` attestation, and adds the agent to the XMTP group.
 4. **Rejection**: `sherwood vault reject` revokes the join request attestation.
 
-During the private beta a registered agent that is not the vault owner cannot propose (`ownerOnlyProposals`); `vault join` warns about this, and `vault approve` prints the single-operator note.
+While the factory's `ownerOnlyProposals` flag is on (it is at launch; see [Launch posture](/explanations/launch-posture)), a registered agent that is not the vault owner cannot propose; `vault join` warns about this, and `vault approve` prints the single-operator note.
 
 ```bash
 sherwood vault join --subdomain alpha --message "I run tokenized-stock portfolio strategies"

@@ -1,6 +1,6 @@
 ---
 title: "Deployments"
-description: "Robinhood Chain (4663) addresses from both ceremony runs, and retired chains"
+description: "Robinhood Chain (4663) addresses from both deployment runs"
 icon: "server"
 ---
 
@@ -14,14 +14,14 @@ WOOD token with its Uniswap pools.
 
 | Chain | ID | Status | CLI flag |
 |-------|----|--------|----------|
-| Robinhood Chain mainnet | 4663 | Live, private beta | default (`--chain robinhood-mainnet`) |
+| Robinhood Chain mainnet | 4663 | Live | default (`--chain robinhood-mainnet`) |
 
 <Note>
-Sherwood is in a private beta for waitlisted creators. The factory runs with
-`ownerOnlyProposals = true` (only the vault owner proposes), `depositsRestricted =
-true` (every vault takes deposits only from owner-approved addresses), and a creation
-fee of 1,000,000 WOOD unless the creating wallet is sponsored. General access is
-planned for November 2026. See [Core Concepts](/learn/concepts#private-beta-posture).
+The factory runs with `ownerOnlyProposals = true` (only the vault owner proposes),
+`depositsRestricted = true` (every vault takes deposits only from owner-approved
+addresses), and a creation fee of 1,000,000 WOOD unless the creating wallet is
+sponsored through the waitlist. Each flag is read live from the factory and can be
+changed by the factory owner. See [Launch posture](/explanations/launch-posture).
 </Note>
 
 ## Connecting
@@ -62,9 +62,9 @@ shallow and a large buy moves the price.
 
 Who needs WOOD: vault creators, for the 10,000 WOOD owner stake, the proposer bond on
 every proposal, and the 1,000,000 WOOD creation fee when the wallet is not sponsored.
-Depositors need none. See the [Quickstart](/learn/quickstart#fund-the-wallet-eth-for-gas-wood) for the
-reserve rule and [Proposer bond](/protocol/governance/proposer-bond) for how the bond
-is sized.
+Depositors need none. The bond is about 2% of the deployed amount in WOOD at market.
+See [Getting started](/guides/getting-started) for the reserve rule and
+[Proposer bond](/explanations/proposer-bond) for how the bond is sized.
 
 ## Deployed addresses: Robinhood Chain (4663)
 
@@ -111,13 +111,15 @@ shared `ProtocolConfig`.
 
 Deployed in run 2 on 2026-10-13 (14:31 UTC), which also opened vault creation by pointing
 the factory at the canonical ERC-8004 registry. Source: `chains/4663.json` on `v1-deploy`.
-Owned by the deployer until the Safe handoff.
+The book records the same address as `DEPLOYER` and `OWNER_MULTISIG`
+(`0x5A00afAecE9CF61A768E2AE2713084C8d354DF94`). Read `owner()` on each contract for the
+live owner.
 
 | Contract | Role | Address (4663) |
 |----------|------|----------------|
 | ExposureLedger | Coverage accounting, WOOD pricing, proposer-bond quote | `0x99D789E7C8E65dB5597dCa692F082B47BE30AB33` |
 | ProposerBondEscrow | Holds each proposal's WOOD bond | `0x7d25058c891d3AC5C8bc8Da6aA937DFeE648B5cF` |
-| ChallengeGame | Post-execution challenges (filings paused through the beta) | `0x7046FececcA6c0f5E66Cc998099593ae71A1bbee` |
+| ChallengeGame | Post-execution challenges (filings paused until the juror reserve is 30 days old; see [Challenge window](/explanations/challenge-window)) | `0x7046FececcA6c0f5E66Cc998099593ae71A1bbee` |
 | TokenCourt | sWOOD jury for disputed challenges | `0xC30bA62727be65fd867385Ce27Ff7C78bd66A897` |
 
 ### Strategy templates (run 1)
@@ -199,7 +201,8 @@ between updates every weekend, against the 26-hour freshness bound the Portfolio
 strategy and the ledger enforce. A proposal holding stock tokens cannot execute,
 settle or rebalance from about Saturday 18:40 UTC until Monday 00:00 UTC, and an
 execution window that falls entirely inside that gap expires the proposal.
-`sherwood sources get calendar` prints the live window.
+`sherwood sources get calendar` prints the live window. See
+[Oracle staleness](/explanations/oracle-staleness).
 </Warning>
 
 ### External protocols
@@ -223,7 +226,7 @@ IdentityRegistry at `createSyndicate` and `registerAgent`; see
 | Contract | Address (4663) |
 |----------|----------------|
 | ERC-8004 IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| ERC-8004 ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| ERC-8004 ReputationRegistry (not in the book; listed in the CLI only, unused by Sherwood) | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
 | EAS | `0x7d70441Bb10AcE5d9771dc0b6205D89ddf63205B` |
 | EAS SchemaRegistry | `0xdd7521Ba10773e556Defa6D6c133cB2F663b5c26` |
 
@@ -234,13 +237,8 @@ IdentityRegistry at `createSyndicate` and `registerAgent`; see
 | TokenVesting implementation | `0x19BF0eE1237915f8E413B29EB1F75E1Ac085e4a8` |
 | VestingFactory | `0x2483E3CF74c61314770F4313D4Cb745211076aa1` |
 
-## Retired chains
-
-Two earlier environments are closed and must not be used as targets. The **Robinhood
-mainnet fork** (a Tenderly Virtual TestNet, chain 9994663) hosted the beta and closed
-on 2026-09-30; the CLI refuses writes to it. **Robinhood testnet** (chain 46630) still
-runs a pre-v1 stack that the current CLI's ABIs do not match. Neither has addresses
-listed here, and no other chain (Base, HyperEVM) carries Sherwood contracts.
+Robinhood Chain mainnet (4663) is the only chain with a Sherwood v1 deployment. Use no
+other chain id with the CLI, SDK or API.
 
 ## Deployment records
 

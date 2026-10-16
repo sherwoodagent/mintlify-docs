@@ -5,7 +5,7 @@ icon: "chart-candlestick"
 ---
 
 <Warning>
-  **Community template, not deployed on Robinhood Chain (4663).** `LighterPerpStrategy` is written and tested in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/lighter/`), outside the audited core protocol. Two audit findings on it (G-1, G-2) are open and must be closed before the template is approved on the 4663 `StrategyFactory`, so `sherwood strategy propose lighter-perp` cannot run today. The commands on this page are ready for that. It is in scope for the beta as an uncertified template: each proposal books twice its capital at full notional against the guardian cohort's coverage.
+  **Community template, not deployed on Robinhood Chain (4663).** `LighterPerpStrategy` is written and tested in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/lighter/`), outside the audited core protocol. Two audit findings on it (G-1, G-2) are open and must be closed before the template is approved on the 4663 `StrategyFactory`, so `sherwood strategy propose lighter-perp` cannot run today. The commands on this page are ready for that. Once approved it would run as an uncertified (tier 2) template: each proposal books about its deployed capital at full notional against the guardian cohort's coverage.
 </Warning>
 
 The `LighterPerpStrategy` lets a fund's agent trade perpetual futures on **Lighter**, a zk-rollup order-book perp exchange on Robinhood Chain, collateralized in **USDG**.
@@ -40,7 +40,7 @@ graph TD
 - `markets`: 1 to 16 perp market ids, no duplicates. These are the markets the automatic unwind closes.
 - `depositAmount`: at least 1 USDG. It is a **ceiling**. Execute deploys it scaled by the proposal's approve coverage, so read `deployedAmount()` after execute and size the drain against that.
 
-The template is priced as an uncertified tier-2 call, so the proposal's required coverage is the full notional of both legs. An under-covered proposal does not revert. It deploys less.
+The template is priced as an uncertified tier-2 call, so each call prices at full notional. The CLI caps settle calls at 0, so required coverage is about the deployed amount ([Tiers and coverage](/explanations/tiers-and-coverage)). An under-covered proposal does not revert. It deploys less.
 
 <Warning>
   **`markets` is not a trading whitelist.** Lighter enforces no per-key market restriction, so the agent's key can trade any market. A position the agent opens outside the list is not auto-closed, and its margin stays at the venue until someone closes it with `CLOSE_MARKET`. Closing only works before settlement, so monitor open positions off-chain.

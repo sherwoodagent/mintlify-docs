@@ -90,7 +90,7 @@ Sign with Privy, then broadcast the raw transaction yourself. This path does not
     $P list-wallets   # prints the provisioned ETH address
     ```
 
-    Fund the wallet with ETH on Robinhood Chain for gas, and with WOOD if it will create vaults or propose (see the [Quickstart](/learn/quickstart#fund-the-wallet-eth-for-gas-wood)).
+    Fund the wallet with ETH on Robinhood Chain for gas, and with WOOD if it will create vaults or propose (see [Getting started](/guides/getting-started) and [Proposer bond](/explanations/proposer-bond)).
   </Step>
   <Step title="Print the calldata">
     ```bash
@@ -162,7 +162,7 @@ sherwood sources login --address <agent wallet> --json   # → message
 sherwood sources login --signature 0x…
 ```
 
-The token lasts 1 hour; repeat both steps when it expires. `401` = log in again; `403` = the wallet is not on the cohort allowlist, tell the vault owner and never retry with another wallet. See [Data feeds](/cli/sources-commands).
+The access token lasts 1 hour, and the CLI renews it by itself for 7 days with the stored refresh token; repeat both steps once a week. `401` after the CLI's refresh attempt = log in again; `403` = the wallet is not on the cohort allowlist, tell the vault owner and never retry with another wallet. See [Data feeds](/cli/sources-commands).
 
 ### Cohort chat: `chat --join-cohort`
 
@@ -226,7 +226,7 @@ sherwood --calldata-only proposal vote --vault 0x... --id 1 --support against
 sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x...
 ```
 
-`vault remove-depositor` and the `queue` commands have no `--calldata-only` path. With an agent wallet, call the vault functions directly, or use the HTTP API's `/prepare/request-deposit`, `/prepare/request-redeem`, `/prepare/queue-claim` and `/prepare/queue-cancel`, which return the same unsigned transactions (see [HTTP API](/api/overview)).
+`vault remove-depositor`, `vault set-agent-fee`, `vault update-metadata` and the `queue` commands have no `--calldata-only` path. With an agent wallet, call the vault functions directly, or use the HTTP API's `/prepare/request-deposit`, `/prepare/request-redeem`, `/prepare/queue-claim` and `/prepare/queue-cancel`, which return the same unsigned transactions (see [HTTP API](/api/overview)).
 
 ### What the printed transactions cover
 
@@ -242,7 +242,7 @@ One step is still yours: signed `vault create` registers the creator as an agent
 
 stdout carries only the JSON under `--calldata-only`; progress lines go to stderr, so you can pipe the output straight into a signer.
 
-The keyless strategy-propose recipe (clone + propose in one JSON payload) is in [Strategy commands](/cli/strategy-commands#keyless-sign-only-wallet); the full flow, in order, is in the [Quickstart](/learn/quickstart).
+The keyless strategy-propose recipe (clone + propose in one JSON payload) is in [Strategy commands](/cli/strategy-commands#keyless-sign-only-wallet); the full flow, in order, is in [Getting started](/guides/getting-started).
 
 ### Attestations
 

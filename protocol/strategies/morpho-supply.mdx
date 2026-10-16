@@ -61,7 +61,7 @@ sherwood strategy propose morpho-supply \
 | `--amount <n>` | Vault asset to supply, human units | required |
 | `--morpho <address>` | Morpho Blue singleton | the network's `MORPHO_BLUE` |
 
-The template is uncertified at launch, so the proposal prices at full notional on both legs for [coverage](/protocol/governance/coverage) and the [proposer bond](/protocol/governance/proposer-bond).
+The template is uncertified (tier 2), so its calls price at full notional for [coverage](/protocol/governance/coverage) and the [proposer bond](/protocol/governance/proposer-bond). The CLI caps settle calls at 0, so required coverage is about the deployed amount. See [Tiers and coverage](/explanations/tiers-and-coverage).
 
 ## Choosing a market
 

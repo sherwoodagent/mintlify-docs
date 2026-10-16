@@ -79,30 +79,46 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 |---|---|
 | `encodeDeposit` | ERC-4626 deposit. Returns 1–2 txs (approve + deposit). |
 | `encodeRedeem` | ERC-4626 redeem (synchronous LP exit). |
-| `encodeRequestRedeem` | Queue redeem (used while a proposal is active). |
+| `encodeRequestDeposit` / `encodeRequestRedeem` | Queue a deposit or redeem (used while a proposal is open). |
+| `encodeQueueAction` | Claim or cancel a queue request. |
 | `encodeApproveDepositor` | Owner allow-list add. |
 | `encodeRegisterAgent` | Register an ERC-8004 agent on a vault. |
+| `encodeSetAgentFeeBps` | Set the vault's agent performance fee. |
 | `encodePropose` | Submit a strategy proposal. |
 | `encodeVote` | Cast `For` / `Against` / `Abstain`. |
 | `encodeExecute` / `encodeSettle` / `encodeCancel` / `encodeVeto` | Lifecycle actions. |
+| `encodeUnstick` / `encodeEmergencySettle` | Owner recovery paths. |
+| `encodeGovernorParam` | One governor parameter setter. |
+| `encodeMgmtSplit` / `encodePerfSplit` | Protocol fee splits (protocol owner only). |
 | `encodeCreateFund` | Deploy a new vault via the factory, with the WOOD creation-fee approval first when the creator is not sponsored. |
+| `encodePrepareOwnerStake` | Bond the owner stake on `StakedWood`. Required before `encodeCreateFund`. See [Owner stake](/explanations/owner-stake). |
+| `encodeStrategyDeploy` | Clone and initialize a strategy template. `predictStrategyCloneAddress`, `deriveStrategySalt` and `effectiveStrategySalt` help predict the clone address. |
+| `encodeIdentityMint` | Mint an ERC-8004 identity. |
+| `encodeJoinRequest` / `encodeApproveAgent` | EAS join request and approval. |
 | `encodeGuardianStake` / `encodeGuardianUnstake` | Guardian stake and unstake flows. |
+| `encodeVoteOnProposal` | Guardian review vote (Approve with a WOOD lock, or Block). |
 
 ### Reads (take a viem `PublicClient`)
+
+Each vault has its own governor, so governor reads take the vault.
 
 | Read | Returns |
 |---|---|
 | `readVaultInfo(client, vault)` | Vault state including totalAssets, share supply, owner, governor, asset metadata. |
-| `readGovernorParams(client, chainId)` | Governor parameters + the protocol's `mgmtSplit` / `perfSplit` + fee recipients. |
-| `readProposal(client, chainId, id)` | Proposal full detail. Throws `SdkError("NOT_FOUND")` for unknown ids. |
+| `resolveGovernor(client, chainId, vault)` | The vault's governor address (`factory.governorOf(vault)`). |
+| `readGovernorParams(client, chainId, vault)` | That vault's governor parameters + the protocol's `mgmtSplit` / `perfSplit` + fee recipients. |
+| `readProposal(client, chainId, vault, proposalId)` | Proposal full detail. Throws `SdkError("NOT_FOUND")` for unknown ids. |
+| `readActiveFunds(client, chainId, { limit? })` | Active funds from the factory, newest first. |
+| `readFundResolution(client, chainId, { vault?, subdomain? })` | Resolve a fund by vault address or subdomain. |
 
 ### Other surface
 
-- `getDeployment(chainId)` / `listDeployments()` — per-chain Sherwood addresses + token table.
-- `SYNDICATE_VAULT_ABI`, `SYNDICATE_GOVERNOR_ABI`, `SYNDICATE_FACTORY_ABI`, `GUARDIAN_REGISTRY_ABI`, `ERC20_ABI` — minimal viem-shaped ABI fragments.
+- `getDeployment(chainId)` / `listDeployments()` / `chainSlug(chainId)` — per-chain Sherwood addresses + token table.
+- `SYNDICATE_VAULT_ABI`, `SYNDICATE_GOVERNOR_ABI`, `SYNDICATE_FACTORY_ABI`, `STRATEGY_FACTORY_ABI`, `PROTOCOL_CONFIG_ABI`, `GUARDIAN_REGISTRY_ABI`, `STAKED_WOOD_ABI`, `VAULT_WITHDRAWAL_QUEUE_ABI`, `ERC20_ABI`, `IDENTITY_REGISTRY_ABI`, `EAS_ABI` — minimal viem-shaped ABI fragments.
 - `SdkError` with codes `USAGE` / `UNSUPPORTED` / `UNAVAILABLE` / `INTERNAL` / `NOT_FOUND` — match the [HTTP API error model](/api/overview#error-codes).
 - `CHAIN_IDS` constant — use `ROBINHOOD` (4663), Sherwood's deployment on Robinhood Chain mainnet. The constant also carries ids for retired and coordination-only chains; none of them has a live Sherwood deployment.
 - `PROPOSAL_STATES` and `VOTE_TYPES` enum constants.
+- Metadata helpers for untrusted URIs: `parseIpfsUri`, `ipfsGatewayUrl`, `fetchIpfsMetadataJson`, `resolveAgentUriJson`, `sanitizeMetadataLinks` and related constants.
 
 ## What's NOT in the SDK
 
@@ -113,6 +129,6 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 
 ## Versioning
 
-The SDK is on `0.x` until general access. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version (`npm i @sherwoodagent/sdk@0.12.0`, the release that carries the Robinhood Chain v1 deployment, creation-fee encoding and effective deposit openness) if you want reproducible installs.
+The SDK is on `0.x`. Minor bumps may include breaking type changes; patch bumps are bug fixes. Pin a specific version for reproducible installs: `npm i @sherwoodagent/sdk@0.12.1`, the current release, which carries the Robinhood Chain v1 deployment, creation-fee encoding and effective deposit openness.
 
 The SDK and the [HTTP API](/api/overview) ship from the same monorepo and use the same encoders — they cannot drift.

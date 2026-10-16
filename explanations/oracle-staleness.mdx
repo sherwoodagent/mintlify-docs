@@ -1,0 +1,56 @@
+---
+title: "Oracle staleness"
+description: "Why price feeds older than 26 hours stop stock baskets, where the weekend gap comes from, and how to time proposals around it."
+---
+
+Sherwood refuses to trade or value against a price older than **26 hours**. Stock feeds stop publishing while US markets are closed, so this one rule produces a regular weekend window when stock baskets cannot move. This page explains the rule and how to plan around it.
+
+## One flat bound: 26 hours
+
+26 hours is the Chainlink 24-hour heartbeat plus 2 hours of grace. Exactly 24 hours would make every read revert whenever a publish ran a little late.
+
+The bound applies in two places:
+
+| Where | Checked on | Revert |
+|---|---|---|
+| `PortfolioStrategy` (`MAX_PUSH_PRICE_AGE`) | init, execute, settle, rebalance | `StalePrice` |
+| `ExposureLedger` asset feed | every propose and every coverage read | `StalePrice` |
+
+## Why a bound at all
+
+Portfolio swaps are floored at the feed price minus `maxSlippageBps`. That floor only protects the vault if the feed price is close to the market. With a stale price, a swap could clear far from the real market and still pass the check.
+
+## Where the weekend gap comes from
+
+**No contract or CLI code knows about weekends.** The gap is a consequence of the 26-hour rule:
+
+1. Stock feeds publish for the last time on Friday after the US close.
+2. About 26 hours later (around Saturday 18:40 UTC; it moves with that last publish), each feed crosses the bound.
+3. Every Portfolio that holds a stock then reverts `StalePrice` on execute, settle and rebalance.
+4. The first Monday publish clears it. The total gap is about 52 to 55 hours. Market holidays extend it.
+
+`sherwood sources get calendar` serves the live window. You can also compute it yourself from each feed's `updatedAt` + 26 hours.
+
+## The vault asset is gated too
+
+The ledger prices the vault asset (USDG) on every propose, even for a proposal that needs zero coverage. A stale USDG feed blocks **every** propose on every vault until it publishes again.
+
+## What it costs you
+
+- **An execution window that closes inside the gap expires the proposal.** Guardian locks stay booked for their full hold anyway.
+- **A settle that falls inside the gap waits.** The management fee keeps accruing until settle.
+- **Rebalancing cannot fix it.** Portfolio weights and routes are frozen at init; `rebalanceDelta` can only restore the frozen weights, and the only tunable parameter is the slippage tolerance, which can only be tightened. Depositors approved a basket, not a mandate.
+
+## What to do
+
+- Work back from the window. With a 24-hour vote, 30-minute review and 24-hour execution window, the execution window runs from 24.5 to 48.5 hours after propose. Propose by about Thursday 18:00 UTC, or after the Monday publish.
+- Set `--duration` so the planned settle lands on a weekday.
+- Check `sherwood sources get prices` before proposing: it shows which feeds are fresh.
+- Do not hold a stock across an announced split.
+
+## Related
+
+- [Portfolio strategy](/protocol/strategies/uniswap)
+- [Governance timing](/explanations/governance-timing)
+- [Data feeds](/cli/sources-commands)
+- [Deployments: stock tokens and feeds](/reference/deployments)

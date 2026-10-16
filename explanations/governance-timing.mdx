@@ -1,0 +1,74 @@
+---
+title: "Governance timing"
+description: "Why proposals take the time they do: voting period, guardian review, execution window, cooldown, frozen setters, and why the vault locks at propose."
+---
+
+A proposal moves through fixed windows before capital can move: a depositor vote, a guardian review, then an execution window. This page explains what each window protects and the live values on Robinhood Chain (4663).
+
+## Timeline
+
+```
+propose ─ votingPeriod ─▶ voteEnd ─ reviewPeriod ─▶ reviewEnd ─ executionWindow ─▶ executeBy
+```
+
+All three end times are fixed at propose.
+
+| Window | Factory default | Bounds | Live minimum on 4663 | Set by |
+|---|---|---|---|---|
+| Voting period | 24 hours | minimum to 3 days | **30 minutes** (`MIN_VOTING_PERIOD()` = 1800) | Vault owner |
+| Guardian review | — | minimum to 3 days | **30 minutes** (`reviewPeriod()` = `minReviewPeriod()` = 1800) | Registry owner, global |
+| Execution window | 24 hours | 1 hour to 7 days | — | Vault owner |
+| Cooldown after a proposal ends | 1 hour | 1 hour to 30 days | 1 hour | Vault owner |
+
+The fastest path today is a 30-minute vote plus a 30-minute review: execute about one hour after propose.
+
+<Note>
+Read the minimums from the chain. `MIN_VOTING_PERIOD()` on the vault's governor and `reviewPeriod()` / `minReviewPeriod()` on the GuardianRegistry return 1800 seconds. The `v1-deploy` deploy parameters and the CLI 0.95.0 help text still show the older 1-hour voting minimum and 24-hour review.
+</Note>
+
+## Why depositors get a voting window
+
+Governance is optimistic. A proposal passes unless `Against` votes reach `vetoThresholdBps` (2000, 20%) of the votable supply snapshotted at propose. Only `Against` counts.
+
+The voting window is the depositors' time to object, or to queue a redeem before capital moves. The factory default is 24 hours for that reason. A 30-minute vote is fine for a fund where the owner is the main depositor; for outside depositors, keep 24 hours or more.
+
+The vault owner can also veto a proposal while it is still `Pending`.
+
+## Why guardian review follows, and why it is global
+
+After the vote, staked guardians review the exact calldata and vote Approve (locking WOOD as coverage) or Block. See [Tiers and coverage](/explanations/tiers-and-coverage).
+
+- The review period is one value for the whole protocol, set on the registry, so guardians can plan one review cadence across every vault.
+- The governor reads it once at propose. A later change affects only later proposals.
+- The last 10% of the window (3 minutes at 30 minutes) is locked against vote changes, so a guardian cannot flip a result in the final seconds.
+- A review that no guardian opens resolves Cleared, and the proposal proceeds. A guardian that polls hourly will miss 30-minute reviews.
+- The guardian unstake cooldown (7 days) must be at least the review period, so a guardian cannot unstake during a review to dodge a slash.
+
+## Why the execution window exists
+
+An approved plan was approved against a market at a point in time. The execution window (default 24 hours) bounds how long it can sit before the market drifts away from what voters and guardians saw. After `executeBy` the proposal is `Expired`.
+
+## Why the vault locks at propose
+
+Instant deposits and redeems close when a proposal is **proposed**, not when it executes. No share is minted or burned while a proposal is open, so the veto denominator cannot move under the vote. While locked, depositors use the queue (`queue request-deposit`, `queue request-redeem`), stamped at settle.
+
+On a vault with a 24-hour vote, that is at least 24.5 hours of queue-only access before execute even starts.
+
+## Why voting opens one second after propose
+
+Vote weight is snapshotted at `propose − 1` second and the window opens after the propose second. A flash-loaned position cannot vote. A vote sent in the propose block reverts `NotWithinVotingPeriod`.
+
+## One proposal at a time, then a cooldown
+
+A vault can have one open proposal (`VaultHasOpenProposal`). After every terminal state, cancel included, a cooldown of at least 1 hour runs before the next proposal can be created (`CooldownNotElapsed`). With no proposal open, instant deposits and redeems are available, so the cooldown is the depositors' guaranteed exit window between proposals.
+
+## Why setters freeze
+
+Every governor setter (`set-voting-period`, `set-max-capital`, `set-tier2-call-cap`, and the rest) is refused while any proposal is open, Drafts included. Parameters cannot shift under a proposal people are voting on. Seed your caps before the first proposal.
+
+## Related
+
+- [Governance overview](/protocol/governance/overview)
+- [Guardian review](/protocol/governance/guardian-review)
+- [Vault liquidity](/protocol/vault-liquidity)
+- [Oracle staleness](/explanations/oracle-staleness): how the weekend gap interacts with these windows

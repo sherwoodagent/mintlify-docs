@@ -49,7 +49,7 @@ The vault's share decimals scale with the asset for first-depositor inflation pr
 
 ## Launch flags
 
-Two factory flags shape the private beta. Both are factory-owner setters and are read live.
+Two factory flags shape the launch posture. Both are factory-owner setters and are read live, so the protocol Safe can lift them without a redeploy. See [Launch posture](/explanations/launch-posture) for why each is on.
 
 | Flag | Launch | Effect |
 |------|--------|--------|
@@ -121,7 +121,7 @@ The review layer between proposal approval and execution. It holds zero assets: 
 
 ### StakedWood (sWOOD)
 
-The sole custodian of staked WOOD: guardian stake, vault-owner stakes, vote checkpoints and slashing all live here. sWOOD is non-transferable and there is no delegation. A guardian is active while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least the review period and waits for the guardian's coverage locks to expire. Slashed WOOD is burned, whether from a blocked review (`slashGuardians`), a challenge verdict (`slashVerdict`) or a blocked emergency settle (`slashOwnerBond`).
+The sole custodian of staked WOOD: guardian stake, vault-owner stakes, vote checkpoints and slashing all live here. sWOOD is non-transferable and there is no delegation. A guardian is active while staked with no pending unstake; unstaking has a 7-day cooldown that must be at least the review period, so a guardian cannot request an unstake mid-review and leave before a block can slash them, and it waits for the guardian's coverage locks to expire. Slashed WOOD is burned, whether from a blocked review (`slashGuardians`), a challenge verdict (`slashVerdict`) or a blocked emergency settle (`slashOwnerBond`).
 
 <Note>
 The in-repo `WoodToken.sol` is a non-production test fixture. Mainnet WOOD is an external ERC-20 on Robinhood Chain, tradeable on Uniswap; its address is on [Deployments](/reference/deployments).
@@ -141,7 +141,7 @@ Holds the WOOD bond each proposal locks at propose. `releaseBond` pays the recor
 
 ### ChallengeGame and TokenCourt
 
-The post-execution accountability tail. Anyone can `file` a bonded challenge against an executed proposal within the 14-day window; silence for 7 days convicts, a filled counter-bond pool refers the case to `TokenCourt`, a single sWOOD-weighted vote that bars the accused, the challenger, the proposer and the counter-bond contributors. A conviction burns the approvers' locks, forfeits the proposer bond and demotes the adapter pair. Filings are paused through the private beta.
+The post-execution accountability tail. Anyone can `file` a bonded challenge against an executed proposal within the 14-day window; silence for 7 days convicts, a filled counter-bond pool refers the case to `TokenCourt`, a single sWOOD-weighted vote that bars the accused, the challenger, the proposer and the counter-bond contributors. A conviction burns the approvers' locks, forfeits the proposer bond and demotes the adapter pair. Filings are paused (`filingsPaused`) until the juror reserve is 30 days old; see [Challenge window](/explanations/challenge-window).
 
 ### WoodV3TwapFeed
 
@@ -153,7 +153,7 @@ Strategies are the pluggable execute/settle logic a proposal points at. A strate
 
 | Template | What it does | Status on 4663 |
 |----------|-------------|----------------|
-| [Portfolio](/protocol/strategies/uniswap) | Weighted basket of tokenized stocks priced off Chainlink push feeds, swapped through `UniswapSwapAdapter` | Deployed; class certification pending |
+| [Portfolio](/protocol/strategies/uniswap) | Weighted basket of tokenized stocks priced off Chainlink push feeds, swapped through `UniswapSwapAdapter` | Deployed; uncertified (tier 2) |
 | [Morpho Supply](/protocol/strategies/morpho-supply) | Supply the vault asset to one allowlisted Morpho Blue market | Deployed |
 | [Concentrated Liquidity](/protocol/strategies/concentrated-liquidity) | A Uniswap V3 range funded by a Morpho borrow | Deployed |
 | [Launchpad](/protocol/strategies/launchpad), [Lighter Perps](/protocol/strategies/lighter-perp) | Community templates from `sherwood-strategies` | Not deployed, unaudited |
@@ -165,7 +165,7 @@ A few surfaces rely on governance discipline rather than a runtime check. Integr
 1. **The governor is trusted on the fee path.** `vault.transferPerformanceFee` has no recipient cap on the vault side beyond the asset check and the reserve; the governor is trusted to transfer only what settlement math dictates, in the vault's asset. The governor is upgradeable only through the multisig-controlled `GovernorBeacon`.
 2. **WOOD is assumed to be a fixed-behavior ERC-20.** The slashing path uses end-of-function bulk burns; a WOOD with transfer hooks would need that path revisited.
 3. **Certification trusts codehashes, not proxies.** `tierOf` and the counterparty allowlist re-check `EXTCODEHASH`, which catches a bytecode swap at the same address but not a proxy implementation swap. Governance must not certify proxied adapters at tier 0/1.
-4. **The guardian cohort is operator-run at launch.** Review is a security service over proposals submitted by vault owners, not a check on the operator; the challenge game, paused through the beta, is the ex-post backstop.
+4. **The guardian cohort is operator-run at launch.** Review is a security service over proposals submitted by vault owners, not a check on the operator; the challenge game, whose filings are paused until the juror reserve is 30 days old, is the ex-post backstop.
 
 ## Building and testing
 

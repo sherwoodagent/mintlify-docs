@@ -1,0 +1,79 @@
+---
+title: "Launch posture"
+description: "Why vault creation is sponsored, why only the owner proposes, why deposits are whitelist-only, and why challenge filings are paused on Robinhood Chain."
+---
+
+Sherwood v1 runs on Robinhood Chain (4663) with four factory-wide switches turned on. Each one exists for a reason, each one is read live from the chain, and the factory owner (the protocol Safe) can turn each one off without a new deployment. This page explains what each switch protects and what it means for you as a creator.
+
+## The four switches
+
+| Switch | Live value | Where to read it |
+|---|---|---|
+| Creation fee | 1,000,000 WOOD per unsponsored vault | `SyndicateFactory.creationFee()` |
+| Sponsorship | single-use fee waiver per wallet | `SyndicateFactory.creationSponsored(address)` |
+| Owner-only proposals | on | `SyndicateFactory.ownerOnlyProposals()` |
+| Restricted deposits | on | `SyndicateFactory.depositsRestricted()` |
+| Challenge filings | paused | `ChallengeGame.filingsPaused()` |
+
+The factory is `0x619af1488F32B4797f6faDa3C3a8De72a5B693E0`. All addresses are in [Deployments](/reference/deployments).
+
+## Creation fee and sponsorship
+
+**What it is.** `createSyndicate` pulls a 1,000,000 WOOD creation fee from the creator. The fee is not refunded. A wallet the Safe has sponsored skips the fee once; the factory clears the sponsorship when that wallet creates a vault.
+
+**Why it exists.** The deploy parameters say it directly: the fee is set high "so sponsorship is the way in". Sponsorship lets the team onboard creators one at a time while the guardian set and the data feeds grow.
+
+**What it costs you.** Nothing, if your wallet is sponsored. Sponsorship is tied to one address, so the wallet that sends `createSyndicate` must be the wallet that was sponsored. Creating from another wallet means paying the fee.
+
+**What to do.** Before you buy any WOOD, confirm the exact creating wallet is sponsored:
+
+```bash
+cast call 0x619af1488F32B4797f6faDa3C3a8De72a5B693E0 \
+  'creationSponsored(address)(bool)' $ME \
+  --rpc-url https://rpc.mainnet.chain.robinhood.com
+```
+
+A keyless `sherwood --calldata-only vault create --creator $ME …` preview also prints whether the fee is waived. If it is not, wait for sponsorship rather than buying the fee.
+
+## Owner-only proposals
+
+**What it is.** While `ownerOnlyProposals` is on, only the vault owner can propose, and co-proposers are refused. The governor reads the flag live, so it also binds agents a vault registered earlier.
+
+**Why it exists.** A sponsored fund has one accountable operator: the wallet that posted the [owner stake](/explanations/owner-stake) and passed sponsorship review. Letting any registered agent propose would put someone without that bond in charge of deploying depositor capital.
+
+**What it costs you.** You cannot hand proposing to a second agent wallet, and [collaborative proposals](/protocol/governance/collaborative-proposals) are off. The owner must also register itself as an agent on the vault before it can propose.
+
+## Restricted deposits
+
+**What it is.** While `depositsRestricted` is on, every vault takes deposits only from addresses its owner approved, whatever the vault's own `openDeposits` setting says. The vault checks the address that **receives** the shares.
+
+**Why it exists.** Launch is invite-only. Restricting deposits keeps depositor capital to people the operator knows while the protocol is new.
+
+**What to do.** Approve each depositor, yourself included, with `vault approve-depositor`. Leave `--open-deposits` off at creation: an open vault would open to anyone the moment the factory flag is lifted.
+
+## Challenge filings paused
+
+**What it is.** The [challenge game](/explanations/challenge-window) lets anyone contest an executed proposal for 14 days after it ends. Filing is paused today.
+
+**Why it exists.** Disputed challenges are judged by WOOD jurors. The deploy script keeps filings paused until the juror reserve is 30 days old, so a fresh reserve cannot be captured to decide early cases.
+
+**What it costs you.** Guardian review before execute still runs as normal. The 14-day window still delays proposer bond release after settle, even though nothing can be filed during it.
+
+## Reading the posture yourself
+
+Do not rely on a date in a document. Read the flags before you act:
+
+```bash
+F=0x619af1488F32B4797f6faDa3C3a8De72a5B693E0
+RPC=https://rpc.mainnet.chain.robinhood.com
+cast call $F 'ownerOnlyProposals()(bool)' --rpc-url $RPC
+cast call $F 'depositsRestricted()(bool)' --rpc-url $RPC
+cast call $F 'creationFee()(uint256)' --rpc-url $RPC
+```
+
+## Related
+
+- [Getting started](/guides/getting-started): the creator path, step by step
+- [Owner stake](/explanations/owner-stake)
+- [Challenge window](/explanations/challenge-window)
+- [Deployments](/reference/deployments)

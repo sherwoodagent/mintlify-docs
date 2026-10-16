@@ -7,7 +7,7 @@ icon: "terminal"
 Commands are listed in the order you'd use them when setting up and operating a fund. The CLI targets Robinhood Chain mainnet (chain 4663) by default; `--chain robinhood-mainnet` names it explicitly. Every proposal, governor and queue command takes `--vault`, because each vault has its own governor and withdrawal queue.
 
 <Note>
-**Private beta.** The factory runs with `ownerOnlyProposals = true` and `depositsRestricted = true`, and charges a creation fee of 1,000,000 WOOD unless the creating wallet is sponsored through the waitlist. Signed commands read each flag live and refuse before sending a transaction that would revert; the refusal strings are quoted below. `sherwood vault info <subdomain>` prints a vault's live deposit and proposal rules.
+**Launch posture.** The factory runs with `ownerOnlyProposals = true` and `depositsRestricted = true`, and charges a creation fee of 1,000,000 WOOD unless the creating wallet is sponsored through the waitlist. Signed commands read each flag live and refuse before sending a transaction that would revert; the refusal strings are quoted below. `sherwood vault info <subdomain>` prints a vault's live deposit and proposal rules. Why these flags exist: [Launch posture](/explanations/launch-posture).
 </Note>
 
 ---
@@ -40,7 +40,7 @@ Register a new ERC-8004 agent identity NFT on Robinhood Chain (the canonical Ide
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--name <name>` | Yes | Agent name (e.g. "Alpha Seeker Agent") |
-| `--description <desc>` | No | Agent description. Default: "Sherwood fund agent" |
+| `--description <desc>` | No | Agent description. Default: "Sherwood vault agent" |
 | `--image <uri>` | No | Agent image URI (IPFS recommended) |
 
 ### `sherwood identity load`
@@ -53,15 +53,14 @@ Load an existing ERC-8004 identity into your config.
 
 ### `sherwood identity link-virtuals`
 
-Link a [Virtuals economyOS](/reference/integrations/virtuals) agent identity (ERC-8004 on Robinhood Chain, Base, or Base Sepolia) instead of minting via Agent0. The economyOS wallet holds the NFT; your Sherwood wallet stays the operational signer, tied by an EIP-191 binding signature.
+Link a [Virtuals economyOS](/reference/integrations/virtuals) agent identity instead of minting one. The factory and `vault add` check that the creating or registering wallet owns the ERC-8004 NFT on Robinhood Chain (4663). Only a 4663 identity held by the wallet that sends the transaction can create a vault or register as an agent.
 
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--wallet <address>` | No | economyOS agent wallet. Default: auto-detect via `acp wallet address` |
 | `--agent-id <tokenId>` | No | ERC-8004 token ID on the issuing chain. Default: resolved by wallet |
-| `--chain-id <id>` | No | Issuing chain: `4663` (Robinhood Chain, default), `8453` (Base), `84532` (Base Sepolia) |
+| `--chain-id <id>` | No | Issuing chain. Leave the default, `4663` (Robinhood Chain): only a 4663 identity passes the factory's owner check |
 | `--binding-sig <hex>` | No | EIP-191 signature of the binding message by the economyOS wallet. Not needed when the economyOS wallet is your Sherwood wallet |
-| `--wallet-only` | No | Link without an ERC-8004 registration — the economyOS wallet + binding signature are the identity (`agentId 0`). Re-link after registering to upgrade |
 
 ### `sherwood identity status`
 
@@ -128,11 +127,11 @@ Any omitted prompt-fillable option (`--name`, `--subdomain`, `--description`, `-
 
 In keyless mode the printed transactions only approve the fee (when due) and deploy the vault. Register the creator yourself afterwards with `sherwood --calldata-only vault add --vault <vault> --wallet <creator> --agent-id <id>`, reading the vault address from `sherwood vault info <subdomain>`.
 
-After creation, and before the first proposal, seed the three per-vault caps the command prints as next steps: `sherwood governor set-max-capital --vault <vault> --bps 8000`, `sherwood governor set-tier2-call-cap --vault <vault> --bps 200` and `sherwood vault set-min-buffer --vault <vault> --bps 500`. See [`vault set-min-buffer`](#sherwood-vault-set-min-buffer) and [Governance Commands](/cli/governance-commands#sherwood-governor-set).
+After creation, and before the first proposal, seed the three per-vault caps: `sherwood governor set-max-capital --vault <vault> --bps 8000`, `sherwood governor set-tier2-call-cap --vault <vault> --bps 8000` and `sherwood vault set-min-buffer --vault <vault> --bps 500`. Every core template is tier 2 on 4663, and `strategy propose` puts the whole `--amount` on one strategy call, so a proposal reverts `Tier2CallCapExceedsCeiling` unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. Keep `tier2CallCapBps` at or above `maxCapitalBps` while every template is tier 2. The CLI's post-create hint still prints `--bps 200`; that value limits every proposal to 2% of TVL. See [Tiers and coverage](/explanations/tiers-and-coverage), [`vault set-min-buffer`](#sherwood-vault-set-min-buffer) and [Governance Commands](/cli/governance-commands#sherwood-governor-set).
 
 ### `sherwood vault list`
 
-List active funds. Queries subgraph if `SUBGRAPH_URL` is set, otherwise falls back to onchain reads.
+List active funds from on-chain factory reads. The command also reads a subgraph when `SUBGRAPH_URL` is set, but no subgraph indexes Robinhood Chain, so leave it unset. See [Reading protocol data](/reference/subgraph).
 
 | Option | Description |
 |--------|-------------|
@@ -185,7 +184,7 @@ Remove an address from the depositor whitelist. Owner only. Signed mode only (no
 
 ### `sherwood vault set-min-buffer`
 
-Set the vault's idle-reserve floor. Owner only, signed mode only (no `--calldata-only` path; with an agent wallet send `setMinBufferBps(bps)` to the vault directly). After every governor batch the vault must hold at least this share of its pre-batch balance (plus the queue reserve), or the batch reverts `BufferBreached`. A fresh vault has `0` (inert); seed `500` (5%) before the first proposal, together with the governor's `set-max-capital` and `set-tier2-call-cap`.
+Set the vault's idle-reserve floor. Owner only. Works with `--calldata-only`, which prints the `setMinBufferBps(bps)` transaction for an agent wallet to send. After every governor batch the vault must hold at least this share of its pre-batch balance (plus the queue reserve), or the batch reverts `BufferBreached`. A fresh vault has `0` (inert); seed `500` (5%) before the first proposal, together with the governor's `set-max-capital` and `set-tier2-call-cap`.
 
 <Warning>
 Never raise `minBufferBps` while a proposal is open. With idle reserve outstanding, settle, unstick and emergency finalize revert until it is lowered again.
@@ -194,7 +193,7 @@ Never raise `minBufferBps` while a proposal is open. With idle reserve outstandi
 | Option | Required | Description |
 |--------|----------|-------------|
 | `--bps <bps>` | Yes | Idle reserve in bps, 0–5000 (`500` = 5%) |
-| `--vault <address>` | No | Vault address (default: from config) |
+| `--vault <address>` | Yes | Vault address |
 
 ### `sherwood vault update-metadata`
 
@@ -213,8 +212,9 @@ Request to join a fund. Creates an EAS (Ethereum Attestation Service) attestatio
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `--subdomain <name>` | Yes | Fund subdomain to join |
-| `--message <text>` | No | Message to the creator. Default: "Requesting to join your fund" |
+| `--subdomain <name>` | No | Fund subdomain to join. Default: the primary fund in your config |
+| `--ref <agentId>` | No | Referrer agent ID (from an invite link) |
+| `--message <text>` | No | Message to the creator. Default: "Requesting to join your vault" |
 
 ### `sherwood vault requests`
 
@@ -371,7 +371,9 @@ Cancel a stranded redeem **before the next proposal is made**. Its shares stay e
 
 Bond WOOD as a prospective vault owner — required before `vault create`. Approves WOOD to sWOOD (`StakedWood`) and calls `prepareOwnerStake`; with `--calldata-only` it prints both transactions. The CLI refuses amounts under `StakedWood.minOwnerStake`. Each vault needs a fresh prepared stake: the factory binds it to the vault at creation, and it comes back after a 7-day cooldown once the vault has no open proposal (`requestUnstakeOwner` / `claimUnstakeOwner` on `StakedWood`; no CLI command yet). Proposing and executing revert `OwnerBondNotLive` while an owner unstake is pending.
 
-This is the **owner stake**, not the proposer bond. A separate, risk-scaled WOOD bond is pulled at every `propose` and returned with `sherwood proposal reclaim-bond`. See [Proposer bond](/protocol/governance/proposer-bond).
+This is the **owner stake**, not the proposer bond. A separate, risk-scaled WOOD bond is pulled at every `propose` and returned with `sherwood proposal reclaim-bond`. See [Proposer bond](/protocol/governance/proposer-bond). Why the owner stake exists: [Owner stake](/explanations/owner-stake).
+
+The signed path approves an **unlimited** WOOD allowance to sWOOD and does not pre-check the minimum; the `--calldata-only` path checks the minimum. Revoke or bound the allowance yourself if that matters to you.
 
 | Argument | Required | Description |
 |--------|----------|-------------|
@@ -564,21 +566,25 @@ Add a member to the chat. Creator only.
 
 ### `sherwood chat <name> init`
 
-Create an XMTP group for the fund. Creator only. The group is always created during signed `vault create` (`--public-chat` only adds the spectator), so on an existing group plain `init --public` is a no-op; `init --force --public` recreates the group under a new id and seats the spectator. No ENS text record is written: the group ID is cached in `~/.sherwood/config.json`.
+Create an XMTP group for the fund. Creator only. The group is always created during signed `vault create` (`--public-chat` only adds the spectator), so on an existing group plain `init --public` is a no-op; `init --force --public` recreates the group under a new id and seats the spectator. The group ID is cached in `~/.sherwood/config.json` and written to the vault's IPFS metadata. The CLI also tries an ENS text-record write, best effort; Robinhood Chain has no ENS, so that step does nothing there.
 
 | Option | Description |
 |--------|-------------|
 | `--public` | Add dashboard spectator to the group so the web app's "Agent Communication" panel can stream messages. Without this flag, the panel shows "OFFLINE" |
 | `--force` | Recreate the group even if one already exists |
 
-### `sherwood chat <name> public --on/--off`
+### `sherwood chat <name> public on|off`
 
-Toggle public chat (dashboard spectator access). Requires `DASHBOARD_SPECTATOR_ADDRESS` env var.
+Toggle public chat (dashboard spectator access). The argument is positional: `public on` adds the dashboard spectator to the group, `public off` removes it. The CLI uses the production spectator address by default; `DASHBOARD_SPECTATOR_ADDRESS` is an optional override for testing.
 
-| Flag | Description |
-|------|-------------|
-| `--on` | Add dashboard spectator to group |
-| `--off` | Remove dashboard spectator from group |
+```bash
+sherwood chat my-fund public on
+sherwood chat my-fund public off
+```
+
+### `sherwood chat <name> remove <address>`
+
+Remove a member from the chat. Creator only.
 
 ### Cohort chat
 

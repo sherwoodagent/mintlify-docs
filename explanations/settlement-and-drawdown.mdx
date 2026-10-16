@@ -1,0 +1,65 @@
+---
+title: "Settlement and drawdown"
+description: "Why settle can refuse a loss, how the max drawdown is measured on the whole vault's share price, who can settle when, and how fees are taken."
+---
+
+Settlement unwinds a strategy back into the vault, takes fees and fixes the price that queued redeems receive. It can also **refuse** to run when the vault has lost more than the proposal said it might. This page explains why.
+
+## The drawdown floor is on the vault's share price
+
+Every proposal declares `maxDrawdownBps` (`--max-drawdown-bps`, default 2000). Settle reverts `SettlePriceBelowFloor` when:
+
+```
+pricePerShare < ppsAtExecute × (1 − min(maxDrawdownBps, 9000) / 10,000)
+```
+
+It is measured on the **whole vault's** price per share between execute and settle. It is **not** a percentage of `--amount`.
+
+### Why it exists
+
+A settle freezes the price that queued redeems receive. Anyone can settle once the duration ends. Without a floor, a settle run during a flash crash, or after a drain, could stamp a near-zero price, and an attacker could then buy shares cheaply against it. The 9,000 bps hard cap does not close that attack completely; it prices it.
+
+### Declare it honestly
+
+Idle assets in the vault count in the share price, so the same bps tolerates a bigger loss on the strategy itself.
+
+Example: a 90 USDG vault deploys 60 USDG with `--max-drawdown-bps 1500`. The floor is 15% of 90 = 13.5 USDG. On the 60 USDG basket that is a 22.5% loss before settle refuses.
+
+Voters and guardians read the declared drawdown as a promise. Size it from your kill criteria on the whole vault, not on the basket.
+
+## Exits when the floor blocks settle
+
+When the share price is below the floor, a normal settle cannot run. In order of preference:
+
+1. **`unstick`** (owner). Replays the voted settle calls with the drawdown tolerance fixed at the 9,000 bps maximum (`MAX_STAMP_DRAWDOWN_BPS`), so it runs unless the share price fell more than 90%. It needs no new calldata and no bond.
+2. **Emergency settle** (owner). `emergencySettleWithCalls` commits new calldata and opens a guardian review; `finalizeEmergencySettle` runs it after the review if guardians did not block. A guardian block burns the whole [owner stake](/explanations/owner-stake) (the burn lands when `resolveEmergencyReview` runs; a blocked `finalizeEmergencySettle` reverts).
+
+## Who settles, and when
+
+- **The proposer** can settle from **1 hour** after execute. Before that, settle reverts `StrategyDurationNotElapsed`. The hour stops an execute-then-settle skim in one block.
+- **Anyone** can settle after the full strategy duration.
+- **Nothing settles automatically.** If nobody calls settle, the strategy keeps running and the management fee keeps accruing.
+- A settle batch must have zero net outflow and must leave the strategy with `executed() == false`, else `StrategyNotSettled`.
+
+## Fees
+
+| Fee | Rate | When |
+|---|---|---|
+| Management | 200 bps/yr on assets | Accrues only from execute to settle. The gap between proposals accrues nothing. |
+| Performance | `agentFeeBps` (default 2000, max 2500), clamped to `maxPerformanceFeeBps` (2000) | On the smaller of profit above the high-water mark and this proposal's P&L. A fund that fell and recovered has already paid for that ground. |
+
+Splits are snapshotted at propose:
+
+- Management: agent 60%, protocol 20%, guardians 20%.
+- Performance: agent 50%, protocol 15%, guardians 25%, fund owner 10%.
+
+## Queued redeems
+
+Redeems queued during a proposal are stamped at settle, after fees, at the realized price. A redeem queued under a proposal that ends Cancelled, Rejected or Expired is never stamped. Its holder must cancel it to get the shares back.
+
+## Related
+
+- [Settlement reference](/protocol/governance/settlement)
+- [Economics](/protocol/governance/economics)
+- [Vault liquidity](/protocol/vault-liquidity)
+- [Strategy commands](/cli/strategy-commands)

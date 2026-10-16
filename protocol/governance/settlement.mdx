@@ -56,7 +56,7 @@ A live strategy runs for its committed duration, then settles by replaying the p
 | **`unstick`** | Vault owner | After `strategyDuration` | Pre-committed `settlementCalls` only — no custom calldata, no stake needed, no review |
 | **`emergencySettleWithCalls`** | Vault owner | After `strategyDuration`, pre-committed calls are broken | Owner-supplied custom calls; hashed into the registry, opens a block-only guardian review. Requires a live owner stake ≥ `requiredOwnerBond` |
 | **`cancelEmergencySettle`** | Vault owner | Before the review ends | Self-recall of the above, no slash |
-| **`finalizeEmergencySettle`** | Vault owner | After the review ends | Runs the stored calls if guardians didn't block; if they did, the owner stake is burned and this reverts `EmergencySettleBlocked` |
+| **`finalizeEmergencySettle`** | Vault owner | After the review ends | Runs the stored calls if guardians didn't block; if they did, it reverts `EmergencySettleBlocked`, and the revert rolls back the burn inside the same call. The burn sticks through the permissionless `GuardianRegistry.resolveEmergencyReview` |
 
 Every settlement path runs the unwind batch with a **net egress budget of zero**: vault float may leave inside the batch only if at least as much comes back before it ends, so a settlement can repay a debt the vault fronts but cannot drain the fund.
 
@@ -65,7 +65,7 @@ Every settlement path runs the unwind batch with a **net egress budget of zero**
     The proposer can settle from **1 hour** after execution (`MIN_STRATEGY_DURATION_BEFORE_SELF_SETTLE`), the early-close incentive, since the agent has the most context and only earns carry on profit. Once the full `strategyDuration` has elapsed, **anyone** can settle (`StrategyDurationNotElapsed` before then), so a disappearing agent never traps capital. After the batch, two checks guard the result:
 
     - `StrategyNotSettled(strategy)` if the strategy clone still reports `executed() == true`: the unwind did not finish.
-    - `SettlePriceBelowFloor` if price per share fell below `ppsAtExecute × (10_000 − min(maxDrawdownBps, 9_000)) / 10_000`, the drawdown floor the proposal declared.
+    - `SettlePriceBelowFloor` if the whole vault's price per share fell below `ppsAtExecute × (10_000 − min(maxDrawdownBps, 9_000)) / 10_000`, the drawdown floor the proposal declared. The floor is on the vault's price per share, not on `maxCapital`: idle assets count, so the same bps tolerates a larger loss on the deployed capital. See [Settlement and drawdown](/explanations/settlement-and-drawdown).
   </Tab>
   <Tab title="unstick (owner, pre-committed calls)">
     When the committed unwind is still correct but the standard settle cannot close (a settle that fell below the declared drawdown floor), the owner calls `unstick(proposalId)` after `strategyDuration`. It replays the proposal's pre-committed `settlementCalls` only and reverts if those calls revert or the strategy still reports `executed()`. It applies the rescue floor, `MAX_STAMP_DRAWDOWN_BPS` (9,000 bps, a floor at 10% of the execute-time price per share), instead of the proposal's own `maxDrawdownBps`. It needs **no** owner stake, because the calls were already approved through governance and guardian review.
@@ -75,9 +75,9 @@ Every settlement path runs the unwind batch with a **net egress budget of zero**
 
     1. `emergencySettleWithCalls(proposalId, calls)` reverts `OwnerBondInsufficient` unless the owner's stake is live and at least `requiredOwnerBond` (10,000 WOOD at launch). The governor stores the hash of the calls (at most 64) in the registry and opens a `reviewPeriod` window. **Calls do not execute yet.**
     2. During the window, active guardians can vote to block; the owner may self-recall with `cancelEmergencySettle` (no slash).
-    3. After the window, `finalizeEmergencySettle(proposalId)` replays the same calls (`EmergencyHashMismatch` if they differ). If guardians reached the block quorum, the owner stake is burned and this reverts. Otherwise the batch runs with per-call caps disabled and the zero egress budget, and the proposal settles. This path is exempt from the `StrategyNotSettled` check.
+    3. After the window, `finalizeEmergencySettle(proposalId)` replays the stored calls. If guardians reached the block quorum it reverts `EmergencySettleBlocked`; the revert rolls back the burn the registry attempts inside the same call. Otherwise the batch runs with per-call caps disabled and the zero egress budget, and the proposal settles. This path is exempt from the `StrategyNotSettled` check.
 
-    A blocked round costs the stake; the owner can re-bond and open another round.
+    A blocked round costs the stake once anyone calls the permissionless `GuardianRegistry.resolveEmergencyReview(governor, proposalId)`: the owner bond is burned in full and its slot deleted. There is no re-bond path for an existing vault, so the vault then fails `OwnerBondNotLive` at every later propose and execute. `unstick` needs no stake and stays available. See [Owner stake](/explanations/owner-stake).
   </Tab>
 </Tabs>
 
@@ -89,7 +89,7 @@ The split covers every failure mode without handing the owner an unbounded escap
 
 ## Cooldown
 
-Every terminal transition — settle, cancel, veto, reject, expire — stamps `cooldownEndsAt = now + cooldownPeriod` (1 h at launch; bounds 1 h – 30 d). The next `propose` on that vault reverts `CooldownNotElapsed` until then; `executeProposal` does not check it. As soon as no proposal is open, instant deposits and redemptions re-open, so the cooldown is the deliberate exit window between strategies: if depositors don't like what's next, they get out first.
+Every terminal transition — settle, cancel, veto, reject, expire — stamps `cooldownEndsAt = now + cooldownPeriod` (1 h at launch; bounds 1 h – 30 d; see [Governance timing](/explanations/governance-timing)). The next `propose` on that vault reverts `CooldownNotElapsed` until then; `executeProposal` does not check it. As soon as no proposal is open, instant deposits and redemptions re-open, so the cooldown is the deliberate exit window between strategies: if depositors don't like what's next, they get out first.
 
 ## P&L and the two fees
 
@@ -131,5 +131,5 @@ settlementCalls (unwind back to USDG — run at settlement)
 Depositors vote on the whole sequence (the clone's tokens, weights, routes and slippage are fixed at init) before it runs. After the unwind the vault should hold its deposit asset again; leftover non-asset tokens are recoverable only through the owner's `rescueERC20`, which can move them only to a strategy clone of the same vault. Because the unwind is a prediction of future state, agents should leave slippage room; if the standard settle reverts, the owner uses `unstick` or the guardian-reviewed emergency path.
 
 <Note>
-The onchain track record is the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event emitted at settlement, which indexers aggregate into per-agent history. A richer EAS-based attestation is planned but not shipped.
+The onchain track record is the `ProposalSettled(proposalId, vault, pnl, performanceFee, duration)` event emitted at settlement, which indexers aggregate into per-agent history. The fourth field is named `performanceFee` in the ABI but carries the **total** fee charged at settle: management plus performance. Agents can also publish a thesis and track record through [EAS attestations](/reference/integrations/eas); the protocol does not read them.
 </Note>

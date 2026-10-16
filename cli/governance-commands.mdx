@@ -9,7 +9,7 @@ icon: "gavel"
 </Note>
 
 <Info>
-**Owner-only proposals.** While the factory's `ownerOnlyProposals` launch flag is on (the private-beta setting), only the vault owner can propose, and collaborative proposals are refused. The owner must also be a registered agent on the vault. `proposal create` and `strategy propose` read the flag live and refuse any other proposer before pinning metadata or locking the bond: `This vault is single-operator: … <proposer> is not the owner (<owner>); propose from the owner wallet.` On chain the reverts are `ProposerNotOwner` and `CollaborationDisabled`. Keyless `proposal create` refuses only when given `--proposer`; without it, it warns and still prints the calldata.
+**Owner-only proposals.** While the factory's `ownerOnlyProposals` launch flag is on (it is on at launch; see [Launch posture](/explanations/launch-posture)), only the vault owner can propose, and collaborative proposals are refused. The owner must also be a registered agent on the vault. `proposal create` and `strategy propose` read the flag live and refuse any other proposer before pinning metadata or locking the bond: `This vault is single-operator: … <proposer> is not the owner (<owner>); propose from the owner wallet.` On chain the reverts are `ProposerNotOwner` and `CollaborationDisabled`. Keyless `proposal create` refuses only when given `--proposer`; without it, it warns and still prints the calldata.
 </Info>
 
 ## `sherwood proposal create`
@@ -35,26 +35,27 @@ sherwood proposal create \
 | `--description` | Yes | Strategy rationale and risk summary (ignored for pinning if `--metadata-uri` provided) |
 | `--duration` | Yes | Strategy duration, `1h` to `30d`. Accepts seconds or human format (`7d`, `24h`, `1h`) |
 | `--max-capital` | Yes | Ceiling on what the execute batch may deploy, in vault-asset units. The proposal's risk envelope; must be within the governor's `maxCapitalBps` share of `totalAssets` |
-| `--max-drawdown-bps` | No | Declared loss allowance in bps of `--max-capital` (0–10000, default 2000) |
+| `--max-drawdown-bps` | No | Maximum fall of the **whole vault's** price per share between execute and settle, in bps (0–10000, default 2000; the governor caps it at 9000). Settle reverts `SettlePriceBelowFloor` below that floor. See [Settlement and drawdown](/explanations/settlement-and-drawdown) |
 | `--execute-calls` | Yes | Path to JSON file with execute Call[] array (open positions) |
 | `--settle-calls` | Yes | Path to JSON file with settlement Call[] array (close positions) |
 | `--execute-caps` / `--settle-caps` | No | Per-call gross-outflow caps in asset units, one per call; each list must sum to at most `--max-capital`. Default: the whole allowance on the last execute call, 0 on settlement calls |
-| `--strategy` | No | The registered strategy clone the calls target (default: none, queue-only) |
+| `--strategy` | Yes, in practice | The registered strategy clone the calls target. The CLI help says the default is none (queue-only), but `propose` reverts `StrategyNotRegistered` for `address(0)` or any unregistered address |
 | `--proposer` | With `--calldata-only` | The wallet that will send `propose`; enables the proposer-bond balance and allowance preflight and the owner check |
 | `--metadata-uri` | No | Override -- skip IPFS upload and use this URI directly |
 
-Proposing pulls the **proposer bond** in WOOD into `ProposerBondEscrow`. The CLI quotes it from `ExposureLedger.proposerBondWood`, refuses with `InsufficientProposerBondWood` when the wallet does not hold it, and prints the WOOD approval to the governor's `bondEscrow()` first when the allowance is short. See [Proposer bond](/protocol/governance/proposer-bond) and [`proposal reclaim-bond`](#sherwood-proposal-reclaim-bond).
+Proposing pulls the **proposer bond** in WOOD into `ProposerBondEscrow`. The CLI quotes it from `ExposureLedger.proposerBondWood`, refuses with `InsufficientProposerBondWood` when the wallet does not hold it, and prints the WOOD approval to the governor's `bondEscrow()` first when the allowance is short. The bond is 1% of the proposal's required coverage, priced at half the market WOOD price, so it is about 2% of the deployed amount at market. See [Proposer bond](/explanations/proposer-bond) and [`proposal reclaim-bond`](#sherwood-proposal-reclaim-bond).
 
 <Note>
 **No per-proposal fee.** `proposal create` does not take a fee flag — the proposal snapshots the vault's `agentFeeBps` at propose time, which the vault owner sets via [`sherwood vault set-agent-fee`](#sherwood-vault-set-agent-fee). At settlement the governor uses that snapshot, clamped to its `maxPerformanceFeeBps`. The management fee is not a proposal parameter at all — it is stamped onto the vault at creation and accrues on assets × time deployed.
 </Note>
 
-### Metadata pinning (IPFS via Pinata)
+### Metadata pinning
 
-When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--name` and `--description`, pins it to IPFS via the Pinata API, and uses the resulting `ipfs://` URI. This follows the same pattern as `vault create`.
+When `--metadata-uri` is not provided, the CLI builds a metadata JSON from `--name` and `--description`, uploads it through Sherwood's API, and uses the resulting `ipfs://` URI. This follows the same pattern as `vault create`.
 
-- **Pin:** `POST https://api.pinata.cloud/pinning/pinJSONToIPFS` with `PINATA_API_KEY` from env
-- **Resolve:** Metadata displayed in the dashboard via `PINATA_GATEWAY` (default: `sherwood.mypinata.cloud`)
+- **Pin:** `POST https://api.sherwood.sh/ipfs/upload`. The API holds the pinning credentials, so you need no key or env var.
+- **Resolve:** the CLI, SDK and dashboard read metadata only from a strict `ipfs://<CID>` URI through the Sherwood gateway (`https://sherwood.mypinata.cloud`).
+- **Failure is fatal:** if the upload fails, the proposal is not created. There is no inline `data:` fallback. Retry, or pin with [`sherwood pin-metadata`](/cli/commands) and pass `--metadata-uri`.
 - **Schema:** `{ name, description, proposer, vault, strategyDuration, createdAt }`
 
 ### Call JSON format
@@ -74,9 +75,9 @@ Execute calls run at execution time (open positions). Settlement calls run at se
 
 1. Validate the caller is a registered agent on the vault and, while `ownerOnlyProposals` is on, the vault owner
 2. Parse and validate calls JSON
-3. If no `--metadata-uri`: build metadata JSON, pin to IPFS via Pinata, get `ipfs://Qm...` URI
+3. If no `--metadata-uri`: build metadata JSON, upload it through `api.sherwood.sh/ipfs/upload`, get the `ipfs://` URI
 4. Display proposal summary for review (name, duration, call count, metadata URI)
-5. Call `governor.propose(vault, strategy, metadataURI, strategyDuration, envelope, executeCalls, executeCallCaps, settlementCalls, settlementCallCaps, coProposers)` -- `strategy` is the clone that holds on-venue positions (pass `address(0)` for a queue-only proposal); `envelope` is the `RiskEnvelope` (`maxCapital`, `maxDrawdownBps`); `executeCallCaps` and `settlementCallCaps` are parallel per-call gross-outflow caps in the vault asset (one `uint256` per corresponding call; each batch's sum must be `<= envelope.maxCapital`, checked independently); `coProposers` is the optional collaborative-proposal co-signer list. The agent fee is **not** a proposal argument — the governor snapshots the vault's `agentFeeBps` onto the proposal at propose time (clamped to `maxPerformanceFeeBps` at settlement)
+5. Call `governor.propose(vault, strategy, metadataURI, strategyDuration, envelope, executeCalls, executeCallCaps, settlementCalls, settlementCallCaps, coProposers)` -- `strategy` is the registered clone that holds on-venue positions (`address(0)` reverts `StrategyNotRegistered`); `envelope` is the `RiskEnvelope` (`maxCapital`, `maxDrawdownBps`); `executeCallCaps` and `settlementCallCaps` are parallel per-call gross-outflow caps in the vault asset (one `uint256` per corresponding call; each batch's sum must be `<= envelope.maxCapital`, checked independently); `coProposers` is the optional collaborative-proposal co-signer list. The agent fee is **not** a proposal argument — the governor snapshots the vault's `agentFeeBps` onto the proposal at propose time (clamped to `maxPerformanceFeeBps` at settlement)
 6. Print proposalId and voting period end time
 
 ---
@@ -114,7 +115,7 @@ sherwood proposal list --vault <addr> [--state <filter>]
 | `--vault` | Yes | Vault whose proposals to list (per-vault governor) |
 | `--state` | No | Filter by state, case-insensitive: `draft`, `pending`, `guardianreview`, `approved`, `rejected`, `expired`, `executed`, `settled`, `cancelled`, `all` (default: `all`) |
 
-Queries subgraph for `Proposal` entities filtered by vault/state. Falls back to on-chain iteration via `governor.proposalCount()` + `governor.getProposal(id)`.
+Reads on chain: `governor.proposalCount()`, then `governor.getProposal(id)` for each id. No subgraph indexes Robinhood Chain.
 
 **Output:**
 
@@ -278,7 +279,7 @@ sherwood proposal reclaim-bond --id <proposalId> --vault <addr>
 
 - The proposal must be `Rejected`, `Expired`, `Cancelled` or `Settled`. The CLI refuses with `Proposal is <state> — a bond is only reclaimable from Rejected / Expired / Cancelled / Settled.`; on chain the revert is `ProposalNotTerminal`.
 - A Rejected, Expired or Cancelled proposal releases immediately. A **Settled** proposal waits for the challenge window: `executedAt + strategyDuration + challengeWindow` (14 days) must have passed and no challenge may have the coverage frozen, else `ChallengeWindowOpen`.
-- `This proposal has no proposer bond left to reclaim (never bonded, already reclaimed, or forfeited).` means the bond is 0 (`NoBondToReclaim`). A bond is forfeited only by a challenge conviction; challenge filings are paused through the beta.
+- `This proposal has no proposer bond left to reclaim (never bonded, already reclaimed, or forfeited).` means the bond is 0 (`NoBondToReclaim`). A bond is forfeited only by a challenge conviction. Challenge filings are paused until the juror reserve is 30 days old; see [Challenge window](/explanations/challenge-window).
 
 ---
 
@@ -374,7 +375,7 @@ sherwood governor set-max-fee          --vault <addr> --bps <n>
 sherwood governor set-max-duration     --vault <addr> --seconds <n>
 sherwood governor set-cooldown         --vault <addr> --seconds <n>
 sherwood governor set-max-capital     --vault <addr> --bps <n>   # 1–10000; seed 8000 after create
-sherwood governor set-tier2-call-cap  --vault <addr> --bps <n>   # 1–10000; seed 200 after create
+sherwood governor set-tier2-call-cap  --vault <addr> --bps <n>   # 1–10000; keep it >= max-capital, e.g. 8000
 ```
 
 ### Governance timing (owner-set)
@@ -388,9 +389,11 @@ The vault owner sets the governance periods. Change them while no proposal is op
 | Cooldown | `set-cooldown` | `MIN_COOLDOWN_PERIOD` (1 hour on mainnet) to 30 days | `3600` | as needed |
 | Max strategy duration | `set-max-duration` | 1 hour to 30 days | — | match the strategy |
 
-The guardian review period after voting is protocol-set (`GuardianRegistry.reviewPeriod`, 30 min on mainnet 4663), not owner-tunable. A proposal keeps the periods it was created with, so a change applies to the next proposal. For a fast test cycle, set the voting period to 30 min (`1800`) before the first proposal: vote ends 30 min after propose, review 30 min after that.
+The guardian review period after voting is protocol-set (`GuardianRegistry.reviewPeriod()`, 30 min on mainnet 4663), not owner-tunable. The 30-minute voting minimum and review period are the live on-chain values (`MIN_VOTING_PERIOD()` and `reviewPeriod()` both return `1800`); the CLI's `set-voting-period` help text still says 1 hour. Why these windows exist: [Governance timing](/explanations/governance-timing). A proposal keeps the periods it was created with, so a change applies to the next proposal. For a fast test cycle, set the voting period to 30 min (`1800`) before the first proposal: vote ends 30 min after propose, review 30 min after that.
 
-`set-max-capital` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault. The matching vault-side cap is [`sherwood vault set-min-buffer`](/cli/commands#sherwood-vault-set-min-buffer).
+`set-max-capital` caps what one proposal may declare as `--max-capital`, as a share of `totalAssets` (checked at propose and again at execute). `set-tier2-call-cap` caps each uncertified (tier-2) call the same way. Both read as 100% on a fresh vault.
+
+Every core template (Portfolio, Morpho Supply, Concentrated Liquidity) is tier 2 on 4663, and `strategy propose` puts the whole `--amount` on one strategy call. A proposal therefore reverts `Tier2CallCapExceedsCeiling` at propose unless `--amount ≤ totalAssets × tier2CallCapBps / 10,000`. Keep `tier2CallCapBps` at or above `maxCapitalBps` while every template is tier 2 (for example both at `8000`). The CLI does not pre-check this, and its post-create hint still prints `--bps 200`, which limits every proposal to 2% of TVL. See [Tiers and coverage](/explanations/tiers-and-coverage). The matching vault-side cap is [`sherwood vault set-min-buffer`](/cli/commands#sherwood-vault-set-min-buffer).
 
 ### `sherwood governor set-mgmt-split` / `set-perf-split` (ProtocolConfig)
 
@@ -425,6 +428,6 @@ Guardian reviews are opened and resolved permissionlessly. `open-reviews` opens 
 
 - **Duration format:** Accept human-readable durations (`7d`, `24h`, `1h`) in addition to raw seconds
 - **Call encoding:** For common actions (swaps through the vault's swap adapter, ERC-20 approvals), the CLI provides built-in call builders so agents don't need to manually encode calldata
-- **Metadata via Pinata:** `proposal create` pins metadata to IPFS using `PINATA_API_KEY` (same env var used by `vault create`). Dashboard resolves metadata via `PINATA_GATEWAY` (`sherwood.mypinata.cloud`). If the agent provides `--metadata-uri` directly, pinning is skipped
+- **Metadata pinning:** `proposal create` uploads metadata through `api.sherwood.sh/ipfs/upload`, the same path `vault create` uses; no key is needed. If the agent provides `--metadata-uri` directly, pinning is skipped
 - **Vote weight display:** Shows the user's voting power before they vote, so they understand their influence
 - **Settlement routing:** Auto-detects the correct settlement path based on caller identity and timing

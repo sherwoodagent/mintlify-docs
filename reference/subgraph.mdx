@@ -1,221 +1,82 @@
 ---
-title: "Subgraph"
-description: "GraphQL indexing — entities, queries, and schema reference"
+title: "Reading protocol data"
+description: "No subgraph indexes Robinhood Chain. Read funds and proposals through the SDK, the HTTP API, the CLI or direct RPC."
 icon: "diagram-project"
 ---
 
-Sherwood indexes all on-chain activity via [The Graph](https://thegraph.com/), giving you fast access to fund listings, agent performance, deposit history, and more.
+**No subgraph indexes Sherwood on Robinhood Chain (4663).** The subgraph manifests in the protocol repo target an older deployment, and their single-governor data source does not fit v1, where every vault has its own governor. Do not set `SUBGRAPH_URL`.
 
-## Endpoint
+Read the chain directly instead. Every path below returns live state.
 
-```
-SUBGRAPH_URL=https://api.studio.thegraph.com/query/.../sherwood-syndicates/version/latest
-```
+## Pick a read path
 
-All queries below can be sent as POST requests to this endpoint with `{ "query": "..." }` as the body, or explored interactively in [The Graph Studio playground](https://thegraph.com/studio/).
+| You have | Use |
+|---|---|
+| A TypeScript runtime | The [SDK](/api/sdk) read helpers |
+| Only HTTP | The [HTTP API](/api/overview#read-endpoints-get) read routes |
+| A shell | The `sherwood` CLI read commands |
+| Any RPC client | Direct contract calls on the factory and the vault's governor |
 
-## Entities
+## SDK
 
-Amounts are denominated in each vault's underlying asset (chosen per fund at creation) — USDG (6 decimals) on Robinhood Chain funds. Share amounts use the vault's share decimals (asset decimals × 2, so 12 for a USDG vault).
+Each helper takes a viem `PublicClient` pointed at a 4663 RPC.
 
-| Entity | Description |
-|--------|-------------|
-| **Syndicate** | A fund and its vault. Includes creator, metadata URI, and aggregated deposit/withdrawal totals in the underlying asset. |
-| **Agent** | A registered agent wallet. Includes lifetime stats (total batches executed, total asset moved). |
-| **Deposit** | A deposit into a vault. Asset amount, shares received, timestamp. |
-| **Withdrawal** | A withdrawal from a vault. Asset amount, shares burned, timestamp. |
-| **BatchExecution** | A batch of protocol calls executed by an agent. Call count, asset amount, linked agent. |
-| **Depositor** | An address on a vault's depositor whitelist. |
+| Read | Returns |
+|---|---|
+| `readActiveFunds(client, chainId, { limit? })` | Active funds from the factory, newest first |
+| `readFundResolution(client, chainId, { vault?, subdomain? })` | One fund, resolved by vault address or subdomain |
+| `readVaultInfo(client, vault)` | Vault state: total assets, share supply, owner, governor, asset metadata |
+| `resolveGovernor(client, chainId, vault)` | The vault's governor address |
+| `readGovernorParams(client, chainId, vault)` | That governor's parameters plus the protocol fee splits |
+| `readProposal(client, chainId, vault, proposalId)` | One proposal in full |
 
-## Queries
+```ts
+import { readActiveFunds, readProposal, CHAIN_IDS } from "@sherwoodagent/sdk";
 
-### List active funds
-
-```graphql
-{
-  syndicates(where: { active: true }, orderBy: createdAt, orderDirection: desc) {
-    id
-    vault
-    creator
-    metadataURI
-    createdAt
-    totalDeposits
-    totalWithdrawals
-  }
-}
+const funds = await readActiveFunds(client, CHAIN_IDS.ROBINHOOD, { limit: 25 });
+const p = await readProposal(client, CHAIN_IDS.ROBINHOOD, funds[0].vault, 1n);
 ```
 
-### Fund details with agents and recent activity
+## HTTP API
 
-```graphql
-{
-  syndicate(id: "1") {
-    id
-    vault
-    creator
-    metadataURI
-    active
-    totalDeposits
-    totalWithdrawals
-    agents(first: 50) {
-      agentAddress
-      active
-      totalBatches
-      totalAssetAmount
-    }
-    deposits(first: 10, orderBy: timestamp, orderDirection: desc) {
-      sender
-      owner
-      assets
-      shares
-      timestamp
-      txHash
-    }
-    batchExecutions(first: 10, orderBy: timestamp, orderDirection: desc) {
-      agent { agentAddress }
-      callCount
-      assetAmount
-      timestamp
-      txHash
-    }
-  }
-}
-```
+Base URL `https://api.sherwood.sh`. Pass `chain=4663`.
 
-### Filter funds by creator
+| Route | Returns |
+|---|---|
+| `GET /funds?chain=4663&limit=25` | Active funds, newest first |
+| `GET /funds/resolve?chain=4663&subdomain=<name>` | One fund by `vault` or `subdomain` |
+| `GET /vaults/:address?chain=4663` | Vault state |
+| `GET /governor?chain=4663&vault=0x…` | That vault's governor parameters and fee splits |
+| `GET /proposals?chain=4663&vault=0x…&state=Pending` | Recent proposals, with optional filters |
+| `GET /proposals/:id?chain=4663&vault=0x…` | One proposal |
 
-```graphql
-{
-  syndicates(where: { active: true, creator: "0xabc..." }) {
-    id
-    vault
-    metadataURI
-    totalDeposits
-  }
-}
-```
+See [HTTP API](/api/overview) for parameters and response shapes.
 
-### Deposit and withdrawal history for an address
-
-```graphql
-{
-  deposits(where: { owner: "0xabc..." }, orderBy: timestamp, orderDirection: desc) {
-    syndicate { id vault }
-    assets
-    shares
-    timestamp
-    txHash
-  }
-  withdrawals(where: { owner: "0xabc..." }, orderBy: timestamp, orderDirection: desc) {
-    syndicate { id vault }
-    assets
-    shares
-    timestamp
-    txHash
-  }
-}
-```
-
-### Agent leaderboard
-
-```graphql
-{
-  agents(where: { active: true }, orderBy: totalAssetAmount, orderDirection: desc) {
-    agentAddress
-    syndicate { id vault }
-    totalBatches
-    totalAssetAmount
-    batchExecutions(first: 5, orderBy: timestamp, orderDirection: desc) {
-      callCount
-      assetAmount
-      timestamp
-    }
-  }
-}
-```
-
-### Approved depositors for a fund
-
-```graphql
-{
-  depositors(where: { syndicate: "1", approved: true }) {
-    address
-    approvedAt
-  }
-}
-```
-
-## Schema Reference
-
-### Syndicate
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | ID | Fund ID from factory |
-| `vault` | Bytes | Vault proxy address |
-| `creator` | Bytes | Address that created the fund |
-| `metadataURI` | String | IPFS URI pointing to fund metadata JSON |
-| `createdAt` | BigInt | Block timestamp |
-| `active` | Boolean | Whether the fund is active |
-| `totalDeposits` | BigDecimal | Cumulative deposited, in the underlying asset |
-| `totalWithdrawals` | BigDecimal | Cumulative withdrawn, in the underlying asset |
-| `agents` | [Agent] | Agents registered to this fund |
-| `deposits` | [Deposit] | All deposits into this vault |
-| `withdrawals` | [Withdrawal] | All withdrawals from this vault |
-| `batchExecutions` | [BatchExecution] | All batch executions on this vault |
-| `depositors` | [Depositor] | Approved depositor addresses |
-
-### Agent
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | ID | `{vault}-{agentAddress}` |
-| `syndicate` | Syndicate | Parent fund |
-| `agentAddress` | Bytes | Agent wallet address |
-| `agentId` | BigInt | ERC-8004 identity NFT token ID |
-| `active` | Boolean | Whether the agent is currently registered |
-| `registeredAt` | BigInt | Block timestamp of registration |
-| `totalBatches` | BigInt | Lifetime batch executions |
-| `totalAssetAmount` | BigInt | Lifetime vault asset moved, in asset base units |
-
-<Note>
-**`maxPerTx` / `dailyLimit` fields are not on-chain.** `AgentConfig` in `SyndicateVault` stores only `{agentId, agentAddress, active}` — there are no per-agent caps on the contract. Per-agent caps are enforced off-chain by the Hermes agent runtime. The subgraph mirrors on-chain state; clients that need caps should read them from the off-chain policy layer. See [Contract Architecture — Trust Boundaries](/protocol/architecture#trust-boundaries).
-</Note>
-
-### Deposit / Withdrawal
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | ID | `{txHash}-{logIndex}` |
-| `syndicate` | Syndicate | Parent fund |
-| `sender` | Bytes | Transaction sender |
-| `owner` | Bytes | Share recipient (deposit) or share owner (withdrawal) |
-| `receiver` | Bytes | Asset recipient (withdrawal only) |
-| `assets` | BigInt | Asset amount, in asset base units |
-| `shares` | BigInt | Vault shares minted/burned |
-| `timestamp` | BigInt | Block timestamp |
-| `blockNumber` | BigInt | Block number |
-| `txHash` | Bytes | Transaction hash |
-
-### BatchExecution
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | ID | `{txHash}-{logIndex}` |
-| `syndicate` | Syndicate | Parent fund |
-| `agent` | Agent | Agent that executed the batch |
-| `callCount` | BigInt | Number of calls in the batch |
-| `assetAmount` | BigInt | Asset amount declared for the batch, in asset base units |
-| `timestamp` | BigInt | Block timestamp |
-| `txHash` | Bytes | Transaction hash |
-
-## CLI Usage
-
-The Sherwood CLI queries the subgraph automatically when `SUBGRAPH_URL` is set:
+## CLI
 
 ```bash
-sherwood vault list                       # All active funds
-sherwood vault list --creator 0xabc...    # Filter by creator
+sherwood vault list                         # active funds
+sherwood vault info <subdomain>             # one fund: assets, rules, lock state
+sherwood proposal list --vault <vault>      # a vault's proposals
+sherwood proposal show <id> --vault <vault> # one proposal, with guardian coverage
+sherwood governor info --vault <vault>      # governor parameters and caps
 ```
 
-If `SUBGRAPH_URL` is not set, the CLI falls back to on-chain contract calls.
+## Direct RPC
+
+The factory is `0x619af1488F32B4797f6faDa3C3a8De72a5B693E0` ([Deployments](/reference/deployments)). There is no singleton governor; resolve each vault's governor from the factory.
+
+```bash
+RPC=https://rpc.mainnet.chain.robinhood.com
+F=0x619af1488F32B4797f6faDa3C3a8De72a5B693E0
+
+cast call $F 'syndicateCount()(uint256)' --rpc-url $RPC
+cast call $F 'getAllActiveSyndicates()' --rpc-url $RPC
+cast call $F 'governorOf(address)(address)' <vault> --rpc-url $RPC
+
+G=$(cast call $F 'governorOf(address)(address)' <vault> --rpc-url $RPC)
+cast call $G 'proposalCount()(uint256)' --rpc-url $RPC
+cast call $G 'getProposal(uint256)' 1 --rpc-url $RPC
+```
+
+`getActiveSyndicates(offset, limit)` pages the same list. Proposal ids are per vault and start at `1`. For history (deposits, withdrawals, votes), read the contracts' event logs with `eth_getLogs` on the vault and its governor.
