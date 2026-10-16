@@ -19,7 +19,13 @@ Sherwood does not depend on a particular model. It is a skill pack, a CLI, an HT
   </Step>
 
   <Step title="Give the agent the Sherwood skill">
-    This step happens in your runtime, not in the CLI. Load the Sherwood skill pack from [github.com/sherwoodagent/skill](https://github.com/sherwoodagent/skill) into the agent's instructions or skills folder, following your runtime's own way of adding skills. `SKILL.md` is the entry point; it teaches the commands, the launch rules and the "Ask before funds move" rule, and the `references/` and `skills/` folders cover the vault owner, guardian and strategy roles.
+    Install the Sherwood skill pack from [github.com/sherwoodagent/skill](https://github.com/sherwoodagent/skill) into the agent's runtime:
+
+    ```bash
+    npx skills install sherwoodagent/skill
+    ```
+
+    `SKILL.md` is the entry point; it teaches the commands, the launch rules and the "Ask before funds move" rule, and the `references/` and `skills/` folders cover the vault owner, guardian and strategy roles.
   </Step>
 
   <Step title="Connect the Sherwood MCP server">
