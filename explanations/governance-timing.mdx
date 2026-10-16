@@ -23,7 +23,7 @@ All three end times are fixed at propose.
 The fastest path today is a 30-minute vote plus a 30-minute review: execute about one hour after propose.
 
 <Note>
-Read the minimums from the chain. `MIN_VOTING_PERIOD()` on the vault's governor and `reviewPeriod()` / `minReviewPeriod()` on the GuardianRegistry return 1800 seconds. The `v1-deploy` deploy parameters and the CLI 0.96.0 help text still show the older 1-hour voting minimum and 24-hour review.
+Read the minimums from the chain. `MIN_VOTING_PERIOD()` on the vault's governor and `reviewPeriod()` / `minReviewPeriod()` on the GuardianRegistry return 1800 seconds. The `v1-deploy` floors match (`MIN_VOTING_PERIOD` and `MIN_REVIEW_PERIOD` are 30 minutes in `RobinhoodParams.sol`; the cooldown floor stays 1 hour). CLI help text before 0.96.2 still showed a 1-hour voting minimum.
 </Note>
 
 ## Why depositors get a voting window

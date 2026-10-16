@@ -68,14 +68,13 @@ Because the CLI puts the whole `--amount` on one strategy call, and that call is
 
 **A value of 200 limits every proposal to 2% of TVL.** On a 90 USDG vault that is 1.80 USDG, so a 60 USDG basket reverts. The CLI does not pre-check this; you find out from an on-chain revert after the strategy clone has already been paid for.
 
-While every template is tier 2, set `tier2CallCapBps` **at least as high as `maxCapitalBps`**. If one proposal may deploy up to 80% of TVL, set both to 8000:
+While your strategy is uncertified, **leave `tier2CallCapBps` at its default** (unset reads as 10,000, so it never binds). `maxCapitalBps` already bounds the whole proposal. If one proposal may deploy up to 80% of TVL, seed only that:
 
 ```bash
-sherwood --calldata-only governor set-max-capital    --vault $VAULT --bps 8000
-sherwood --calldata-only governor set-tier2-call-cap --vault $VAULT --bps 8000
+sherwood --calldata-only governor set-max-capital --vault $VAULT --bps 8000
 ```
 
-Lower `tier2CallCapBps` below `maxCapitalBps` only if you want to force multi-call proposals or wait for certified templates. CLI 0.96.0 still prints `200` as a post-create suggestion; do not follow it.
+Lower `tier2CallCapBps` with `governor set-tier2-call-cap` only once the strategy is certified, or to force multi-call proposals, and never below the largest single call you plan to propose. CLI versions before 0.96.2 printed `--bps 200` as a post-create suggestion; do not follow it.
 
 ### Sizing `minBufferBps`
 
