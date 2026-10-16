@@ -1,101 +1,55 @@
 ---
 title: "Set up Grok to run your fund"
-description: "Run an AI trading agent on Grok with Sherwood: add the skill and MCP server, connect a sign-only wallet, set approval rules, and run a fund."
+description: "Run a Sherwood fund with a Grok-based agent: pick a runtime, install the Sherwood skill and CLI, connect a sign-only wallet, and follow the creator path."
 icon: "robot"
 ---
 
-**How do I set up Grok to trade for me?** Give a Grok-based agent the Sherwood skill and the Sherwood MCP server or CLI, and connect it to a sign-only agent wallet such as the MetaMask Agent Wallet or Privy. The agent researches, sizes and prepares each proposal as unsigned transactions, and you approve every transaction that moves funds before the wallet signs it. Your vault's caps, the depositor vote and guardian review all apply before any capital is deployed.
+<Note>
+**Outline.** This guide lists the steps of running a Sherwood fund with a Grok-based agent and links to the page that covers each one. Full step-by-step text is not written yet for steps marked *(outline)*. Sherwood does not depend on a particular model: the steps are the same for any agent, except where noted.
+</Note>
 
-Sherwood does not depend on a particular model. It is a skill pack, a CLI, an HTTP API and an MCP server that sit on top of the agent you already run. Grok is the model; the runtime is whatever hosts it and gives it tools. The steps below are the same for any agent, except the model attestation at the end.
+Sherwood is a skill pack plus a CLI on top of the agent you already run. Grok is the model; the runtime is whatever harness hosts it and runs shell commands for it.
 
 <Steps>
-  <Step title="Pick a runtime for your Grok agent">
-    This step happens outside the Sherwood CLI. Use any agent runtime that can call a Grok model and either connect to a remote MCP server or run shell commands. The agent needs one of these to read vault state and prepare transactions:
-
-    - **MCP only.** The agent connects to the hosted MCP server and never installs anything. This covers reads and every `prepare_*` transaction.
-    - **MCP plus CLI.** The agent can also run shell commands. Add the CLI for what the MCP server does not cover: cohort chat, data feed login, paid research and strategy template encoding (`strategy propose`).
-
-    On the [Hermes agent runtime](https://github.com/NousResearch/hermes-agent), a companion plugin adds event streaming, cron digests and risk guardrails (next step).
+  <Step title="Pick a runtime that can run Grok and shell commands">
+    *(outline)* The agent needs to run the `sherwood` CLI and read its JSON output. Any harness that can call a Grok model and execute shell commands works. On the [Hermes agent runtime](https://github.com/NousResearch/hermes-agent), the companion plugin adds event streaming and cron digests (next step).
   </Step>
 
-  <Step title="Give the agent the Sherwood skill">
-    Install the Sherwood skill pack from [github.com/sherwoodagent/skill](https://github.com/sherwoodagent/skill) into the agent's runtime:
+  <Step title="Install the Sherwood CLI and skill">
+    *(outline)* Install the pinned CLI globally (Node.js 22 or later):
 
     ```bash
-    npx skills install sherwoodagent/skill
-    ```
-
-    `SKILL.md` is the entry point; it teaches the commands, the launch rules and the "Ask before funds move" rule, and the `references/` and `skills/` folders cover the vault owner, guardian and strategy roles.
-  </Step>
-
-  <Step title="Connect the Sherwood MCP server">
-    Point the agent's MCP client at the hosted server. It has no auth and holds no keys:
-
-    ```text
-    https://mcp.sherwood.sh/mcp
-    ```
-
-    The server has 67 tools in three groups: util, read (`get_*`, `list_*`, `check_*`) and prepare (`prepare_*`). Have the agent call `get_started` first; with a `topic` such as `create_vault` or `propose` it returns the multi-tool flow. The `prepare_*` tools return unsigned `{ to, data, value, chainId }` transactions and never sign or send. Client configs for Claude Code, Cursor, VS Code, Codex and others are on the MCP page. The skill repo also ships a `.mcp.json` with the same URL.
-
-    - [MCP server](/api/mcp)
-    - [HTTP API](/api/overview)
-  </Step>
-
-  <Step title="Install the CLI (if the agent runs shell commands)">
-    Install the pinned CLI globally, with Node.js 22 or later. Install it with `npm i -g`, not through `npx`, because chat needs the pinned XMTP build:
-
-    ```bash
-    npm install -g @sherwoodagent/cli@0.96.0
+    npm install -g @sherwoodagent/cli@0.96.2
     sherwood --version
     ```
 
-    On Hermes, also install the plugin:
-
-    ```bash
-    hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0
-    ```
+    Load the Sherwood skill pack into the runtime so the agent knows the commands and the safety rules: `npx skills install sherwoodagent/skill`. On Hermes, also install the plugin: `hermes plugins install sherwoodagent/sherwood-hermes-plugin@v0.6.0`.
 
     - [CLI installation](/cli/installation)
     - [Cron jobs](/cli/cron-jobs)
   </Step>
 
   <Step title="Give the agent a sign-only wallet">
-    Keep keys out of the model's reach. Use the **MetaMask Agent Wallet** first, once `mm chains list` shows Robinhood Chain (4663); **Privy** is the second option and works either way. The agent prepares transactions (with `prepare_*` tools or the root `--calldata-only` flag), and the wallet signs and broadcasts them in order, waiting for each receipt before the next.
+    *(outline)* Keep keys out of the model's reach. Use the MetaMask Agent Wallet (first choice) or Privy (second), and run every write with `--calldata-only` so the CLI prints unsigned transactions for the wallet to send.
 
-    Before fund setup, set the wallet policy: allowlist the Sherwood core contracts, then your vault and governor after `vault create`, and size the rolling 24-hour outflow cap for the whole setup, approvals included. Anything outside the policy is held for a human to approve, by email for MetaMask. Never switch to an unguarded mode to avoid those emails.
-
-    - [External signer](/cli/external-signer): setup, the sign-then-broadcast loop, and the Privy recipe
-    - [Deployments](/reference/deployments): contract addresses for the allowlist
+    - [External signer](/cli/external-signer)
   </Step>
 
   <Step title="Set the agent's rules">
-    This step happens in your agent's system prompt or runtime config, not in the CLI. Tell the agent to:
-
-    - Ask you before any transaction that pays, approves, stakes, bonds or deposits: buying WOOD, the creation fee, the owner stake, every proposer bond, deposits and paid research. It shows the amount, the token and the wallet, and waits for an explicit yes. `--yes` only skips the CLI's own prompt.
-    - Quote the live proposer bond before every proposal, never a fixed WOOD figure.
-    - Never raise `minBufferBps` while a proposal is open.
-    - Stop and report if any transaction in a batch reverts, instead of sending the rest.
+    *(outline)* Tell the agent, in its system prompt or runtime config, to ask a human before any transaction that moves funds (buying WOOD, staking, bonding, proposing, executing), to quote the live proposer bond first, and to never raise `minBufferBps` while a proposal is open.
 
     - [Getting started](/guides/getting-started): the "Ask before funds move" rule
-    - [Proposer bond](/explanations/proposer-bond)
   </Step>
 
   <Step title="Mint an identity and create the fund">
-    Follow [Getting started](/guides/getting-started) from the sponsorship check through the first settled proposal. At launch, vault creation is sponsored only for the exact wallet the waitlist approved, so the agent's signing wallet must be that wallet, and it must own the ERC-8004 identity:
-
-    ```bash
-    sherwood --calldata-only identity mint --name "My Grok Agent"
-    ```
-
-    Read the token id from the mint receipt's `Transfer` event and pass it as `--agent-id` from then on. The MCP equivalent is `prepare_identity_mint`.
+    *(outline)* Follow [Getting started](/guides/getting-started) from the sponsorship check through the first settled proposal. The agent's wallet must be the sponsored wallet and must own the ERC-8004 identity.
 
     - [Launch posture](/explanations/launch-posture)
-    - [Owner stake](/explanations/owner-stake)
     - [ERC-8004](/reference/integrations/erc-8004)
   </Step>
 
   <Step title="Record the model version on chain">
-    Attest the model and prompt configuration, and attest again on every change, so depositors can tie the track record to a model version:
+    *(outline)* Attest the model and prompt configuration, and attest again on every change, so depositors can tie the track record to a model version:
 
     ```bash
     sherwood --calldata-only attest version \
@@ -105,22 +59,14 @@ Sherwood does not depend on a particular model. It is a skill pack, a CLI, an HT
       --label "grok-4 / prompt v7"
     ```
 
-    `--agent` (the signing wallet) is required with `--calldata-only`. The CLI attests the canonical keccak256 of the JSON file, not its contents, so the config itself stays private. The attestation is public and permanent.
+    The CLI attests the canonical keccak256 of the JSON file, not its contents.
 
     - [EAS attestations](/reference/integrations/eas)
   </Step>
 
   <Step title="Run the fund">
-    Hand the agent the proposal loop: private management plan, sizing against the caps, timing around the feeds, propose, vote and guardian review, execute, settle and reclaim the bond. You approve each transaction that moves funds.
+    *(outline)* Hand the agent the proposal loop: management plan, sizing, timing, propose, review, execute, settle, reclaim.
 
     - [Run a fund](/guides/run-a-fund)
   </Step>
 </Steps>
-
-## Related
-
-- [Getting started](/guides/getting-started)
-- [Run a fund](/guides/run-a-fund)
-- [MCP server](/api/mcp)
-- [External signer](/cli/external-signer)
-- [Concepts](/learn/concepts)

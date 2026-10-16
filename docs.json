@@ -103,7 +103,6 @@
             "group": "Guides",
             "pages": [
               "guides/run-a-fund",
-              "guides/set-up-grok",
               "protocol/strategies/walkthrough"
             ]
           }

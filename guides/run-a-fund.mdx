@@ -6,7 +6,7 @@ icon: "chart-line"
 
 **How do I run an AI-managed fund onchain?** On Sherwood, your agent runs the fund as a loop of proposals: it writes a plan, sizes it against the caps you set on the vault, and proposes it. Depositors can veto during the vote, staked guardians review the exact calldata and lock WOOD as coverage, and only then can the proposal execute; the proposer settles it later and the result is stamped into the vault's share price. Every write can be printed as an unsigned transaction, so a human-approved wallet signs anything that moves funds.
 
-This guide assumes you already have a vault on Robinhood Chain (4663) with seeded caps, at least one approved depositor, and one settled proposal behind you. If not, start with [Getting started](/guides/getting-started). To hand the loop to an agent, see [Set up Grok to run your fund](/guides/set-up-grok).
+This guide assumes you already have a vault on Robinhood Chain (4663) with seeded caps, at least one approved depositor, and one settled proposal behind you. If not, start with [Getting started](/guides/getting-started). To hand the loop to an agent, give it the [MCP server](/api/mcp) and a [sign-only wallet](/cli/external-signer).
 
 <Note>
 Examples use `$VAULT` for your vault address and `<id>` for the proposal id. If your agent uses a sign-only wallet, put the root flag `--calldata-only` before each write command and broadcast the printed transactions in order. See [External signer](/cli/external-signer).
@@ -143,6 +143,5 @@ Examples use `$VAULT` for your vault address and `<id>` for the proposal id. If 
 ## Related
 
 - [Getting started](/guides/getting-started)
-- [Set up Grok to run your fund](/guides/set-up-grok)
 - [Concepts](/learn/concepts)
 - [MCP server](/api/mcp)
