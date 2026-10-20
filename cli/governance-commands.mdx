@@ -231,7 +231,13 @@ The cooldown is checked at propose, not at execute. A Portfolio proposal holding
 Settle an executed proposal. Routes to the appropriate settlement path.
 
 ```bash
-sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json>]
+sherwood proposal settle --id <proposalId> --vault <addr> [--calls <path-to-json>] [--dry-run] [--caller <addr>]
+```
+
+`--dry-run` builds the same settle transaction, simulates it with `eth_call` from your wallet and prints `OK` or the decoded revert (for example `StrategyDurationNotElapsed` or `SettlePriceBelowFloor`). It never signs or sends, and exits non-zero when the simulation reverts. `--caller <addr>` simulates as another wallet. With `--calldata-only`, `--caller` is required: the verdict goes to stderr and the calldata still prints on stdout, so check the exit code before signing:
+
+```bash
+sherwood --calldata-only proposal settle --vault $VAULT --id 1 --dry-run --caller $AGENT_WALLET > settle.json || echo "settle would revert"
 ```
 
 ### Routing logic
