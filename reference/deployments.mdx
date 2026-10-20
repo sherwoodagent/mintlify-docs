@@ -126,7 +126,7 @@ live owner.
 
 ERC-1167 clonable singletons. Each proposal clones a template through the
 `StrategyFactory` and initializes it with its own parameters. `sherwood strategy
-list` prints the same three.
+list` prints these three plus the Launchpad template below.
 
 | Template | Address (4663) |
 |----------|----------------|
@@ -135,9 +135,23 @@ list` prints the same three.
 | ConcentratedLiquidityStrategy | `0xcba9C84F2d382729D1519c5F7f4a9AAaC075f8B5` |
 | UniswapSwapAdapter | `0x54E6A7af53143556973493fDeC9d7837A77c67eF` |
 
-The Launchpad and Lighter Perp templates and the Sushi and Stonk launch adapters
-(from [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies)) are
-not deployed on Robinhood Chain; `strategy list` shows them under "Not available".
+### Community templates (sherwood-strategies)
+
+From [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies),
+recorded in its `deployments/4663.json` book. Unaudited. The Launchpad template and
+the Sushi launch adapter were deployed on 2026-10-20 (blocks 93,737,582 to 93,737,603)
+and are verified on Sourcify (exact match). Class certification is pending, so a
+Launchpad proposal prices as an uncertified tier-2 call at full notional.
+
+| Contract | Address (4663) |
+|----------|----------------|
+| LaunchpadStrategy (approved on the `StrategyFactory`) | `0xbc4fDF5949caa74c730bed632E368cEa4ea5832D` |
+| SushiLaunchAdapter (implementation, one clone per launch; `TierRegistry` counterparty) | `0x52901614748ACFDC083D305Aa5301E484d4B15F8` |
+| Sushi Launchpad V2 proxy (venue; `TierRegistry` counterparty) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` |
+
+The Stonk launch adapter is not deployed on Robinhood Chain, so only `--venue sushi`
+works there. The Lighter Perp template is not deployed on Robinhood Chain; `strategy
+list` shows it under "Not available".
 
 ### Tokens
 
@@ -256,7 +270,8 @@ default network:
 TOKENS()             → USDG / WETH / WOOD, stock tokens
 UNISWAP()            → SwapRouter, QuoterV2, V3 factory, V4 pool manager, SwapAdapter
 SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, GuardianRegistry, StakedWood, TierRegistry, StrategyFactory
-STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity (Launchpad, LighterPerp zero)
+STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity, Launchpad (LighterPerp zero)
+LAUNCH_ADAPTERS()    → Sushi (Stonk zero)
 STRATEGY_VENUES()    → Morpho Blue, Uniswap V3
 CHAINLINK()          → per-token <SYM>_USD_FEED push feeds
 EAS_CONTRACTS()      → EAS, SchemaRegistry

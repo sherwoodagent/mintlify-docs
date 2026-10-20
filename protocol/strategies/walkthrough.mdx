@@ -49,7 +49,7 @@ Templates the CLI can propose. Availability is per chain; `strategy list` shows 
 | `portfolio` | Weighted basket of tokenized stocks, rebalanced toward target weights ([details](/protocol/strategies/uniswap)) | Deployed; uncertified (tier 2), so it prices at full notional |
 | `morpho-supply` | Supply the vault asset to one allowlisted Morpho Blue market ([details](/protocol/strategies/morpho-supply)) | Deployed |
 | `concentrated-liquidity` | Uniswap V3 range funded by a Morpho borrow ([details](/protocol/strategies/concentrated-liquidity)) | Deployed |
-| `launchpad` | Launch a fund token on Sushi or StonkBrokers; holders claim a reserve ([details](/protocol/strategies/launchpad)) | Not deployed; unaudited community template |
+| `launchpad` | Launch a fund token on Sushi or StonkBrokers; holders claim a reserve ([details](/protocol/strategies/launchpad)) | Deployed, Sushi venue only; unaudited community template, uncertified (tier 2) |
 | `lighter-perp` | Agent-traded perps on Lighter ([details](/protocol/strategies/lighter-perp)) | Not deployed; unaudited community template |
 
 Each vault picks its own deposit asset at creation. The Portfolio strategy requires a USD-pegged asset, so a stock-basket vault holds **USDG**. The tokenized-stock universe is every stock token with a Chainlink push feed in the address book (`CHAINLINK_<SYM>_USD_FEED`); see [Deployments](/reference/deployments).

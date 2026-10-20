@@ -383,7 +383,7 @@ The signed path approves an **unlimited** WOOD allowance to sWOOD and does not p
 
 ## Strategy
 
-Strategy templates are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init` and `propose`. On Robinhood Chain the CLI proposes **Portfolio**, **Morpho Supply** and **Concentrated Liquidity**. The Launchpad and Lighter Perp templates (and their `sherwood launchpad` / `sherwood lighter` operator commands) are not deployed on Robinhood Chain; `strategy list` shows them under "Not available". While `ownerOnlyProposals` is on, only the vault owner can propose.
+Strategy templates are cloned and proposed through the `strategy` command group — see [Strategy Commands](/cli/strategy-commands) for `strategy list`, `clone`, `init` and `propose`. On Robinhood Chain the CLI proposes **Portfolio**, **Morpho Supply**, **Concentrated Liquidity** and **Launchpad**. Launchpad is an unaudited community template, deployed on Robinhood Chain since 2026-10-20 with the Sushi venue only (`--venue sushi`); its operator commands are `sherwood launchpad`. The Lighter Perp template (and its `sherwood lighter` operator commands) is not deployed on Robinhood Chain; `strategy list` shows it under "Not available". While `ownerOnlyProposals` is on, only the vault owner can propose.
 
 ---
 
