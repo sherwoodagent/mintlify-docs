@@ -1,15 +1,15 @@
 ---
 title: "Launchpad (fund token launch)"
 sidebarTitle: "Launchpad"
-description: "How the community Launchpad strategy spends vault capital to launch a fund token and lets share holders claim a reserve. Not yet deployed on Robinhood Chain."
+description: "How the community Launchpad strategy spends vault capital to launch a fund token on Sushi and lets holders claim a reserve. Live on Robinhood Chain."
 icon: "rocket"
 ---
 
 <Warning>
-  **Community template, not deployed on Robinhood Chain (4663).** `LaunchpadStrategy` lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), outside the audited core protocol, and has not been audited. It is not approved on the 4663 `StrategyFactory`, so `sherwood strategy propose launchpad` cannot run there today. This page documents the mechanics for when it is approved; a proposal that uses it prices as an uncertified tier-2 call at full notional.
+  **Community template, unaudited.** `LaunchpadStrategy` lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), outside the audited core protocol, and has not been audited. It has been deployed on Robinhood Chain (4663) since 2026-10-20 and is approved on the 4663 `StrategyFactory`. Only the Sushi venue is live there; StonkBrokers runs on the fork only. Class certification at tier 0 is proposed and pending. Until it is certified, a proposal that uses it prices as an uncertified tier-2 call at full notional.
 </Warning>
 
-The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vault capital to launch the token on a launchpad, holds back a **reserve** of the new token, and lets the fund's share holders **claim a pro-rata slice** of that reserve during a claim window. The venue plugs in through a launch adapter. Two are written: **Sushi Launchpad V2** and **StonkBrokers** Smart Launch V2.
+The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vault capital to launch the token on a launchpad, holds back a **reserve** of the new token, and lets the fund's share holders **claim a pro-rata slice** of that reserve during a claim window. The venue plugs in through a launch adapter. Two are written: **Sushi Launchpad V2** and **StonkBrokers** Smart Launch V2. Only the Sushi adapter is deployed on Robinhood Chain.
 
 <Warning>
   **A launch settles as a loss, by design.** v1 measures a proposal's P&L as the vault's change in asset balance. Nothing credits the reserve or the launch token, so a launch settles as a loss of about `assetIn`, the capital it spent. The reserve is a **dividend in kind** to holders, not an asset the vault books. Size `--max-drawdown-bps` for that loss. The CLI does it for you: see [Drawdown](#drawdown).
@@ -51,10 +51,10 @@ Launch tokens, raw quote and fees delivered to the vault sit outside `totalAsset
 
 | | Sushi Launchpad V2 | StonkBrokers Smart Launch V2 |
 | --- | --- | --- |
-| CLI `--venue` | `sushi` (default) | `stonk` |
+| CLI `--venue` | `sushi` (default) | `stonk` (fork only, not deployed on 4663) |
 | Launch | Live from the launch block. The dev buy is the reserve source. | A bonding curve first. Graduation and a locked LP come later through `sherwood launchpad finalize`. |
-| Reserve | Bought in the dev buy, so `--min-tokens-out` must be at least `--reserve` | Kept from the minted supply before the curve is armed |
-| Quote tokens | Any quote with a registered Sushi price feed. USDG and WETH today. | One fixed quote per pad: WETH, STONK, USDG, GME, NVDA, AAPL, SPCX, USO |
+| Reserve | Bought in the dev buy, so `--min-tokens-out` must equal `--reserve` (the CLI defaults it) | Kept from the minted supply before the curve is armed |
+| Quote tokens | Any quote with a registered Sushi price feed. USDG and WETH at writing. On 4663 the quote must equal the vault asset. | One fixed quote per pad: WETH, STONK, USDG, GME, NVDA, AAPL, SPCX, USO |
 | Launch fee | Native fee, read live | None |
 | Creator fees | 70% of LP fees (80% on a canonical-SUSHI quote), in both assets | 16.5% of the per-trade tax, paid at trade time |
 | Venue hazards | Quote feed older than 3 days refuses the launch (`StalePriceFeedRound`) | Stock lanes revert `StalePrice` on oracle gaps, such as weekends |
@@ -91,14 +91,24 @@ The venue's launch fee is read live, and on some lanes it is bought with a swap.
 
 The CLI checks every `_initialize` condition on-chain before sending anything: the counterparty allowlist for both adapters, quote support, Sushi feed age, the live launch fee, the 20% reserve cap and the claim window. It reports every failure in one message.
 
+### Mainnet rules on 4663
+
+CLI 0.98.0 and later enforce these on Robinhood Chain:
+
+- Only `--venue sushi` works. `--venue stonk` is refused, because no StonkBrokers adapter is deployed there.
+- The quote must equal the vault asset. A USDG vault launches against USDG, and the CLI refuses any other `--quote`. The launch then has no asset→quote swap to sandwich.
+- `--min-tokens-out` defaults to `--reserve` on Sushi. A lower value is refused, and so is a higher one. Tokens bought above the reserve are never claimable and reach the vault in kind at settle.
+- Sushi V2 has no dev-buy quoter, so the CLI cannot quote the dev buy. Size `--reserve` from a measured launch: about 164.56M tokens per 1,000 USDG at writing.
+
+A USDG vault launching with 1,000 USDG:
+
 ```bash
 sherwood strategy propose launchpad \
   --vault 0x... \
   --venue sushi \
   --quote USDG \
   --asset-in 1000 \
-  --reserve 10% \
-  --min-tokens-out 120000000 \
+  --reserve 160000000 \
   --claim-window 7d \
   --token-name "Robin Fund" \
   --token-symbol ROBIN \
@@ -106,7 +116,9 @@ sherwood strategy propose launchpad \
   --duration 8d
 ```
 
-Size `--min-tokens-out` from a live quote of the dev buy. A floor of a few tokens makes the reserve floor meaningless. On StonkBrokers, pick the pad by its quote and quote the dev buy through the StonkBrokers lens:
+`--min-tokens-out` is left out, so it equals the 160M reserve. The gap to the measured 164.56M is the slippage room.
+
+On StonkBrokers (fork only, not deployed on 4663), `--min-tokens-out` floors only the curve dev buy, so it stays required and nonzero. Pick the pad by its quote and quote the dev buy through the StonkBrokers lens:
 
 ```bash
 sherwood strategy propose launchpad \
@@ -123,7 +135,7 @@ sherwood strategy propose launchpad \
   --duration 8d
 ```
 
-Required: `--asset-in`, `--quote`, `--reserve`, `--min-tokens-out`, `--claim-window`, `--token-name`, `--token-symbol`. The full flag list, with the Sushi and StonkBrokers options, is in [Strategy commands](/cli/strategy-commands#launchpad).
+Required: `--asset-in`, `--quote`, `--reserve`, `--claim-window`, `--token-name`, `--token-symbol`, and `--min-tokens-out` on StonkBrokers. The full flag list, with the Sushi and StonkBrokers options, is in [Strategy commands](/cli/strategy-commands#launchpad).
 
 Batch calls:
 
@@ -154,4 +166,12 @@ sherwood launchpad finalize <strategy>             # graduate + bond a StonkBrok
 
 ## Addresses
 
-Not deployed on Robinhood Chain (4663). When the template and its launch adapters are approved there, their addresses will be published on [Deployments](/reference/deployments) from the sherwood-strategies `deployments/4663.json` book.
+Deployed on Robinhood Chain (4663) on 2026-10-20, blocks 93,737,582 to 93,737,603. The addresses are recorded in the sherwood-strategies `deployments/4663.json` book and verified on Sourcify (exact match).
+
+| Contract | Address (4663) | Role |
+| --- | --- | --- |
+| `LaunchpadStrategy` template | `0xbc4fDF5949caa74c730bed632E368cEa4ea5832D` | Approved on the `StrategyFactory` |
+| `SushiLaunchAdapter` | `0x52901614748ACFDC083D305Aa5301E484d4B15F8` | Implementation, one clone per launch. `TierRegistry` counterparty. |
+| Sushi Launchpad V2 (proxy) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` | The venue. `TierRegistry` counterparty. |
+
+No StonkBrokers adapter is deployed on 4663. See [Deployments](/reference/deployments).
