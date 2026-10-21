@@ -368,7 +368,7 @@ A launch quoted in a token other than the vault asset (for example TSLA on a USD
 - **Pool vs feed (Sushi).** The quote at size may sit at most 300 bps under the output the venue's own asset and quote feeds imply.
 - **Size cap.** `--asset-in` is at most 3,500 bps of `totalAssets`, the class bound.
 - **Fresh feed.** The venue's quote feed must have updated within 3 days, or the venue reverts `StalePriceFeedRound`. Stock feeds do not update on weekends or market holidays.
-- **Disarmed.** The launch is proposed with `deadline = 1`, so execute reverts `DeadlineExpired` until the proposer arms it with [`sherwood launchpad arm`](#launchpad-commands) right before execute. `--deadline` is refused.
+- **Disarmed.** The launch is proposed with `deadline = 1`, so execute reverts `DeadlineExpired` until the proposer arms it with `sherwood launchpad arm` (below) right before execute. `--deadline` is refused.
 
 ```bash
 sherwood strategy propose launchpad \
