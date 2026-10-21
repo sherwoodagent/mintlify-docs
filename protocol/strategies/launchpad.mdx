@@ -17,7 +17,7 @@ The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vaul
 
 ## What happens
 
-1. **Execute.** The strategy pulls `assetIn` of the vault asset. It swaps it into the launch quote through the allowlisted swap adapter, pays the venue's launch fee, and launches the token with a dev buy. The reserve lands on the strategy clone in the same transaction. The vault's share supply is snapshotted at this moment.
+1. **Execute.** The strategy pulls `assetIn` of the vault asset. If the launch is quoted in another token, it swaps the asset into that quote through the allowlisted swap adapter. It pays the venue's launch fee, and launches the token with a dev buy. The reserve lands on the strategy clone in the same transaction. The vault's share supply is snapshotted at this moment.
 2. **Claim window.** Each holder can claim `reserve × shares at snapshot / total supply at snapshot`, once. Shares are not burned. `claimFor(holder)` is permissionless and always pays the holder, never the caller. Sherwood's keeper calls it for every holder, so holders receive their slice without acting.
 3. **Settle.** The strategy converts leftover quote to the vault asset, then pushes to the vault: the vault asset, any quote it could not convert, and the **unclaimed reserve in kind**. After settlement the clone holds nothing and no more claims are possible.
 
@@ -45,6 +45,8 @@ The launch's creator fees are paid to **the fund's vault**, named at launch. A p
   **Fees in the vault asset can be sniped.** When the launch is quoted in the vault asset (a USDG vault launching against USDG), quote-side fees raise `totalAssets` the moment they land. With no proposal open, deposits and redemptions are instant, so someone can deposit, call `collect-fees`, and redeem with a cut of fees the long-term holders earned. Collection is permissionless by design, so the template cannot close this on v1. Collect often, for example from a keeper, so no large lump is ever pending. Closed-deposit vaults are not exposed.
 </Warning>
 
+On a launch quoted in another token (TSLA on a USDG vault, say), creator fees arrive in that quote token and the launch token. Nothing converts them to the vault asset.
+
 Launch tokens, raw quote and fees delivered to the vault sit outside `totalAssets()`. A later proposal decides what to do with them. The vault owner's `rescueERC20` can move non-asset tokens while no proposal is open.
 
 ## Venues
@@ -54,7 +56,7 @@ Launch tokens, raw quote and fees delivered to the vault sit outside `totalAsset
 | CLI `--venue` | `sushi` (default) | `stonk` (fork only, not deployed on 4663) |
 | Launch | Live from the launch block. The dev buy is the reserve source. | A bonding curve first. Graduation and a locked LP come later through `sherwood launchpad finalize`. |
 | Reserve | Bought in the dev buy, so `--min-tokens-out` must equal `--reserve` (the CLI defaults it) | Kept from the minted supply before the curve is armed |
-| Quote tokens | Any quote with a registered Sushi price feed. USDG and WETH at writing. On 4663 the quote must equal the vault asset. | One fixed quote per pad: WETH, STONK, USDG, GME, NVDA, AAPL, SPCX, USO |
+| Quote tokens | Any quote with a registered Sushi price feed: USDG, WETH, TSLA, NVDA and SPCX at writing. The CLI defaults to the vault asset. | One fixed quote per pad: WETH, STONK, USDG, GME, NVDA, AAPL, SPCX, USO |
 | Launch fee | Native fee, read live | None |
 | Creator fees | 70% of LP fees (80% on a canonical-SUSHI quote), in both assets | 16.5% of the per-trade tax, paid at trade time |
 | Venue hazards | Quote feed older than 3 days refuses the launch (`StalePriceFeedRound`) | Stock lanes revert `StalePrice` on oracle gaps, such as weekends |
@@ -66,7 +68,7 @@ Each launch gets its own adapter clone (ERC-1167) that is the venue's creator an
 **Trust in the Sushi owner.** Sushi's owner can re-point a launch's fee receiver, reprice the launch fee, change the fee split and upgrade the launchpad proxy. A fund launching on Sushi trusts that owner with its **fee stream**. It does not trust it with the reserve, which reaches the strategy inside the launch transaction, or with vault capital, which the venue never holds.
 
 <Note>
-  **WOOD is not a supported quote yet.** Sushi needs a WOOD/USD feed registered by its owner, and no StonkBrokers pad has a WOOD lane. Pair against USDG or WETH. **Pons** is out of scope: its factory only launches for whitelisted addresses.
+  **WOOD is not a supported quote yet.** Sushi needs a WOOD/USD feed registered by its owner, and no StonkBrokers pad has a WOOD lane. Pair against the vault asset or another supported quote. **Pons** is out of scope: its factory only launches for whitelisted addresses.
 </Note>
 
 ## Drawdown
@@ -93,10 +95,10 @@ The CLI checks every `_initialize` condition on-chain before sending anything: t
 
 ### Mainnet rules on 4663
 
-CLI 0.98.0 and later enforce these on Robinhood Chain:
+CLI 0.99.0 and later enforce these on Robinhood Chain:
 
 - Only `--venue sushi` works. `--venue stonk` is refused, because no StonkBrokers adapter is deployed there.
-- The quote must equal the vault asset. A USDG vault launches against USDG, and the CLI refuses any other `--quote`. The launch then has no asset→quote swap to sandwich.
+- The quote defaults to the vault asset. A USDG vault launching against USDG has no asset→quote swap to sandwich. Any other quote the venue supports is allowed under the [non-asset quote rules](#quoting-in-another-token).
 - `--min-tokens-out` defaults to `--reserve` on Sushi. A lower value is refused, and so is a higher one. Tokens bought above the reserve are never claimable and reach the vault in kind at settle.
 - Sushi V2 has no dev-buy quoter, so the CLI cannot quote the dev buy. Size `--reserve` from a measured launch: about 164.56M tokens per 1,000 USDG at writing.
 
@@ -117,6 +119,25 @@ sherwood strategy propose launchpad \
 ```
 
 `--min-tokens-out` is left out, so it equals the 160M reserve. The gap to the measured 164.56M is the slippage room.
+
+### Quoting in another token
+
+A launch quoted in a token other than the vault asset swaps the asset into it at execute. The swap's floor, `minQuoteOut`, is a voted number, and anyone can call execute, so the gap between a fair fill and that floor is what a sandwich can take. The CLI guards the swap on every chain:
+
+- `minQuoteOut` is the swap adapter's quote for the swap amount, less `--max-slippage-bps`. The default is 50 bps and the most is 100. A lower `--min-quote-out` is refused.
+- The pool's price impact at `--asset-in` may not exceed `--max-slippage-bps`. A thinner pool is refused.
+- On Sushi, the quote at size may sit at most 300 bps under what the venue's own feeds imply.
+- `--asset-in` is at most 3,500 bps of `totalAssets`. That caps the loss if the floor ever fails as a floor.
+- The venue's quote feed must have updated within 3 days. Stock feeds do not update on weekends or market holidays.
+- The launch is proposed **disarmed**, with `deadline = 1`. The adapter reverts `DeadlineExpired` once the deadline has passed, so nobody can execute at the voted floor. `--deadline` is refused.
+
+Right before execute, the proposer runs `sherwood launchpad arm <strategy>`. It re-checks the pool and the feed at current prices and calls `updateParams`: `minQuoteOut` rises to the fresh floor and the deadline moves to at most 1 hour out (10 minutes by default). `updateParams` is proposer-only and works only before execute; it can raise the floors and move the deadline, never lower a floor. Execute right after arming: the window is public. A launch never armed expires at `executeBy` with the vault untouched.
+
+At settle, the reserve still goes to holders and the vault in kind. Leftover quote is dust; the strategy swaps it back to the asset when it can and pushes it in kind when it cannot.
+
+<Note>
+  These rules live in the CLI, not the contracts. `quoteToken` is unbound on-chain, so a proposer who encodes calldata by hand skips them, and guardian review is the backstop. Moving the floor and the size cap on-chain is a planned follow-up.
+</Note>
 
 On StonkBrokers (fork only, not deployed on 4663), `--min-tokens-out` floors only the curve dev buy, so it stays required and nonzero. Pick the pad by its quote and quote the dev buy through the StonkBrokers lens:
 

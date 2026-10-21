@@ -297,17 +297,18 @@ sherwood strategy propose launchpad \
 |------|------------|---------|
 | `--venue <venue>` | Launch venue, `sushi` or `stonk` | `sushi` |
 | `--asset-in <n>` | Vault-asset budget for the launch | required |
-| `--quote <token>` | Quote token the fund token pairs against, symbol or address. On 4663 it must equal the vault asset. WOOD is not supported yet. | required |
+| `--quote <token>` | Quote token the fund token pairs against, symbol or address. The vault asset runs no swap leg. Any other quote the venue supports (`quoteSupported`) runs an asset→quote swap with the [non-asset quote rules](#quoting-in-another-token). WOOD is not supported yet. | required |
 | `--reserve <n>` | Launch tokens held back for holders' claims, whole tokens or a percent of supply like `10%` | required, at most 20% |
 | `--min-tokens-out <n>` | Slippage floor on the dev buy, whole launch tokens | Sushi: `--reserve`, and any other value is refused. StonkBrokers: required, nonzero |
 | `--claim-window <duration>` | How long holders may claim, e.g. `7d` | required, at most 14d, clamped to the proposal duration − 5m |
 | `--token-name <name>` / `--token-symbol <symbol>` | Launch token name and symbol | required |
 | `--max-drawdown-bps <bps>` | Declared loss allowance | derived, see above |
-| `--min-quote-out <n>` | Floor on the asset→quote swap, in quote units | adapter quote less `--settle-slippage-bps` |
-| `--deadline <ts\|duration>` | Venue deadline, unix seconds or a duration from now, 0 for none | governor collaboration + voting + execution windows + 1d |
+| `--min-quote-out <n>` | Non-asset quote: floor on the asset→quote swap, in quote units. A value below the default is refused. | swap adapter's quote less `--max-slippage-bps` |
+| `--max-slippage-bps <bps>` | Non-asset quote: sets the `minQuoteOut` floor under the swap adapter's quote, and the most price impact the pool may show at `--asset-in`. 1-100; above 100 is refused, not clamped. | 50 |
+| `--deadline <ts\|duration>` | Asset quote only: venue deadline, unix seconds or a duration from now, 0 for none. Refused for a non-asset quote, which is proposed disarmed. | governor collaboration + voting + review + execution windows + 1d |
 | `--settle-slippage-bps <bps>` | Settle-time quote conversion slippage, 1-1000 | 500 |
 | `--max-fee-in <n>` | Most the native launch fee may cost, in the token that pays it | live cost + 25%; lower than the live cost is refused |
-| `--quote-swap-route <spec>` | Asset→quote route: 0x extraData or `v3:<fee>` / `v4:<fee>:<ts>` / `v4path:…` | best v3 tier quoted by the swap adapter |
+| `--quote-swap-route <spec>` | Asset→quote route: 0x extraData or `v3:<fee>` / `v4:<fee>:<ts>` / `v4path:…` | whichever of the v3 tiers and a stock's measured route the swap adapter quotes best |
 | `--fee-swap-route <spec>` | Quote→fee-token route when the fee token is neither asset nor quote | best v3 tier |
 | `--launch-adapter <address>` | Launch adapter override | `LAUNCH_ADAPTERS()[venue]` |
 
@@ -337,10 +338,10 @@ StonkBrokers only:
 
 #### Mainnet rules on 4663
 
-CLI 0.98.0 and later enforce these rules on Robinhood Chain (4663) before anything is sent:
+CLI 0.99.0 and later enforce these rules on Robinhood Chain (4663) before anything is sent:
 
 - **Sushi only.** No StonkBrokers launch adapter is deployed on 4663, so `--venue stonk` is refused there. StonkBrokers runs on the fork only.
-- **The quote is the vault asset.** A USDG vault launches against USDG. The CLI refuses any other `--quote` on 4663 (rule G-4). The launch then runs no asset→quote swap, so there is no swap leg to sandwich at execute.
+- **The quote defaults to the vault asset.** A USDG vault launching against USDG runs no asset→quote swap, so there is no swap leg to sandwich at execute. Any other quote the venue supports is allowed under the rules below.
 - **`--min-tokens-out` equals `--reserve`.** On Sushi, omit `--min-tokens-out` and it defaults to `--reserve`. A lower value is refused (F-7, execute would revert `ReserveFloorBelowReserve`). A higher value is refused too (F-5): tokens the dev buy delivers above the reserve are never claimable and reach the vault in kind at settle, where nothing can dispose of them. This applies to Sushi on every chain.
 - **Size `--reserve` from a measured launch.** Sushi Launchpad V2 has no dev-buy quoter, so the CLI cannot quote the dev buy. Set `--reserve` close to what the dev buy returns. At writing, the measured reference is about 164.56M tokens per 1,000 USDG. Sushi mints a fixed 1B supply, and the reserve is capped at 20% of it.
 
@@ -357,6 +358,33 @@ sherwood strategy propose launchpad \
 ```
 
 `--min-tokens-out` is left out, so it equals the 160M reserve. The gap to the 164.56M reference is the slippage room. The dev buy reverts if it would return less than the reserve.
+
+#### Quoting in another token
+
+A launch quoted in a token other than the vault asset (for example TSLA on a USDG vault) swaps the asset into the quote at execute. Execution is permissionless, so the swap's floor is what a sandwich can take. The CLI adds these rules on every chain. Each one refuses the proposal.
+
+- **Floor.** `minQuoteOut` is the swap adapter's quote for the swap amount, less `--max-slippage-bps` (default 50, at most 100). A lower `--min-quote-out` is refused.
+- **Thin pool.** The price impact at `--asset-in` may not exceed `--max-slippage-bps`. The refusal estimates what the pool can take.
+- **Pool vs feed (Sushi).** The quote at size may sit at most 300 bps under the output the venue's own asset and quote feeds imply.
+- **Size cap.** `--asset-in` is at most 3,500 bps of `totalAssets`, the class bound.
+- **Fresh feed.** The venue's quote feed must have updated within 3 days, or the venue reverts `StalePriceFeedRound`. Stock feeds do not update on weekends or market holidays.
+- **Disarmed.** The launch is proposed with `deadline = 1`, so execute reverts `DeadlineExpired` until the proposer arms it with `sherwood launchpad arm` (below) right before execute. `--deadline` is refused.
+
+```bash
+sherwood strategy propose launchpad \
+  --vault 0x... \
+  --venue sushi --quote TSLA \
+  --asset-in 1000 --reserve 155000000 \
+  --claim-window 7d \
+  --token-name "Robin Fund" --token-symbol ROBIN \
+  --name "Launch ROBIN" --duration 8d
+
+# later, right before execute
+sherwood launchpad arm 0xStrategy
+sherwood proposal execute --vault 0x... --id <id>
+```
+
+Creator fees on such a launch arrive at the vault in the quote token and the launch token. Nothing converts them to the asset, and v1 `totalAssets` books no value for them.
 
 See [Launchpad](/protocol/strategies/launchpad).
 
@@ -389,13 +417,16 @@ Operator commands for a Launchpad clone. Every write runs its own preflight and 
 
 | Command | What it does |
 |---------|--------------|
-| `sherwood launchpad status <strategy> [--holder <address>] [--json]` | Launch, reserve, claim window, venue. `--holder` shows that holder's claim. |
+| `sherwood launchpad status <strategy> [--holder <address>] [--json]` | Launch, reserve, claim window, venue. `--holder` shows that holder's claim. A pending launch that is not armed shows `Deadline: DISARMED`. |
+| `sherwood launchpad arm <strategy> [--swap-deadline <duration>] [--max-slippage-bps <bps>] [--quote-swap-route <spec>] [--proposer <address>]` | Proposer only, right before execute, for a launch quoted in a non-asset token. Re-quotes the swap and re-runs the feed, thin-pool and feed-skew checks, then calls `updateParams` with `minQuoteOut` raised to the fresh floor (never lowered) and a venue deadline `--swap-deadline` from now (default 10m, at most 1h). `--max-slippage-bps` defaults to 50 (1-100). Pass `--quote-swap-route` if the proposal used a route other than the default. `--proposer` names the signer for the preflight with `--calldata-only`. |
 | `sherwood launchpad claim <strategy>` | Claim your pro-rata slice of the reserve (dividend in kind; shares are not burned). With `--calldata-only`, `--holder` names the external signer for the preflight. |
 | `sherwood launchpad claim-for <strategy> <holder>` | Pay a holder their slice (permissionless; tokens go to the holder, never the caller) |
 | `sherwood launchpad collect-fees <strategy>` | Push the launch's accrued creator fees to the vault (permissionless; never pays the caller) |
 | `sherwood launchpad finalize <strategy>` | Graduate and bond a StonkBrokers launch (no-op on Sushi, which is live from the launch block) |
 
 Collect fees often when the launch is quoted in the vault asset: a large pending lump can be sniped by a deposit just before collection. See [Fees](/protocol/strategies/launchpad#fees).
+
+`arm` refuses when the pool now quotes under the voted floor (execute would revert `QuoteAcquisitionFailed`), when the signer is not the proposer, when the clone has executed, or when the launch is quoted in the vault asset. Submit the execute right after arming: the CLI has no private submission on Robinhood Chain, so the window is public. A launch never armed expires at `executeBy` with the vault untouched.
 
 ## `lighter` commands
 
