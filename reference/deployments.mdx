@@ -150,8 +150,16 @@ Launchpad proposal prices as an uncertified tier-2 call at full notional.
 | Sushi Launchpad V2 proxy (venue; `TierRegistry` counterparty) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` |
 
 The Stonk launch adapter is not deployed on Robinhood Chain, so only `--venue sushi`
-works there. The Lighter Perp template is not deployed on Robinhood Chain; `strategy
-list` shows it under "Not available".
+works there.
+
+The Lighter Perp template was deployed on 2026-10-20 (block 93,563,127). It is
+deliberately left uncertified, so a Lighter proposal prices as a tier-2 call at full
+notional.
+
+| Contract | Address (4663) |
+|----------|----------------|
+| LighterPerpStrategy (approved on the `StrategyFactory`) | `0x5A0d30EF02192CE94193fDCf9869375e53669Aa6` |
+| zkLighter proxy (venue; `TierRegistry` counterparty) | `0x94bAB9693Ba2f6358507eFfcbd372b0660AFfF9d` |
 
 ### Tokens
 
@@ -270,7 +278,7 @@ default network:
 TOKENS()             → USDG / WETH / WOOD, stock tokens
 UNISWAP()            → SwapRouter, QuoterV2, V3 factory, V4 pool manager, SwapAdapter
 SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, GuardianRegistry, StakedWood, TierRegistry, StrategyFactory
-STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity, Launchpad (LighterPerp zero)
+STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity, Launchpad, LighterPerp
 LAUNCH_ADAPTERS()    → Sushi (Stonk zero)
 STRATEGY_VENUES()    → Morpho Blue, Uniswap V3
 CHAINLINK()          → per-token <SYM>_USD_FEED push feeds
