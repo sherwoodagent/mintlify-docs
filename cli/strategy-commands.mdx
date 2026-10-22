@@ -276,7 +276,7 @@ See [Concentrated Liquidity](/protocol/strategies/concentrated-liquidity).
 Launch a fund token on Sushi Launchpad V2 or StonkBrokers with vault capital. Holders claim a pro-rata slice of a reserve.
 
 <Warning>
-**Unaudited community template.** The Launchpad template and its launch adapters come from [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) and are unaudited. The template and the Sushi launch adapter have been deployed on Robinhood Chain (4663) since 2026-10-20. StonkBrokers is not deployed there, so only `--venue sushi` works on 4663; `--venue stonk` is refused. Class certification is pending, so a launch prices as an uncertified tier-2 call at full notional. See [Mainnet rules on 4663](#mainnet-rules-on-4663).
+**Unaudited community template.** The Launchpad template and its launch adapters come from [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) and are unaudited. The template and the Sushi launch adapter have been deployed on Robinhood Chain (4663) since 2026-10-20; the template was redeployed on 2026-10-22 at `0x1F8221c4176B8B017A6Ef699947BB4A33730Df32` with the `DeadlineInPast` fix. StonkBrokers is not deployed there, so only `--venue sushi` works on 4663; `--venue stonk` is refused. Class certification is pending, so a launch prices as an uncertified tier-2 call at full notional. See [Mainnet rules on 4663](#mainnet-rules-on-4663).
 </Warning>
 
 <Warning>
@@ -305,7 +305,7 @@ sherwood strategy propose launchpad \
 | `--max-drawdown-bps <bps>` | Declared loss allowance | derived, see above |
 | `--min-quote-out <n>` | Non-asset quote: floor on the asset→quote swap, in quote units. A value below the default is refused. | swap adapter's quote less `--max-slippage-bps` |
 | `--max-slippage-bps <bps>` | Non-asset quote: sets the `minQuoteOut` floor under the swap adapter's quote, and the most price impact the pool may show at `--asset-in`. 1-100; above 100 is refused, not clamped. | 50 |
-| `--deadline <ts\|duration>` | Asset quote only: venue deadline, unix seconds or a duration from now, 0 for none. Refused for a non-asset quote, which is proposed disarmed. | governor collaboration + voting + review + execution windows + 1d |
+| `--deadline <ts\|duration>` | Venue deadline, unix seconds or a duration from now, 0 for none. Same for the vault asset and a non-asset quote. A time already past is refused (`DeadlineInPast`). | governor collaboration + voting + review + execution windows + 1d |
 | `--settle-slippage-bps <bps>` | Settle-time quote conversion slippage, 1-1000 | 500 |
 | `--max-fee-in <n>` | Most the native launch fee may cost, in the token that pays it | live cost + 25%; lower than the live cost is refused |
 | `--quote-swap-route <spec>` | Asset→quote route: 0x extraData or `v3:<fee>` / `v4:<fee>:<ts>` / `v4path:…` | whichever of the v3 tiers and a stock's measured route the swap adapter quotes best |
@@ -368,7 +368,10 @@ A launch quoted in a token other than the vault asset (for example TSLA on a USD
 - **Pool vs feed (Sushi).** The quote at size may sit at most 300 bps under the output the venue's own asset and quote feeds imply.
 - **Size cap.** `--asset-in` is at most 3,500 bps of `totalAssets`, the class bound.
 - **Fresh feed.** The venue's quote feed must have updated within 3 days, or the venue reverts `StalePriceFeedRound`. Stock feeds do not update on weekends or market holidays.
-- **Disarmed.** The launch is proposed with `deadline = 1`, so execute reverts `DeadlineExpired` until the proposer arms it with `sherwood launchpad arm` (below) right before execute. `--deadline` is refused.
+
+The deadline is the same as for an asset-quoted launch: `--deadline`, otherwise the governor windows plus one day, and `0` for none. A past `--deadline` is refused (`DeadlineInPast`). The launch is executable as voted. CLI 0.99.3 dropped the earlier disarmed design, which proposed these launches with `deadline = 1` and required `sherwood launchpad arm` before execute.
+
+Arming is optional. Right before execute, the proposer may run `sherwood launchpad arm` (below) to raise the floor to a fresh swap-adapter quote and set a short deadline.
 
 ```bash
 sherwood strategy propose launchpad \
@@ -379,7 +382,7 @@ sherwood strategy propose launchpad \
   --token-name "Robin Fund" --token-symbol ROBIN \
   --name "Launch ROBIN" --duration 8d
 
-# later, right before execute
+# optional, right before execute: fresh floor, short deadline
 sherwood launchpad arm 0xStrategy
 sherwood proposal execute --vault 0x... --id <id>
 ```
@@ -417,8 +420,8 @@ Operator commands for a Launchpad clone. Every write runs its own preflight and 
 
 | Command | What it does |
 |---------|--------------|
-| `sherwood launchpad status <strategy> [--holder <address>] [--json]` | Launch, reserve, claim window, venue. `--holder` shows that holder's claim. A pending launch that is not armed shows `Deadline: DISARMED`. |
-| `sherwood launchpad arm <strategy> [--swap-deadline <duration>] [--max-slippage-bps <bps>] [--quote-swap-route <spec>] [--proposer <address>]` | Proposer only, right before execute, for a launch quoted in a non-asset token. Re-quotes the swap and re-runs the feed, thin-pool and feed-skew checks, then calls `updateParams` with `minQuoteOut` raised to the fresh floor (never lowered) and a venue deadline `--swap-deadline` from now (default 10m, at most 1h). `--max-slippage-bps` defaults to 50 (1-100). Pass `--quote-swap-route` if the proposal used a route other than the default. `--proposer` names the signer for the preflight with `--calldata-only`. |
+| `sherwood launchpad status <strategy> [--holder <address>] [--json]` | Launch, reserve, claim window, venue. `--holder` shows that holder's claim. |
+| `sherwood launchpad arm <strategy> [--swap-deadline <duration>] [--max-slippage-bps <bps>] [--quote-swap-route <spec>] [--proposer <address>]` | Optional. Proposer only, before execute, for a launch quoted in a non-asset token. Re-quotes the swap and re-runs the feed, thin-pool and feed-skew checks, then calls `updateParams` with `minQuoteOut` raised to the fresh floor (never lowered) and a venue deadline `--swap-deadline` from now (default 10m, at most 1h). `--max-slippage-bps` defaults to 50 (1-100). Pass `--quote-swap-route` if the proposal used a route other than the default. `--proposer` names the signer for the preflight with `--calldata-only`. |
 | `sherwood launchpad claim <strategy>` | Claim your pro-rata slice of the reserve (dividend in kind; shares are not burned). With `--calldata-only`, `--holder` names the external signer for the preflight. |
 | `sherwood launchpad claim-for <strategy> <holder>` | Pay a holder their slice (permissionless; tokens go to the holder, never the caller) |
 | `sherwood launchpad collect-fees <strategy>` | Push the launch's accrued creator fees to the vault (permissionless; never pays the caller) |
@@ -426,7 +429,7 @@ Operator commands for a Launchpad clone. Every write runs its own preflight and 
 
 Collect fees often when the launch is quoted in the vault asset: a large pending lump can be sniped by a deposit just before collection. See [Fees](/protocol/strategies/launchpad#fees).
 
-`arm` refuses when the pool now quotes under the voted floor (execute would revert `QuoteAcquisitionFailed`), when the signer is not the proposer, when the clone has executed, or when the launch is quoted in the vault asset. Submit the execute right after arming: the CLI has no private submission on Robinhood Chain, so the window is public. A launch never armed expires at `executeBy` with the vault untouched.
+`arm` refuses when the pool now quotes under the voted floor (execute would revert `QuoteAcquisitionFailed`), when the signer is not the proposer, when the clone has executed, or when the launch is quoted in the vault asset. If you arm, submit the execute right after: the CLI has no private submission on Robinhood Chain, so the window is public. Arming is not required: a launch is executable as voted, and one not executed by `executeBy` expires with the vault untouched.
 
 ## `lighter` commands
 

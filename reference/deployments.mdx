@@ -139,13 +139,18 @@ list` prints these three plus the Launchpad template below.
 
 From [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies),
 recorded in its `deployments/4663.json` book. Unaudited. The Launchpad template and
-the Sushi launch adapter were deployed on 2026-10-20 (blocks 93,737,582 to 93,737,603)
-and are verified on Sourcify (exact match). Class certification is pending, so a
-Launchpad proposal prices as an uncertified tier-2 call at full notional.
+the Sushi launch adapter were first deployed on 2026-10-20 (blocks 93,737,582 to
+93,737,603) and verified on Sourcify (exact match). The Launchpad template was
+redeployed on 2026-10-22 (block 95,339,932) with the `DeadlineInPast` fix
+(sherwood-strategies #14). The previous template,
+`0xbc4fDF5949caa74c730bed632E368cEa4ea5832D`, is no longer approved: it makes no new clones,
+and clones made from it keep working. Class certification of the new template is
+proposed and can land from 2026-10-25 19:05 UTC; until then a Launchpad proposal
+prices as an uncertified tier-2 call at full notional.
 
 | Contract | Address (4663) |
 |----------|----------------|
-| LaunchpadStrategy (approved on the `StrategyFactory`) | `0xbc4fDF5949caa74c730bed632E368cEa4ea5832D` |
+| LaunchpadStrategy (approved on the `StrategyFactory`) | `0x1F8221c4176B8B017A6Ef699947BB4A33730Df32` |
 | SushiLaunchAdapter (implementation, one clone per launch; `TierRegistry` counterparty) | `0x52901614748ACFDC083D305Aa5301E484d4B15F8` |
 | Sushi Launchpad V2 proxy (venue; `TierRegistry` counterparty) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` |
 

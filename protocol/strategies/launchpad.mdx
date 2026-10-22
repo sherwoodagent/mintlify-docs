@@ -6,7 +6,7 @@ icon: "rocket"
 ---
 
 <Warning>
-  **Community template, unaudited.** `LaunchpadStrategy` lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), outside the audited core protocol, and has not been audited. It has been deployed on Robinhood Chain (4663) since 2026-10-20 and is approved on the 4663 `StrategyFactory`. Only the Sushi venue is live there; StonkBrokers runs on the fork only. Class certification at tier 0 is proposed and pending. Until it is certified, a proposal that uses it prices as an uncertified tier-2 call at full notional.
+  **Community template, unaudited.** `LaunchpadStrategy` lives in [sherwood-strategies](https://github.com/sherwoodagent/sherwood-strategies) (`src/launchpad/`), outside the audited core protocol, and has not been audited. It has been deployed on Robinhood Chain (4663) since 2026-10-20. The template was redeployed on 2026-10-22 with the `DeadlineInPast` fix, and the new template is the one approved on the 4663 `StrategyFactory` (see [Addresses](#addresses)). Only the Sushi venue is live there; StonkBrokers runs on the fork only. Class certification of the new template at tier 0 is proposed and can land from 2026-10-25 19:05 UTC. Until it is certified, a proposal that uses it prices as an uncertified tier-2 call at full notional.
 </Warning>
 
 The `LaunchpadStrategy` lets a fund launch its own token. A proposal spends vault capital to launch the token on a launchpad, holds back a **reserve** of the new token, and lets the fund's share holders **claim a pro-rata slice** of that reserve during a claim window. The venue plugs in through a launch adapter. Two are written: **Sushi Launchpad V2** and **StonkBrokers** Smart Launch V2. Only the Sushi adapter is deployed on Robinhood Chain.
@@ -129,14 +129,15 @@ A launch quoted in a token other than the vault asset swaps the asset into it at
 - On Sushi, the quote at size may sit at most 300 bps under what the venue's own feeds imply.
 - `--asset-in` is at most 3,500 bps of `totalAssets`. That caps the loss if the floor ever fails as a floor.
 - The venue's quote feed must have updated within 3 days. Stock feeds do not update on weekends or market holidays.
-- The launch is proposed **disarmed**, with `deadline = 1`. The adapter reverts `DeadlineExpired` once the deadline has passed, so nobody can execute at the voted floor. `--deadline` is refused.
 
-Right before execute, the proposer runs `sherwood launchpad arm <strategy>`. It re-checks the pool and the feed at current prices and calls `updateParams`: `minQuoteOut` rises to the fresh floor and the deadline moves to at most 1 hour out (10 minutes by default). `updateParams` is proposer-only and works only before execute; it can raise the floors and move the deadline, never lower a floor. Execute right after arming: the window is public. A launch never armed expires at `executeBy` with the vault untouched.
+The deadline works as it does for an asset-quoted launch: `--deadline` if you pass one, otherwise the governor's collaboration, voting, review and execution windows plus one day. `0` means no deadline. A `--deadline` already in the past is refused with `DeadlineInPast`, and the template enforces the same rule on-chain. The launch is executable as voted, so the voted floor is live for the whole execution window; the rules above bound what a sandwich can take from it. CLI 0.99.3 dropped the earlier design that proposed these launches disarmed.
+
+Arming is optional. Right before execute, the proposer may run `sherwood launchpad arm <strategy>` to tighten the swap. It re-checks the pool and the feed at current prices and calls `updateParams`: `minQuoteOut` rises to the fresh floor and the deadline moves to at most 1 hour out (10 minutes by default). `updateParams` is proposer-only and works only before execute; it can raise the floors and move the deadline, never lower a floor. If you arm, execute right after: the window is public. A launch not executed by `executeBy` expires with the vault untouched.
 
 At settle, the reserve still goes to holders and the vault in kind. Leftover quote is dust; the strategy swaps it back to the asset when it can and pushes it in kind when it cannot.
 
 <Note>
-  These rules live in the CLI, not the contracts. `quoteToken` is unbound on-chain, so a proposer who encodes calldata by hand skips them, and guardian review is the backstop. Moving the floor and the size cap on-chain is a planned follow-up.
+  These rules live in the CLI, not the contracts; only the `DeadlineInPast` check is also on-chain. `quoteToken` is unbound on-chain, so a proposer who encodes calldata by hand skips them, and guardian review is the backstop. Moving the floor and the size cap on-chain is a planned follow-up.
 </Note>
 
 On StonkBrokers (fork only, not deployed on 4663), `--min-tokens-out` floors only the curve dev buy, so it stays required and nonzero. Pick the pad by its quote and quote the dev buy through the StonkBrokers lens:
@@ -165,7 +166,7 @@ Execute: [asset.approve(clone, assetIn), clone.execute()]
 Settle:  [clone.settle()]
 ```
 
-`minTokensOut`, `minQuoteOut`, `settleSlippageBps` and `deadline` can change only before execute, and only in the tightening direction.
+`minTokensOut`, `minQuoteOut`, `settleSlippageBps` and `deadline` can change only before execute, and only in the tightening direction. A non-zero `deadline` that is not in the future reverts `DeadlineInPast`, at init and in `updateParams`.
 
 ## Operate
 
@@ -187,12 +188,14 @@ sherwood launchpad finalize <strategy>             # graduate + bond a StonkBrok
 
 ## Addresses
 
-Deployed on Robinhood Chain (4663) on 2026-10-20, blocks 93,737,582 to 93,737,603. The addresses are recorded in the sherwood-strategies `deployments/4663.json` book and verified on Sourcify (exact match).
+First deployed on Robinhood Chain (4663) on 2026-10-20, blocks 93,737,582 to 93,737,603, and verified on Sourcify (exact match). The template was redeployed on 2026-10-22 (block 95,339,932) with the `DeadlineInPast` fix ([sherwood-strategies #14](https://github.com/sherwoodagent/sherwood-strategies/pull/14)): a clone refuses a non-zero deadline that is not in the future, at init and in `updateParams`. The addresses are recorded in the sherwood-strategies `deployments/4663.json` book.
 
 | Contract | Address (4663) | Role |
 | --- | --- | --- |
-| `LaunchpadStrategy` template | `0xbc4fDF5949caa74c730bed632E368cEa4ea5832D` | Approved on the `StrategyFactory` |
+| `LaunchpadStrategy` template | `0x1F8221c4176B8B017A6Ef699947BB4A33730Df32` | Approved on the `StrategyFactory` since 2026-10-22 |
 | `SushiLaunchAdapter` | `0x52901614748ACFDC083D305Aa5301E484d4B15F8` | Implementation, one clone per launch. `TierRegistry` counterparty. |
 | Sushi Launchpad V2 (proxy) | `0xF1716eBf85836ffE2985db9A50dd29e5814caBe9` | The venue. `TierRegistry` counterparty. |
+
+The previous template, `0xbc4fDF5949caa74c730bed632E368cEa4ea5832D`, is no longer approved: it makes no new clones, and clones made from it keep working. The Sushi adapter did not change.
 
 No StonkBrokers adapter is deployed on 4663. See [Deployments](/reference/deployments).
