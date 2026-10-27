@@ -424,7 +424,8 @@ Operator commands for a Launchpad clone. Every write runs its own preflight and 
 | `sherwood launchpad arm <strategy> [--swap-deadline <duration>] [--max-slippage-bps <bps>] [--quote-swap-route <spec>] [--proposer <address>]` | Optional. Proposer only, before execute, for a launch quoted in a non-asset token. Re-quotes the swap and re-runs the feed, thin-pool and feed-skew checks, then calls `updateParams` with `minQuoteOut` raised to the fresh floor (never lowered) and a venue deadline `--swap-deadline` from now (default 10m, at most 1h). `--max-slippage-bps` defaults to 50 (1-100). Pass `--quote-swap-route` if the proposal used a route other than the default. `--proposer` names the signer for the preflight with `--calldata-only`. |
 | `sherwood launchpad claim <strategy>` | Claim your pro-rata slice of the reserve (dividend in kind; shares are not burned). With `--calldata-only`, `--holder` names the external signer for the preflight. |
 | `sherwood launchpad claim-for <strategy> <holder>` | Pay a holder their slice (permissionless; tokens go to the holder, never the caller) |
-| `sherwood launchpad collect-fees <strategy>` | Push the launch's accrued creator fees to the vault (permissionless; never pays the caller) |
+| `sherwood launchpad collect-fees <strategy>` | Push the launch's accrued creator fees to the vault (permissionless; never pays the caller). Sherwood's keeper does this automatically — this is the manual fallback |
+| `sherwood launchpad collect-fees <strategy> --dry-run [--json]` | Simulate the collection and print the quote/token fees it would move. Sends nothing |
 | `sherwood launchpad finalize <strategy>` | Graduate and bond a StonkBrokers launch (no-op on Sushi, which is live from the launch block) |
 
 Collect fees often when the launch is quoted in the vault asset: a large pending lump can be sniped by a deposit just before collection. See [Fees](/protocol/strategies/launchpad#fees).

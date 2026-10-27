@@ -39,10 +39,12 @@ Settlement opens after `windowEnd`, or at `executedAt + strategyDuration`, which
 
 ### Fees
 
-The launch's creator fees are paid to **the fund's vault**, named at launch. A proposer cannot point them anywhere else. Fees never pass through the strategy, so settlement makes no venue call. Anyone can push accrued fees to the vault with `sherwood launchpad collect-fees`.
+The launch's creator fees are paid to **the fund's vault**, named at launch. A proposer cannot point them anywhere else. Fees never pass through the strategy, so settlement makes no venue call. Sherwood's keeper sweeps them automatically: it calls `collectFees` on a short cadence (batched through Multicall3), which pulls the creator share from the venue into the launch clone and forwards it straight to the vault. On Sushi, the venue keeps 30% of trading fees; the remaining creator share is what reaches the vault. Anyone can also push accrued fees manually with `sherwood launchpad collect-fees` — a fallback if the keeper is down.
+
+`sherwood launchpad status` shows both **uncollected** fees (still in the venue, read by simulating `collectFees`) and fees **collected so far** (the sum of the clone's `FeesCollected` events). A launch with real volume can read 0 uncollected simply because the keeper already swept it — check the collected line. Preview a collection without sending anything with `collect-fees --dry-run`.
 
 <Warning>
-  **Fees in the vault asset can be sniped.** When the launch is quoted in the vault asset (a USDG vault launching against USDG), quote-side fees raise `totalAssets` the moment they land. With no proposal open, deposits and redemptions are instant, so someone can deposit, call `collect-fees`, and redeem with a cut of fees the long-term holders earned. Collection is permissionless by design, so the template cannot close this on v1. Collect often, for example from a keeper, so no large lump is ever pending. Closed-deposit vaults are not exposed.
+  **Fees in the vault asset can be sniped.** When the launch is quoted in the vault asset (a USDG vault launching against USDG), quote-side fees raise `totalAssets` the moment they land. With no proposal open, deposits and redemptions are instant, so someone can deposit, call `collect-fees`, and redeem with a cut of fees the long-term holders earned. Collection is permissionless by design, so the template cannot close this on v1. Sherwood's keeper collects often so no large lump is ever pending. Closed-deposit vaults are not exposed.
 </Warning>
 
 On a launch quoted in another token (TSLA on a USDG vault, say), creator fees arrive in that quote token and the launch token. Nothing converts them to the vault asset.
@@ -174,7 +176,8 @@ Settle:  [clone.settle()]
 sherwood launchpad status <strategy>               # launch, reserve, claim window, venue
 sherwood launchpad claim <strategy>                # claim your slice of the reserve
 sherwood launchpad claim-for <strategy> <holder>   # pay a holder their slice (permissionless)
-sherwood launchpad collect-fees <strategy>         # push accrued fees to the vault (permissionless)
+sherwood launchpad collect-fees <strategy>         # push accrued fees to the vault (permissionless; the keeper also does this)
+sherwood launchpad collect-fees <strategy> --dry-run [--json]  # preview what a collection would move; sends nothing
 sherwood launchpad finalize <strategy>             # graduate + bond a StonkBrokers launch
 ```
 
