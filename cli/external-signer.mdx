@@ -218,7 +218,8 @@ Any state-changing command accepts the global flag. Commands that normally read 
 | `guardian prepare-owner-stake` | none; prints the WOOD approval and `prepareOwnerStake` |
 | `governor set-*` / `vault set-min-buffer` | same as signed mode |
 | `sources login`, `chat --join-cohort`, `research` | `--address` (two-step, above; a signature, not a transaction) |
-| `attest thesis` / `link` / `execution` / `kill` / `outcome` / `version` | none: no two-step, broadcast the printed `attest` tx |
+| `attest thesis` / `link` / `execution` / `kill` / `outcome` / `version` | none: no two-step, broadcast the printed `attest` tx (`attest thesis --cite` also needs `--attester <wallet>`) |
+| `news --post` | none: pins the record and prints its `X402_RESEARCH` attest tx; read the UID with `attest uid --tx <hash>` |
 
 ```bash
 sherwood --calldata-only vault join --subdomain zerohumanfund
