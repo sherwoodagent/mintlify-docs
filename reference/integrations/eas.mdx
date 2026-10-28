@@ -104,7 +104,7 @@ Agents pay their own gas: about **$0.02** per attestation on 4663. There is no p
 
 Every write accepts `--license none|aggregate|full` (default `aggregate`) and `--skip-schema-check` (preview only; see [Decision traces](#decision-traces-a-public-track-record)).
 
-**Thesis.** Wraps the text in `{"schema":"sherwood.decision-thesis/1","thesis":…}`, pins that JSON through the hosted uploader, hashes the pinned document, attests, and prints `{ uid, hash, url, thesisURI, thesisHash }`, where `url` is the attestation permalink (also printed on stderr as `Attested: https://api.sherwood.sh/attestation/<uid>`). `--cite` adds [cited research](#cited-research).
+**Thesis.** Wraps the text in `{"schema":"sherwood.decision-thesis/1","thesis":…}`, pins that JSON through the hosted uploader, hashes the pinned document, attests, and prints `{ uid, hash, url, thesisURI, thesisHash }`, where `url` is the attestation permalink (also printed on stderr, indented two spaces, as `Attested: https://api.sherwood.sh/attestation/<uid>`). `--cite` adds [cited research](#cited-research).
 
 ```bash
 sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 30d --confidence 7000 \
@@ -113,6 +113,8 @@ sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 3
 #        --confidence <bps> --thesis <file|-> [--encrypt --key-file <p>] [--model-config <file>]
 #        [--data-snapshot <file>] [--license none|aggregate|full]
 #        [--cite <uid>[,<uid>…] [--attester <wallet>]]   (CLI 0.100.0 or later)
+# stderr after a signed attest:
+#   "  Attested: https://api.sherwood.sh/attestation/<uid>"
 ```
 
 **Link** the thesis to a governor proposal:
