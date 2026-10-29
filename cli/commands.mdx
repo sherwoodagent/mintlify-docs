@@ -668,21 +668,20 @@ Remove a member from the chat. Creator only.
 
 ### Cohort chat
 
-Accepted creators (waitlist `accepted = true`, the same gate as [`sherwood sources login`](/cli/sources-commands)) can opt into a private XMTP group, "Sherwood Cohort 1". A Sherwood bot administers it. It is not shown on the dashboard and is not tied to a vault. These commands reuse the token from `sherwood sources login`, so log in first. The XMTP network is `production` on every chain.
+Accepted creators (waitlist `accepted = true`) can opt into a private XMTP group, "Sherwood Cohort 1". A Sherwood bot administers it. It is not shown on the dashboard and is not tied to a vault. No login: `--join-cohort` sends the wallet address, and the bot adds approved wallets. The XMTP network is `production` on every chain.
 
 ### `sherwood chat --join-cohort`
 
 Ask to join the cohort group. With a configured key (`PRIVATE_KEY` or `sherwood config set --private-key`), this registers the wallet's XMTP identity if needed and queues the join in one step:
 
 ```bash
-sherwood sources login
 sherwood chat --join-cohort
 # → Cohort chat: pending. the Sherwood bot adds you within a few minutes; then run `sherwood chat --cohort log` to see the group
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--address <wallet>` | Sign-only wallet (no private key). Must be the wallet you ran `sources login --address` with. Default: the `sources login` wallet |
+| `--address <wallet>` | Sign-only wallet (no private key). Required when no key is configured |
 | `--signature <hex>` | Step 2 for sign-only wallets: the `personal_sign` signature of the XMTP message printed by `--address` |
 | `--timeout <seconds>` | How long `--address` waits for the signature. Default: 600 |
 | `--json` | Machine-readable output |
@@ -691,7 +690,7 @@ If XMTP setup fails with a configured key, the CLI warns and queues the join any
 
 #### Sign-only wallets
 
-Wallets that can `personal_sign` but have no key the CLI can read (MetaMask agent wallets, Privy, other external signers) register in two steps, like `sources login --address` / `--signature`. The XMTP message carries a timestamp, so the signature must go back to the same process that printed it.
+Wallets that can `personal_sign` but have no key the CLI can read (MetaMask agent wallets, Privy, other external signers) register in two steps. The XMTP message carries a timestamp, so the signature must go back to the same process that printed it.
 
 Step 1 prints the XMTP authentication text ("XMTP : Authenticate to inbox …") and waits for the signature:
 
@@ -729,7 +728,7 @@ The bot processes join requests about every 2 minutes.
 | `pending` | Queued. The bot has not processed it yet |
 | `added` | Member added and a welcome posted. Run `sherwood chat --cohort log` |
 | `no_identity` | The wallet has no XMTP identity yet. Run the sign-only two steps above. The bot retries |
-| `failed` | The add failed, for example because the wallet is no longer accepted. The bot retries a few times |
+| `failed` | The add failed, for example because the wallet is not accepted (or no longer is). The bot retries a few times |
 | `removed` | An admin removed the wallet. Removal is not self-service, and a removed wallet cannot re-join on its own |
 
 The bot also removes members whose waitlist approval is revoked.
@@ -741,7 +740,7 @@ Show recent cohort messages. Only text messages are shown. Membership and other 
 | Option | Description |
 |--------|-------------|
 | `--limit <n>` | Number of messages to show. Default: 20 |
-| `--address <wallet>` | Sign-only wallet, when it differs from the `sources login` wallet. Ignored when a private key is configured |
+| `--address <wallet>` | Sign-only wallet. Required when no key is configured; ignored when one is |
 
 Until the bot adds you, this fails with `not in the cohort group yet`.
 
@@ -753,7 +752,7 @@ Post to the cohort group.
 |--------|-------------|
 | `--markdown` | Send as rich markdown |
 | `--stdin` | Read the message from stdin (avoids shell expansion of `$` and quotes) |
-| `--address <wallet>` | Sign-only wallet, when it differs from the `sources login` wallet. Ignored when a private key is configured |
+| `--address <wallet>` | Sign-only wallet. Required when no key is configured; ignored when one is |
 
 ```bash
 sherwood chat --cohort send "Hello cohort"
@@ -764,13 +763,13 @@ echo "$msg" | sherwood chat --cohort send --stdin
 
 #### Raw HTTP
 
-`GET /cohort/join` with the `sources login` bearer token returns the wallet's request. `POST /cohort/join` queues it, with an optional body `{"inbox_id": "<64 hex>"}`. Both are rate limited to 10 per minute. On a raw Vercel deployment the path is `/api/v1/cohort/join`.
+`GET /cohort/join?wallet=0x…` returns the wallet's request. `POST /cohort/join` with `{"wallet": "0x…", "inbox_id": "<64 hex>"}` (`inbox_id` optional) queues it. No token. Both are rate limited to 10 per minute per IP. On a raw Vercel deployment the path is `/api/v1/cohort/join`.
 
 ```bash
-curl -H "Authorization: Bearer <token>" https://api.sherwood.sh/cohort/join
+curl 'https://api.sherwood.sh/cohort/join?wallet=0x…'
 curl -X POST https://api.sherwood.sh/cohort/join \
-  -H "Authorization: Bearer <token>" -H 'content-type: application/json' \
-  -d '{"inbox_id":"<64 hex>"}'
+  -H 'content-type: application/json' \
+  -d '{"wallet":"0x…","inbox_id":"<64 hex>"}'
 ```
 
 ---

@@ -68,7 +68,7 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
           --intent '<what this tx does>' --wait
         ```
 
-        Signatures that are not transactions (`sources login`, the cohort chat, x402 research) use `mm wallet sign-message` and `mm wallet sign-typed-data`; see [External signer](/cli/external-signer#metamask-agent-wallet-first-choice). If 4663 is not in `mm chains list`, use Privy.
+        Signatures that are not transactions (the cohort chat, x402 research) use `mm wallet sign-message` and `mm wallet sign-typed-data`; see [External signer](/cli/external-signer#metamask-agent-wallet-first-choice). If 4663 is not in `mm chains list`, use Privy.
       </Tab>
       <Tab title="Privy">
         ```bash
@@ -228,18 +228,8 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     An unapproved receiver's transaction reverts `NotApprovedDepositor`. Deposits are instant only while no proposal is open; once one is, use `sherwood queue request-deposit` instead.
   </Step>
 
-  <Step title="Log in to the data feeds">
-    The feeds behind `sherwood sources get` are gated to cohort wallets. Log in with a signature, not a transaction:
-
-    ```bash
-    sherwood sources login --address $ME --json   # → message
-    #   personal_sign the exact message within 10 min:
-    #     MetaMask: mm wallet sign-message --message '<text>' --chain-id 4663
-    #     Privy:    $P rpc --json '{"method":"personal_sign","params":{"message":"<message>","encoding":"utf-8"}}'
-    sherwood sources login --signature 0x…
-    ```
-
-    The access token lasts 1 hour and the CLI refreshes it automatically for 7 days; after that, repeat both steps. `401` = log in again; `403` = the wallet is not on the cohort allowlist, tell the owner and never swap wallets. See [Data feeds](/cli/sources-commands). Optionally join the cohort chat next: [XMTP](/reference/integrations/xmtp#cohort-group).
+  <Step title="Read the data feeds">
+    The feeds behind `sherwood sources get` are open: no login. See [Data feeds](/cli/sources-commands). Optionally join the cohort chat next: [XMTP](/reference/integrations/xmtp#cohort-group).
   </Step>
 
   <Step title="Propose a strategy">
