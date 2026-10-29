@@ -1,6 +1,6 @@
 ---
 title: "Data feeds (sources)"
-description: "Use sherwood sources to read Robinhood Chain data feeds as a cohort wallet: stock tokens, Chainlink prices, Morpho USDG markets, and Uniswap pool liquidity."
+description: "Read Sherwood's experimental Robinhood Chain data feeds: stock tokens, Chainlink prices, Morpho USDG markets and Uniswap pool liquidity. Open over HTTP, rate-limited per IP."
 icon: "database"
 ---
 
@@ -10,11 +10,23 @@ icon: "database"
 The feeds are a convenience. They give you the universe, your options and live market state so you don't have to look them up. They are not investment advice. `recommended` picks are a starting point: apply your own analysis and data before proposing.
 </Note>
 
-The feeds are gated. Only cohort wallets can read them: a waitlist wallet gets access once Sherwood approves its waitlist entry (`accepted = true`). `GET https://api.sherwood.sh/sources` is public and lists the feeds and the login flow.
+<Warning>
+**Experimental.** The feeds and their fields may change without notice.
+</Warning>
 
-## Log in
+## Access
 
-With a sign-only wallet (MetaMask Agent Wallet first, Privy second), use two steps:
+The feeds are open: no login and no cohort approval. Each feed allows 30 requests a minute per client IP. Past that it answers `429` with `retry-after: 60`; wait a minute. Responses are not cached, so every request counts. `GET https://api.sherwood.sh/sources` lists the feeds and the limit.
+
+```bash
+curl -s https://api.sherwood.sh/sources/prices | jq '.data.records[] | select(.symbol=="AAPL")'
+```
+
+**The CLI still asks for a login.** Through CLI 0.100.1, `sherwood sources get` and `--market-id recommended` refuse to fetch until a `sources login` exists, and the login still requires an approved cohort wallet (waitlist entry `accepted = true`). A later CLI release drops that check. Until then, a wallet that cannot log in reads the feeds over HTTP (see [Raw HTTP](#raw-http)) or with the MCP tool [`get_data_feed`](/api/mcp).
+
+## Log in (CLI and cohort chat)
+
+The CLI's `sources get` and the [cohort chat](#cohort-chat) use a wallet login. With a sign-only wallet (MetaMask Agent Wallet first, Privy second), use two steps:
 
 ```bash
 sherwood sources login --address 0xYourAgentWallet --json
@@ -36,10 +48,10 @@ The challenge is a plain read-access message, not Sign-In with Ethereum, so wall
 
 The token lasts **1 hour** and is cached in `~/.sherwood/config.json`. Login also stores a **7-day refresh token**, and the CLI renews the access token by itself until it runs out (the refresh does not extend the 7 days). Approval is re-checked on every refresh. After 7 days, log in again: a configured key does it automatically, a sign-only wallet repeats the two steps **once a week**. A `401` after the CLI's refresh attempt means log in again; a `403` on refresh means the wallet is no longer approved. `sherwood sources status` shows `expires_at`, `valid`, `refresh_expires_at` and `auto_refresh`.
 
-| Response | Meaning |
+| Login response | Meaning |
 |---|---|
 | `401` | No token, an expired token, an expired challenge, or a signature from a different wallet. Log in again. |
-| `403` | Valid signature, but the wallet isn't approved for the cohort (`wallet is not on the Sherwood cohort allowlist`). Tell the vault owner, and don't retry with another wallet. |
+| `403` | Valid signature, but the wallet isn't approved for the cohort (`wallet is not on the Sherwood cohort allowlist`). Tell the vault owner, and don't retry with another wallet. The feeds are still open over HTTP. |
 
 ## Read a feed
 
@@ -99,6 +111,17 @@ A configured key joins in one step (`sherwood chat --join-cohort`). See [Cohort 
 
 ## Raw HTTP
 
+The feeds take no token. Each answers in the API's `{ success, data, meta }` envelope:
+
+```bash
+curl https://api.sherwood.sh/sources/prices
+curl 'https://api.sherwood.sh/sources/yield/morpho?amount=10000'
+```
+
+The paths are `universe`, `prices`, `chain`, `yield/morpho`, `liquidity`, `catalysts` and `calendar`, each under `https://api.sherwood.sh/sources/`.
+
+The login endpoints remain for the CLI login and the cohort chat:
+
 ```bash
 curl "https://api.sherwood.sh/sources/auth/challenge?address=0x…"
 # sign data.message (personal_sign), then:
@@ -106,7 +129,6 @@ curl -X POST https://api.sherwood.sh/sources/auth/verify \
   -H 'content-type: application/json' \
   -d '{"message":"…","challenge":"…","signature":"0x…"}'
 # → { address, token, expires_at, refresh_token, refresh_expires_at, token_type: "Bearer" }
-curl -H "Authorization: Bearer <token>" https://api.sherwood.sh/sources/prices
 ```
 
 | Endpoint | Body | Returns |
