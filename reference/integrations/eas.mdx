@@ -47,7 +47,7 @@ sherwood vault approve --subdomain alpha --agent-id 42 --wallet 0x...
 sherwood vault reject --attestation 0x...
 ```
 
-`sherwood research … --post <vault>` pins a research result to IPFS and writes an `X402_RESEARCH` attestation with the provider, query, cost and result URI (this path needs a configured key); the Venice and trade schemas are written by the `venice` and `trade` commands.
+`sherwood research … --post <vault>` and `sherwood news … --post <vault>` pin a research record (`sherwood/research/v1`) to IPFS and write an `X402_RESEARCH` attestation to the vault with the provider, query, cost and result URI. Paid research needs a configured key. [FLASH news](/cli/commands#news-flash) is free during the pilot, so under `--calldata-only` `news --post` pins the record and prints the attest tx instead. A thesis can cite these attestations: see [Cited research](#cited-research). The Venice and trade schemas are written by the `venice` and `trade` commands.
 
 ## Decision traces: a public track record
 
@@ -84,8 +84,8 @@ Resolver = zero address and revocable = **false** for all six. Unlike the six sc
 - `license`: 0 none, 1 aggregate (default), 2 full. See [License](#license).
 - `reasonCode`: 0 `risk_check`, 1 `vote_failed`, 2 `human_override`, 3 `self_abort`, 4 `other`.
 - `provenanceClass`: 0 unknown, 1 hand_written, 2 unknown_template, 3 known_template, 4 core_template. This mapping is derived from the CLI's strategy-provenance check and is still being confirmed; `--provenance-class` defaults to `auto`, which reads it from the StrategyFactory.
-- `thesisHash`: keccak256 of the pinned JSON document: `{"schema":"sherwood.decision-thesis/1","thesis":…}`, or `{alg,iv,ct}` when encrypted. The hosted uploader pins JSON only, so the hash covers that document, not the raw thesis text. `thesisURI`: the `ipfs://` URI from Sherwood's hosted uploader.
-- `modelConfigHash`: keccak256 of the canonical JSON passed with `--model-config <file>`, or zero. `dataSnapshotHash`: keccak256 of the `sources` records passed with `--data-snapshot <file>`, or zero.
+- `thesisHash`: keccak256 of the pinned JSON document: `{"schema":"sherwood.decision-thesis/1","thesis":…}` (plus a `research` array when the thesis [cites research](#cited-research)), or `{alg,iv,ct}` when encrypted. The hosted uploader pins JSON only, so the hash covers that document, not the raw thesis text. `thesisURI`: the `ipfs://` URI from Sherwood's hosted uploader.
+- `modelConfigHash`: keccak256 of the canonical JSON passed with `--model-config <file>`, or zero. `dataSnapshotHash`: keccak256 of the canonical JSON of the `sources` records passed with `--data-snapshot <file>`; with `--cite` or `--news`, of the cited research records (see [Cited research](#cited-research)); otherwise zero.
 
 ### When to attest
 
@@ -104,7 +104,7 @@ Agents pay their own gas: about **$0.02** per attestation on 4663. There is no p
 
 Every write accepts `--license none|aggregate|full` (default `aggregate`) and `--skip-schema-check` (preview only; see [Decision traces](#decision-traces-a-public-track-record)).
 
-**Thesis.** Wraps the text in `{"schema":"sherwood.decision-thesis/1","thesis":…}`, pins that JSON through the hosted uploader, hashes the pinned document, attests, and prints `{ uid, hash, thesisURI, thesisHash }`.
+**Thesis.** Wraps the text in `{"schema":"sherwood.decision-thesis/1","thesis":…}`, pins that JSON through the hosted uploader, hashes the pinned document, attests, and prints `{ uid, hash, url, thesisURI, thesisHash }`, where `url` is the attestation permalink (also printed on stderr, indented two spaces, as `Attested: https://api.sherwood.sh/attestation/<uid>`). `--cite` adds [cited research](#cited-research).
 
 ```bash
 sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 30d --confidence 7000 \
@@ -112,6 +112,9 @@ sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 3
 # flags: --vault <v> --asset <symbol|address> --direction long|short|neutral --horizon <e.g. 30d>
 #        --confidence <bps> --thesis <file|-> [--encrypt --key-file <p>] [--model-config <file>]
 #        [--data-snapshot <file>] [--license none|aggregate|full]
+#        [--cite <uid>[,<uid>…] [--attester <wallet>]]   (CLI 0.100.0 or later)
+# stderr after a signed attest:
+#   "  Attested: https://api.sherwood.sh/attestation/<uid>"
 ```
 
 **Link** the thesis to a governor proposal:
@@ -215,6 +218,70 @@ sherwood attest thesis --vault 0xVAULT --asset TSLA --direction long --horizon 3
 
 The CLI pins `{ "alg": "A256GCM", "iv": "<hex>", "ct": "<hex>" }`, sets `encrypted = true`, and `thesisHash` is the keccak256 of that pinned JSON document. **The agent keeps the key. Sherwood holds nothing**: no key, no plaintext, no encrypted copy, no commit-reveal. If the key is lost, the thesis text cannot be recovered, though the hash still proves what was pinned.
 
+### Cited research
+
+A thesis can name the research it relied on (CLI 0.100.0 or later): `attest thesis --cite <uid>[,<uid>…]`, `strategy propose --cite <uid>[,<uid>…]`, or `strategy propose --news`, which posts a [FLASH news](/cli/commands#news-flash) record for the proposal and cites it. Each citation is an `X402_RESEARCH` attestation from any provider (FLASH news, Messari, Nansen) whose `resultUri` points at a pinned research record:
+
+```json
+{
+  "schema": "sherwood/research/v1",
+  "provider": "flash",
+  "queryType": "news",
+  "target": "NFLX",
+  "prompt": "news --asset NFLX --days 7 --impact 2 --limit 10",
+  "costUsdc": "0",
+  "data": { "query": { … }, "matchStatus": "matched", "fetchedAt": "…", "items": [ … ],
+            "attribution": { "provider": "FLASH", "url": "https://flash.im", "notice": "Powered by FLASH" } },
+  "timestamp": 1793196000
+}
+```
+
+For FLASH, each item in `data.items` keeps its headline, `source.name`, `sourceUrl`, impact, ticker entities, `summary` and `whyItMatters`; a posted record holds at most 20 items (a `--news` basket record up to 60). Anyone who shows those items owes the attribution: the source name, a link to the article, and one "Powered by FLASH" credit per list.
+
+**Envelope.** The pinned thesis document gains an optional `research` array, in citation order:
+
+```json
+{
+  "schema": "sherwood.decision-thesis/1",
+  "thesis": "…",
+  "research": [
+    { "uid": "0x…", "resultURI": "ipfs://…" }
+  ]
+}
+```
+
+An envelope without `research` is a thesis with no citations. Cited research needs a public thesis, so `--cite` and `--news` refuse `--encrypt`. When the CLI builds the thesis text itself (no `--attest-thesis` file), it appends a Sources section listing each FLASH headline with its source link and the FLASH credit.
+
+**Data snapshot.** With citations, the CLI derives `dataSnapshotHash` itself (so `--data-snapshot` is refused):
+
+```text
+dataSnapshotHash = keccak256( canonicalJson({ "research": [ record_1, record_2, … ] }) )
+```
+
+`record_i` is the pinned research record behind `research[i]`, exactly as the IPFS gateway serves it, in citation order. `canonicalJson` is JSON with object keys sorted recursively and no whitespace (`canonicalJson` and `hashCanonicalJson` in `@sherwoodagent/sdk`), so the pinned file's key order and formatting don't change the hash. The hash binds the thesis to the exact bytes the agent read.
+
+**What the CLI refuses.** Before attesting, the CLI checks each UID on the 4663 EAS indexer and exits 1, attesting nothing, unless:
+
+- the attestation exists and is `X402_RESEARCH`;
+- its attester is the wallet that will sign the thesis, and its recipient is the thesis vault;
+- its `resultUri` is an `ipfs://` URI whose record is at most 200,000 bytes and has `"schema": "sherwood/research/v1"`;
+- the thesis cites at most 20 attestations.
+
+`--cite` and `--news` also refuse `--no-attest` and `--write-calls`, which skip the thesis.
+
+**Verification on the permalink page.** For a `DECISION_THESIS` whose envelope has a `research` array, `https://api.sherwood.sh/attestation/<uid>` lists every citation with a **verified** or **cited, unverified** badge and the first check that failed. For each `research[i]` it checks, in order:
+
+1. the attestation `research[i].uid` exists (`attestation not found`);
+2. it is an `X402_RESEARCH` attestation (`not a research attestation`);
+3. its `resultUri` equals `research[i].resultURI` (`resultUri differs`);
+4. its attester is the thesis attester (`attester differs`);
+5. its recipient is the thesis recipient, the vault (`recipient differs`);
+6. its record can be fetched: an `ipfs://` URI, at most 200,000 bytes, `"schema": "sherwood/research/v1"` (`record unavailable`).
+
+Only when every citation passes does the page recompute `dataSnapshotHash` from the fetched records and compare it with the thesis. If the hashes differ, every citation shows as unverified (`snapshot hash differs`): the badge needs every check. Citations past the 20th show as unverified (`over the 20-citation limit`). A failing citation stays in the list rather than being hidden, because a broken chain is information for a guardian. An encrypted thesis shows no citations.
+
+For an `X402_RESEARCH` attestation, the same page renders the pinned record: for FLASH news, the headlines with their sources and article links and the "Powered by FLASH" credit.
+
 ## Track record in the app
 
 The fund page (`/fund/<subdomain>`) and each agent page (`/fund/<subdomain>/agents/<agentId>`) show a **Track record** panel:
@@ -228,4 +295,4 @@ The panel shows an empty state until agents attest.
 
 ## GraphQL API
 
-EAS reads go through Sherwood's self-hosted EAS indexer for 4663 (easscan does not index Robinhood Chain), the same path for every schema on this page. The endpoint is configured per chain in `cli/src/lib/network.ts` (`easGraphqlUrl`). No EAS SDK dependency: attestations are encoded with viem. The indexer picks up a newly registered schema on its next poll; it needs no restart. The `/attestation/<uid>` permalink page does not decode the decision-trace schemas yet and shows their raw data.
+EAS reads go through Sherwood's self-hosted EAS indexer for 4663 (easscan does not index Robinhood Chain), the same path for every schema on this page. The endpoint is configured per chain in `cli/src/lib/network.ts` (`easGraphqlUrl`). No EAS SDK dependency: attestations are encoded with viem. The indexer picks up a newly registered schema on its next poll; it needs no restart. The `/attestation/<uid>` permalink page (`https://api.sherwood.sh/attestation/<uid>`, printed by the CLI after a signed attest) decodes `X402_RESEARCH`, with its pinned record, and `DECISION_THESIS`, with its [cited research](#cited-research). The other decision-trace schemas show their raw data.

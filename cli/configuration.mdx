@@ -42,6 +42,7 @@ Save settings to `~/.sherwood/config.json`.
 | `--notify-to <id>` | Destination for cron summaries (Telegram chat ID, phone, etc.) |
 | `--uniswap-api-key <key>` | Uniswap Trading API key (from developers.uniswap.org) |
 | `--venice-api-key <key>` | Venice AI inference API key |
+| `--flash-api-key <key>` | FLASH API key for `sherwood news` (free during the pilot; get one at [app.flash.im/terminal](https://app.flash.im/terminal)). Takes precedence over the `FLASH_API_KEY` environment variable |
 | `--xmtp-group <subdomain:groupId>` | Cache an XMTP group ID for a vault |
 
 ### `sherwood config show`
@@ -60,6 +61,7 @@ State is stored in `~/.sherwood/config.json`.
 | `dbEncryptionKey` | Legacy. No longer used; ignore it if an old config still has it |
 | `uniswapApiKey` | Uniswap Trading API key (only if set) |
 | `veniceApiKey` | Venice AI inference API key (only if set) |
+| `flashApiKey` | FLASH API key for `sherwood news` (only if set) |
 | `xmtpDbKey` | XMTP database key for sign-only wallets (cohort chat) |
 | `groupCache` | Local cache of subdomain to XMTP group ID |
 | `rpc` | Per-network custom RPC URLs |

@@ -1,6 +1,6 @@
 ---
 title: "Command Reference"
-description: "Full Sherwood CLI reference, in setup order: config, ERC-8004 identity, vaults, deposits and redemptions, the queue, strategies, research, chat, and providers."
+description: "Full Sherwood CLI reference, in setup order: config, ERC-8004 identity, vaults, deposits and redemptions, the queue, strategies, research, news, chat, and providers."
 icon: "terminal"
 ---
 
@@ -24,6 +24,7 @@ Save settings to `~/.sherwood/config.json`.
 | `--vault <address>` | Default SyndicateVault address |
 | `--rpc <url>` | Custom RPC URL for the current chain (saved per-network) |
 | `--notify-to <id>` | Destination for cron summaries (Telegram chat ID, phone, etc.) |
+| `--flash-api-key <key>` | FLASH API key for [`sherwood news`](#news-flash). Takes precedence over the `FLASH_API_KEY` environment variable |
 
 ### `sherwood config show`
 
@@ -431,6 +432,78 @@ The wallet must support EIP-712 (`eth_signTypedData_v4`): the payment is an EIP-
 
 ---
 
+## News (FLASH)
+
+### `sherwood news`
+
+News for a Robinhood stock token, a crypto asset or a free-text query from [FLASH](https://flash.im), which covers equities, macro and crypto. Each item has an impact tier from 2 to 5, a headline, the publisher and a link to the original article, ticker tags with sentiment, and FLASH's own summary and "why it matters". Requires CLI 0.100.0 or later.
+
+**Free during the pilot, no x402 step.** FLASH takes no payment: nothing is signed, no USDC is spent, and there is no cost prompt. The query needs no wallet; only `--post` does.
+
+**Key.** Each agent uses its own key. Get one at [app.flash.im/terminal](https://app.flash.im/terminal) (self-serve, free during the pilot), then run `sherwood config set --flash-api-key <key>` or set `FLASH_API_KEY` (a key saved in the config wins). Without a key, `news` exits 1 and prints the sign-up URL. A rejected key (HTTP 401 or 403) names both settings and the sign-up URL.
+
+```bash
+sherwood news --asset NFLX                                            # a stock token by symbol or name
+sherwood news --asset ETH --days 3 --impact 3                         # not a stock token: treated as crypto; tiers 3 to 5
+sherwood news --query "Netflix, Alphabet"                              # comma-separated entity keywords
+sherwood news --query "Will the Fed cut rates in December?" --match sentence
+sherwood news --asset NFLX --limit 10 --post <vault-name>             # pin, attest, post to the vault chat
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--asset <symbol\|name>` | none | A Robinhood stock token by symbol or name (`NFLX`, `Netflix`): asks FLASH for that token's keywords, category `economy`. Anything not in the stock-token universe is treated as a crypto asset: the input is the keyword, category `crypto`. Pass exactly one of `--asset` and `--query` |
+| `--query <text>` | none | Free text. With `--match keyword`, comma-separated keywords, at most 30. FLASH matches the entities it tags items with (tickers, company and institution names such as `Netflix`, `NFLX`, `Federal Reserve`), not article text: `Treasury` or `rate cut` return nothing even when headlines mention them |
+| `--match <keyword\|sentence>` | `keyword` | How `--query` is matched. `sentence` sends the text whole and is logged by FLASH (see below). Ignored with `--asset` |
+| `--days <n>` | `7` | Look back this many days |
+| `--impact <n>` | `2` | Lowest impact tier, 2 to 5. `3` means tiers 3, 4 and 5 |
+| `--limit <n>` | `20` | Most items to return, 1 to 100. With `--post`, at most 20: a higher value is refused |
+| `--category <economy\|crypto\|auto>` | `auto` | FLASH category. `auto`: `economy` for a stock token, `crypto` for any other `--asset`, no category for `--query` |
+| `--provider <name>` | `flash` | News provider. FLASH is the only one |
+| `--json` | off | Print the `sherwood/research/v1` document that `--post` pins (its `data` is the FLASH record) instead of the list. Under a keyless `--post` it goes to stderr, because stdout carries the attest tx |
+| `--post <vault>` | none | Pin the record to IPFS, write an `X402_RESEARCH` [attestation](/reference/integrations/eas) to the vault the name resolves to, and post the top 3 headlines to its chat. Needs a configured key, or root `--calldata-only`, which prints the attest tx and skips the chat |
+| `--yes` | off | Skip the `--match sentence` confirmation |
+| `--address <wallet>` | none | Refused: FLASH takes no payment. A sign-only wallet posts with root `--calldata-only` |
+| `--timeout <s>` | `600` | Unused by FLASH (it is the x402 two-step's wait for the paid research providers) |
+
+Items print newest first: UTC time, impact pips (`●●●●○` is impact 4), headline, source name and article URL; ticker tags with sentiment on the next line; `whyItMatters` indented under impact 4 and 5; one FLASH credit at the end. When FLASH has nothing, the CLI prints `FLASH has no items for <target> in the last <n> days` and exits 0 (with `--json` the record still prints, with `matchStatus: "no_match"` and empty `items`), so a script can tell no news from a failure.
+
+Sample output, taken live on 2026-10-28 (items change with the news; ticker sentiment and `whyItMatters` print on the items that carry them):
+
+```text
+$ sherwood news --asset NFLX --limit 3
+
+Research Query
+────────────────────────────────────────
+  Provider:  flash
+  Type:      news
+  Target:    NFLX
+  Est. cost: free (pilot)
+
+✔ news data received from flash
+
+2026-10-28 13:01Z  ●●○○○  Bessent trade adviser Eric Ettorre leaves Treasury for Netflix — Axios  https://www.axios.com/2026/10/28/bessent-treasury-trade-adviser-netflix
+    NFLX
+
+2026-10-28 10:45Z  ●●○○○  Polymarket bettors give YouTube a 19% chance of topping $12 billion in quarterly ads — Benzinga  https://www.benzinga.com/markets/tech/26/10/62647323/youtube-ad-revenue-netflix-earnings-alphabet
+    NFLX
+
+2026-10-27 12:30Z  ●●○○○  Opinion: Companies should treat departing employees with greater dignity — Fortune  https://fortune.com/2026/10/27/netflix-layoffs-corporate-america-getting-wrong-dignity/
+    NFLX
+
+Powered by FLASH  https://flash.im
+```
+
+<Warning>
+**`--match sentence` is logged.** FLASH logs sentence queries together with your IP address and user agent. The CLI warns (`FLASH logs sentence queries with your IP and user agent; use --match keyword to avoid sending the thesis text.`) and asks before sending, unless you pass `--yes`. Don't send thesis text or a private plan as a sentence; ask with keywords.
+</Warning>
+
+**Attribution.** Wherever FLASH items are shown (vault chat, a thesis, a proposal description, a report), show each item's source name, link the original article, and add one "Powered by FLASH" credit linking [flash.im](https://flash.im) per list. The CLI's list, its vault-chat post and the Sources section it writes into a default thesis already do this; anything an agent writes from a record must too.
+
+**`--post` and the permalink.** A signed `--post` pins the record, attests it and prints `✔ Attested: https://api.sherwood.sh/attestation/<uid>`. That page shows the headlines with their sources and the "Powered by FLASH" credit. Under `--calldata-only` the CLI pins the record and prints the `X402_RESEARCH` attest tx; broadcast it and read the UID with `sherwood attest uid --tx <hash>` (see [External signer](/cli/external-signer)). For a research tx its `schema` field is the raw `X402_RESEARCH` schema UID (`0x86c67f0a59acb3093ecbeb6c4d1d4352e4a48143672e92ef9dd2fdfc8a9ca708`), not the name; pass its `uid` to `--cite`. A record with no items is never posted. Cite the UID in a thesis with `--cite` ([Attest](#attest-public-track-record), [`strategy propose`](/cli/strategy-commands)).
+
+---
+
 ## Attest (public track record)
 
 Decision-trace attestations on EAS: an opt-in public track record that depositors can trust over time. Proposals never depend on them, and a failed attestation warns without blocking. The six schemas are registered on Robinhood Chain (2026-10-13); every write still checks the SchemaRegistry first and refuses with `Schema <NAME> is not registered on Robinhood Chain yet (uid …). Registration is pending.` if one is missing. Schemas, field values, license and encryption: [EAS attestations](/reference/integrations/eas#decision-traces-a-public-track-record).
@@ -448,7 +521,8 @@ Decision-trace attestations on EAS: an opt-in public track record that depositor
 
 ```bash
 sherwood attest thesis --vault <v> --asset <symbol|address> --direction long|short|neutral --horizon 30d \
-  --confidence <bps> --thesis <file|-> [--encrypt --key-file <p>] [--model-config <file>] [--data-snapshot <file>] [--license none|aggregate|full]
+  --confidence <bps> --thesis <file|-> [--encrypt --key-file <p>] [--model-config <file>] [--data-snapshot <file>] [--license none|aggregate|full] \
+  [--cite <uid>[,<uid>…] [--attester <wallet>]]
 sherwood attest link --vault <v> --proposal-id <id> --thesis-uid <uid> [--provenance-class auto|<n>|<name>] [--license …]
 sherwood attest execution --vault <v> --proposal-id <id> --thesis-uid <uid> --tx <hash>... [--slippage-bps <n>] [--license …]
 sherwood attest kill --vault <v> --proposal-id <id> --reason risk_check|vote_failed|human_override|self_abort|other [--note …] [--thesis-uid <uid>] [--license …]
@@ -458,7 +532,13 @@ sherwood attest uid --tx <hash>
 sherwood attest list --vault <v> [--agent <wallet>] [--json]
 ```
 
-`--license` defaults to `aggregate`; `--provenance-class` defaults to `auto`; `attest version --agent` is required with `--calldata-only`. `--skip-schema-check` (every write verb) is for previews only: a tx built before registration reverts `InvalidSchema`. `strategy propose` attests the thesis by default (`--no-attest` skips it; `--attest-thesis <file>` sets the text) (`--thesis-asset` defaults to the vault asset, `--horizon` to `--duration`). With a sign-only wallet, broadcast the thesis tx, get its UID with `sherwood attest uid --tx <hash>`, then run `attest link` after the propose confirms. Sign-only wallets use root `--calldata-only` and broadcast the printed `attest` tx; see [External signer](/cli/external-signer#attestations). Gas is about $0.02 per attestation, paid by the agent.
+`--license` defaults to `aggregate`; `--provenance-class` defaults to `auto`; `attest version --agent` is required with `--calldata-only`. `--skip-schema-check` (every write verb) is for previews only: a tx built before registration reverts `InvalidSchema`. `strategy propose` attests the thesis by default (`--no-attest` skips it; `--attest-thesis <file>` sets the text) (`--thesis-asset` defaults to the vault asset, `--horizon` to `--duration`). With a sign-only wallet, broadcast the thesis tx, get its UID with `sherwood attest uid --tx <hash>`, then run `attest link` after the propose confirms. Sign-only wallets use root `--calldata-only` and broadcast the printed `attest` tx; see [External signer](/cli/external-signer#attestations). Gas is about $0.02 per attestation, paid by the agent. A signed write prints the attestation permalink on stderr and adds `url` to its JSON output:
+
+```text
+  Attested: https://api.sherwood.sh/attestation/<uid>
+```
+
+**Citing research (CLI 0.100.0 or later).** `attest thesis --cite <uid>[,<uid>…]` (and `strategy propose --cite`) names the `X402_RESEARCH` attestations the thesis relies on, for example a [`news --post`](#news-flash) record. The CLI checks each one, lists it in the pinned thesis document and hashes the records into `dataSnapshotHash`, so `--cite` cannot be combined with `--data-snapshot` or `--encrypt`. Each UID must be an `X402_RESEARCH` attestation by the thesis attester to `--vault`, pointing at an `ipfs://` record of at most 200,000 bytes; at most 20 citations per thesis. A citation that fails refuses (exit 1) instead of attesting without it. `--attester <wallet>` is the wallet that attested the research and signs the thesis: required with `--cite` under `--calldata-only`, and otherwise optional and equal to the configured wallet. The envelope, the hash and the checks the permalink page runs: [Cited research](/reference/integrations/eas#cited-research).
 
 ---
 
