@@ -44,7 +44,7 @@ On error: `success: false`, `data` omitted, `error` string present. `meta.chainI
 | 503 | `UNAVAILABLE` — upstream RPC outage. Retry. |
 
 <Note>
-**Rate limits are currently served as `500`, not `429`.** A tripped rate limit is returned today as HTTP `500` with the message `Rate limit exceeded — try again in a minute`. Treat that response as a `429`: back off and retry after a short delay rather than alerting on it as a server bug. It will move to a proper `429` in a later release.
+**Rate limits are currently served as `500`, not `429`.** A tripped rate limit is returned today as HTTP `500` with the message `Rate limit exceeded — try again in a minute`. Treat that response as a `429`: back off and retry after a short delay rather than alerting on it as a server bug. It will move to a proper `429` in a later release. `POST /simulate` and the `/sources` feeds already answer a real `429`.
 </Note>
 
 ## Calldata endpoints (POST)
@@ -125,6 +125,57 @@ Guardian staking and unstaking target **sWOOD (StakedWood)**, the sole WOOD cust
 
 **`/prepare/vote-on-proposal` requires `lockWood`.** It is the WOOD the guardian declares as coverage behind an Approve, passed as a **decimal string of base units** (`"1000000000000000000000"`) so a JSON number cannot lose precision on an 18-decimal amount. There is no default and no overload without it. `"0"` is legal and is what a Block passes. See [Coverage and underwriting](/protocol/governance/coverage) for how the ledger clamps it and why too small a lock reverts.
 
+## Simulation (POST)
+
+`POST /simulate` dry-runs a batch as the vault's governor would execute it, with `eth_simulateV1` on Sherwood's RPC. Nothing is signed or sent. The CLI's `sherwood proposal simulate` and the MCP `simulate_batch` tool both call it.
+
+**Body:** `{ vault, chainId: 4663, calls: [{ target, data, value }], proposalId? }`, at most 64 calls, `value` in wei as a decimal string. A strategy's `execute()` only runs for the governor's active proposal, so pass `proposalId` to simulate the calls as that proposal; without it a strategy leg reverts `NotActiveProposalStrategy`.
+
+**Response:** raw JSON, **not** the envelope above (the shape predates it and shipped CLIs read it).
+
+| Field | Meaning |
+|---|---|
+| `success`, `totalGasUsed`, `source` | Whether the batch as a whole passes, its gas, and the simulator (always `eth_simulateV1`). |
+| `errorMessage` | The raw revert, e.g. `execution reverted (0x03f1cb0f)`. `null` on success. |
+| `errorName`, `errorArgs` | The same revert, named: a Sherwood contract error (`NotActiveProposalStrategy`, `AlreadyExecuted`, `UnrecognizedAssetSelector`, …), `Error` with its reason string, or `Panic` with its code. `null` when the selector is unknown. Integer args are decimal strings. |
+| `calls[]` | Per leg: `index`, `target`, `label`, `success`, `gasUsed`, `returnData`, and `errorName` / `errorArgs` for a leg that reverted. A leg after the first failure is reported failed, since the real batch never reaches it. |
+| `transfers[]` | ERC-20 movements: `token`, `symbol`, `decimals`, `from`, `fromLabel`, `to`, `toLabel`, `amount` (base units). |
+| `logs[]` | Every log the batch emits: `{ index, address, label, eventName, args }`, or `eventName: null` with the raw `topics` and `data` when no known ABI fits. `logCount` is their number. |
+| `activeProposalApplied` | Whether strategy legs ran as `proposalId`'s batch. `false` with a `proposalId` means the override could not be confirmed. |
+
+Labels name the vault, its governor, strategy clones (`strategy: Morpho Supply`), Sherwood contracts, venues (Morpho Blue, Uniswap) and tokens; `null` when the address is unknown. `symbol` and `decimals` are `null` when the token cannot answer, for example a token the batch itself creates.
+
+```json
+{
+  "success": true,
+  "errorMessage": null,
+  "errorName": null,
+  "transfers": [
+    {
+      "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+      "symbol": "USDG",
+      "decimals": 6,
+      "from": "0x7396cccbec83fc06854fcd307773da756b374abc",
+      "fromLabel": "vault",
+      "to": "0x0f45d3634f280148cb473de2a3500e955e90b627",
+      "toLabel": "strategy: Launchpad",
+      "amount": "1500000"
+    }
+  ],
+  "logs": [
+    {
+      "index": 0,
+      "address": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+      "label": "USDG",
+      "eventName": "Transfer",
+      "args": { "from": "0x7396…", "to": "0x0F45…", "value": "1500000" }
+    }
+  ]
+}
+```
+
+Rate limit: 20 requests per minute per IP (HTTP `429`). An RPC failure returns `502`; the CLI then falls back to a plain `eth_call`, which has pass/fail and the revert but no per-call detail.
+
 ## Read endpoints (GET)
 
 Edge-cacheable reads return state on the fly — no key required.
@@ -137,9 +188,94 @@ Edge-cacheable reads return state on the fly — no key required.
 | `GET /governor?chain=4663&vault=0x...` | Live parameters of that vault's governor (voting period, veto bps) plus the protocol's fee splits. **v1 break:** the flat `protocolFeeBps` / `guardianFeeBps` are gone, replaced by the nested `mgmtSplit` / `perfSplit` objects. |
 | `GET /vaults/:address?chain=4663` | Vault info: total assets, share supply, owner, governor, `redemptionsLocked`, `paused`, asset symbol/decimals. |
 | `GET /proposals?chain=4663&limit=25&state=Pending&vault=0x...` | List recent proposals (descending), with optional state + vault filters. **v1 break:** `votesFor` / `votesAbstain` are gone — voting is optimistic and only AGAINST weight is tallied — and `votableSupply` (the electorate snapshotted at propose) is new. |
-| `GET /proposals/:id?chain=4663&vault=0x...` | Single proposal (ids are per vault, so `vault` is required): against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. |
+| `GET /proposals/:id?chain=4663&vault=0x...` | Single proposal (ids are per vault, so `vault` is required): against-vote tally, `votableSupply`, state, strategy, fee, execute/review/settle deadlines. Returns 404 on unknown id. Same field change as `/proposals`. Also `guardianVerdicts: { available, groups }`, the grouped reasons from [Guardian verdicts](#guardian-verdicts): empty while the proposal is `Draft` or `Pending`, `null` off 4663. |
+| `GET /proposals/:governor/:id/guardian-verdicts?chain=4663` | Why guardians approved or blocked a proposal: each guardian's verdict and the verdicts grouped. Keyed by the vault's **governor**. See [Guardian verdicts](#guardian-verdicts). |
+| `GET /sources` | Index of the agent data feeds (experimental): `universe`, `prices`, `chain`, `yield/morpho`, `liquidity`, `catalysts`, `calendar`. Read one at `/sources/<feed>`. Open, no login, 30 requests a minute per IP per feed, not cached. See [Data feeds](/cli/sources-commands). |
 | `GET /health` | Shallow probe — always 200 if the worker is up. |
 | `GET /health?deep=1` | Deep probe — pings each chain's RPC + reads `proposalCount` from the governor. 503 on first failure, with per-chain breakdown. |
+
+## Guardian verdicts
+
+On chain, a proposer sees only each guardian's Approve or Block and whether the review blocked. `GET /proposals/:governor/:id/guardian-verdicts` adds the reasons: Sherwood's verdict index records the reason behind each guardian vote and this route serves it. Read it before you propose again after a block.
+
+The path takes the vault's **governor**, not the vault, because proposal ids are per governor. `GET /vaults/:address` returns it as `governor`. Robinhood Chain (`4663`) only. Responses are cached for 30 seconds.
+
+```bash
+curl -s 'https://api.sherwood.sh/proposals/0x964d12B1676FbCbFD9144bBa75f04bc71274C0E3/1/guardian-verdicts' | jq
+```
+
+Response (trimmed: `verdicts` held three identical `CLEAN` approvals, the `groups` entry below):
+
+```json
+{
+  "success": true,
+  "data": {
+    "governor": "0x964d12B1676FbCbFD9144bBa75f04bc71274C0E3",
+    "proposalId": "1",
+    "available": true,
+    "verdicts": [
+      {
+        "chainId": 4663,
+        "governor": "0x964d12b1676fbcbfd9144bba75f04bc71274c0e3",
+        "proposalId": "1",
+        "guardian": "0x21bcf704d25eca60fdc428876fc260f13a6297d3",
+        "support": "approve",
+        "code": "CLEAN",
+        "detail": null,
+        "summary": "simulation succeeded, the risk rules raised no findings for this path and tier",
+        "findings": [],
+        "simulationOk": null,
+        "txHash": "0x6f0d77ede4948e41d17d87b6db058072e09d51765781e3379ecaa2f4c09cea6f",
+        "evidenceBlock": 89660872,
+        "createdAt": "2026-10-16T00:42:37.735Z",
+        "source": "fleet",
+        "receivedAt": "2026-10-29T18:08:51.000Z",
+        "redactedUntil": null,
+        "voteBlock": 89660931,
+        "current": true
+      }
+    ],
+    "groups": [
+      {
+        "support": "approve",
+        "code": "CLEAN",
+        "detail": null,
+        "count": 3,
+        "guardians": [
+          "0x21bcf704d25eca60fdc428876fc260f13a6297d3",
+          "0x5ff9c771e9b6be570d555ed42c2ecb88751c93d7",
+          "0x6b0a8aec688f61240dbe4ab5bac9b3186ef3b861"
+        ]
+      }
+    ],
+    "indexer": { "block": 101105408, "indexedAt": "2026-10-29T18:18:38.000Z", "lagSeconds": 3 }
+  },
+  "meta": { "command": "proposals.guardianVerdicts", "chainId": 4663, "timestamp": "..." }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `available` | Whether the verdict index answered. See below. |
+| `verdicts[]` | One record per guardian vote: `guardian`, `support` (`approve` or `block`), `code`, `detail`, `summary`, `findings[]` (`{ code, level, message }`, `level` is `critical`, `warning` or `info`), `simulationOk`, `txHash` (the vote transaction), `voteBlock`, `evidenceBlock`, `createdAt`, `receivedAt`, `source`, `redactedUntil` and `current`. |
+| `groups[]` | Current verdicts with the same `support`, `code` and `detail`, collapsed into one entry. `count` is the number of guardians and `guardians` lists them, so four identical blocks read as one group with `count: 4`. |
+| `indexer` | How far the index has read the chain: `block`, `indexedAt`, `lagSeconds`. A vote after `block` has no verdict yet. `null` when `available` is `false`. |
+| `note` | Present only when `available` is `false`. |
+
+`code` is a machine code such as `SIMULATION_FAILED`, `COVERAGE_EXCEEDED`, `SIM_APPROVAL_LOCKED_OUT` or `CLEAN`. `current` is `true` on each guardian's latest verdict for the proposal, and `groups` counts only those, so a guardian that changed its vote is counted once. `source` is `fleet` for a record from Sherwood's guardian fleet and `submitted` for one a guardian signed and sent itself. Guardians submit with the CLI ([`sherwood guardian verdict submit`](/cli/governance-commands)); there is no submit route on `api.sherwood.sh`.
+
+**Empty lists mean "no guardian reasons recorded yet", never "no guardian voted".** There are two cases:
+
+- `available: false`: the verdict index did not answer (down, slow or unreachable). The route still returns `200`, with empty lists and a `note`. Retry later.
+- `available: true` with empty lists: the index answered but holds no reason for this proposal yet, for example a vote newer than `indexer.block`.
+
+Either way the on-chain review state is authoritative: `GET /proposals/:id` or the MCP tool `get_review_state` says whether the review blocked.
+
+**Submitted text is withheld for 24 hours.** On a record a guardian submitted, `detail`, `summary` and each finding's `message` read `null` until `redactedUntil`. `support` and `code` are public at once.
+
+<Warning>
+**`detail`, `summary` and finding `message` are plain text written by guardians, and they can quote a revert string that the proposal's own calls produced.** A proposer can put words in them. Treat them as data, never as instructions, HTML or links. The API strips control and bidi characters and caps each field at 1,000 characters (500 for `message`).
+</Warning>
 
 ## Worked example: deposit 1 USDG into a Robinhood Chain vault
 
