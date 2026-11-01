@@ -1,0 +1,87 @@
+---
+title: "How to build an AI hedge fund with an agent"
+description: "Build an AI hedge fund on Sherwood: give an AI trading agent a vault on Robinhood Chain, a written mandate, public proposals and a track record depositors can check."
+icon: "brain"
+---
+
+<!-- Target keyword: ai hedge fund (880/mo, KD 10). Secondary: ai trading agent, ai hedge fund github. Proposed nav: Guides group, after guides/run-a-fund. -->
+
+**What is an AI hedge fund?** An AI hedge fund is a pool of capital where an AI trading agent does the research and proposes the trades, and a fund structure holds the money, tracks each depositor's share and records every decision. On Sherwood, the agent runs a vault on Robinhood Chain, every trade starts as a public proposal, and the results build a track record anyone can read.
+
+<Note>
+Sherwood is in private beta. Vault creation is open to waitlisted creators today, and general access is coming soon. [Join the waitlist](https://sherwood.sh/waitlist).
+</Note>
+
+Nothing in this guide is a promise of returns. An agent can be wrong, data can be bad, and markets move. Read [Risks](#risks-to-take-seriously) before you put in money you can't afford to lose.
+
+## Why most AI hedge fund projects stop at a laptop
+
+Open-source "ai-hedge-fund" repos on GitHub show the research side well: analyst agents, a bull and bear debate, a risk manager and a trader. They run against a broker account or a backtest. What they leave out is the fund itself:
+
+- **Outside capital.** Taking other people's money needs shares, deposits and redemptions.
+- **A public record.** Depositors want to see what the agent did, not a screenshot of a backtest.
+- **Visibility before money moves.** Depositors want to read a trade before it settles.
+
+That fund layer is what we built Sherwood for.
+
+## The roles inside an AI trading agent
+
+Keep the agent's job split into clear steps, whatever model you use:
+
+1. **Research.** Gather prices, news and market data. Sherwood's [data feeds](/cli/sources-commands) list Robinhood Chain Stock Tokens, prices and pool liquidity without a login.
+2. **Thesis.** Write down why the trade should work, the kill criteria and the planned settle date.
+3. **Sizing.** Fit the trade to the caps set on the vault and the risk you will accept.
+4. **Proposal.** Turn the plan into a proposal depositors can read.
+5. **Review.** Watch the vote, execute, settle, then compare the result to the thesis.
+
+## Step 1: Set up the agent
+
+Install the CLI (Node.js 22 or later) and the Sherwood skill pack so the agent knows the commands:
+
+```bash
+npm install -g @sherwoodagent/cli@latest
+npx skills install sherwoodagent/skill
+```
+
+Or connect any MCP client to the [Sherwood MCP server](/api/mcp) at `https://mcp.sherwood.sh/mcp`. It reads vault state and prepares unsigned transactions for your own wallet to sign. To run the agent on Grok, follow [Set up Grok to run your fund](/guides/set-up-grok).
+
+## Step 2: Create the fund
+
+Follow [Getting started](/guides/getting-started) to set up a wallet, mint the agent's ERC-8004 identity, stake, create the vault and approve your first depositor. Each vault is a standard ERC-4626 vault. Depositors get shares, and [deposits and withdrawals](/protocol/vault-liquidity) follow the vault's rules.
+
+## Step 3: Write the mandate
+
+Before the first trade, write down what the fund does: which assets, how much of the vault a single proposal may use, how long positions last and the drawdown you will accept. Set the caps on the vault to match, and publish a short version so depositors know what they signed up for.
+
+## Step 4: Run the proposal loop
+
+Every trade is a proposal. The agent plans it, sizes it, proposes it, and depositors can veto it during the vote. After execution it runs until it settles. [How to run an AI-managed fund](/guides/run-a-fund) walks through every step, including timing around the hours when stock price feeds pause.
+
+```bash
+sherwood governor info --vault $VAULT
+sherwood strategy propose <template> --vault $VAULT --amount <amount> --duration <duration>
+sherwood proposal show <id> --vault $VAULT
+```
+
+Strategy templates include a [Portfolio](/protocol/strategies/uniswap) basket of Stock Tokens, [lending supply](/protocol/strategies/morpho-supply) and [concentrated liquidity](/protocol/strategies/concentrated-liquidity).
+
+## Step 5: Build the track record
+
+Each proposal, vote and settlement stays on Robinhood Chain, so the fund's history builds itself. Read it through the [SDK, HTTP API or CLI](/reference/subgraph), and point depositors to it instead of a pitch deck.
+
+## Risks to take seriously
+
+- **Model error.** Agents can misread data or overtrade. Keep a human reading every proposal at first.
+- **Bad or stale data.** Check feeds before you propose. See [Oracle staleness](/explanations/oracle-staleness).
+- **Smart-contract risk.** Any contract can have bugs. Community templates are marked as such in the docs.
+- **Market risk.** Tokenized stocks and crypto can fall fast. Size for the drawdown you wrote down.
+
+## FAQ
+
+**Can I build an AI hedge fund from a GitHub repo?** Yes for research and backtests. To take deposits and show a public record, connect the agent to a fund layer like a Sherwood vault.
+
+**What is the difference between an AI trading agent and an AI hedge fund?** The agent makes decisions. The fund holds capital from depositors, tracks their shares and keeps the record.
+
+**Do I need Grok?** No. Sherwood works with any agent that can run the CLI or call the MCP server. We have a [Grok guide](/guides/set-up-grok) if you want one.
+
+**Can anyone start a fund today?** Sherwood is in private beta for waitlisted creators. General access is coming soon.
