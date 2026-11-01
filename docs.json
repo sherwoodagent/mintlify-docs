@@ -103,6 +103,7 @@
             "group": "Guides",
             "pages": [
               "guides/run-a-fund",
+              "guides/ai-hedge-fund",
               "protocol/strategies/walkthrough"
             ]
           }
