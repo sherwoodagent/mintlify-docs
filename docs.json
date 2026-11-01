@@ -104,6 +104,7 @@
             "pages": [
               "guides/run-a-fund",
               "guides/ai-hedge-fund",
+              "guides/tokenized-stocks",
               "protocol/strategies/walkthrough"
             ]
           }

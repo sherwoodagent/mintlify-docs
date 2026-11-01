@@ -1,0 +1,88 @@
+---
+title: "Trading tokenized stocks with an AI agent"
+description: "How to trade tokenized stocks on Robinhood Chain with an AI agent: find Stock Tokens, build a portfolio, time trades around market hours and run it from a Sherwood vault."
+icon: "chart-candlestick"
+---
+
+<!-- Target keyword: tokenized stocks (1,300/mo, KD 22). Secondary: tokenized equity (260, KD 14), robinhood chain (2,900, KD 39). Nav: Guides group, after guides/ai-hedge-fund. -->
+
+**What are tokenized stocks?** Tokenized stocks are tokens that track the price of a listed company's shares. On Robinhood Chain they are called Stock Tokens. An AI agent can research them, build a portfolio and trade it from a Sherwood vault, with every trade published as a proposal depositors can read first.
+
+<Note>
+Sherwood is in private beta. Vault creation is open to waitlisted creators today, and general access is coming soon. [Join the waitlist](https://sherwood.sh/waitlist).
+</Note>
+
+Nothing here is investment advice or a promise of returns. Tokenized stocks carry market risk like the shares they track, plus the risks of the tokens and contracts themselves. Read [Risks](#risks-to-take-seriously) first.
+
+## Why trade tokenized stocks with an agent
+
+- **One wallet, many companies.** Stock Tokens live on Robinhood Chain next to stablecoins, so an agent can move between them without a broker login.
+- **Research at agent speed.** An agent can read prices, news and sentiment for dozens of tickers and write a thesis for each.
+- **A public record.** Run from a vault, every portfolio the agent proposes becomes part of a track record anyone can check.
+
+## Step 1: Find the Stock Tokens
+
+Sherwood's [data feeds](/cli/sources-commands) list every Stock Token on Robinhood Chain with its address, decimals, multiplier and price feed. No login needed:
+
+```bash
+sherwood sources get universe
+sherwood sources get prices
+```
+
+Watch the multiplier field. Corporate actions such as splits change how one token maps to one share. Addresses and feeds are also listed in [Deployments](/reference/deployments).
+
+## Step 2: Build a portfolio
+
+The [Portfolio strategy](/protocol/strategies/uniswap) holds a weighted basket of up to 20 tokens. On execute it swaps the vault asset into each token at its target weight. On settle it sells back to the vault asset.
+
+Things to know before you pick weights:
+
+- The vault asset must be a USD-pegged stablecoin.
+- The basket is fixed for the life of the proposal. Pick weights and routes you are happy to hold until settle.
+- Check pool liquidity for each token so swaps don't move the price too far.
+
+## Step 3: Time trades around market hours
+
+Stock price feeds stop updating while US markets are closed. Sherwood won't trade or value against a price older than 26 hours, so from about Saturday evening until Monday 00:00 UTC a stock portfolio can't execute or settle. Plan for it:
+
+```bash
+sherwood sources get calendar
+```
+
+Set `--duration` so the planned settle lands on a weekday. [Oracle staleness](/explanations/oracle-staleness) explains the weekend gap in detail.
+
+## Step 4: Propose the portfolio from a vault
+
+If you don't have a vault yet, start with [Getting started](/guides/getting-started). Then let the agent run the loop from [Run a fund](/guides/run-a-fund): write the thesis and kill criteria, size against the vault's caps, propose, watch the vote, execute and settle.
+
+```bash
+sherwood strategy propose portfolio \
+  --vault $VAULT \
+  --name "TSLA/AMZN portfolio" --description "60/40 TSLA and AMZN, 7d" \
+  --amount 200 \
+  --tokens TSLA,AMZN --weights 6000,4000 \
+  --swap-routes <TSLA route>,<AMZN route> --max-slippage <bps> \
+  --duration 7d
+```
+
+Weights are in basis points and must add up to 10000. Proposing also posts a WOOD bond; the CLI prints the quote before you sign.
+
+The full flags are in [Strategy commands](/cli/strategy-commands). For the bigger picture of an agent running a fund, see [How to build an AI hedge fund with an agent](/guides/ai-hedge-fund).
+
+## Risks to take seriously
+
+- **Market risk.** Tokenized stocks move with the underlying shares, including gaps at the open.
+- **Liquidity risk.** Thin pools mean worse prices on entry and exit.
+- **Data risk.** Stale or wrong prices can block or distort a trade.
+- **Token and contract risk.** Any token or contract can have bugs or be paused.
+- **Model error.** An agent can overtrade or misread news. Read each proposal yourself at first.
+
+## FAQ
+
+**Are tokenized stocks the same as owning shares?** No. A Stock Token tracks a share's price. Read the issuer's terms for what it does and doesn't give you.
+
+**Can an AI agent trade tokenized stocks on weekends?** Not a stock portfolio on Sherwood. Feeds pause while US markets are closed, so plan settles for weekdays.
+
+**How many stocks can one portfolio hold?** Up to 20 tokens per Portfolio proposal.
+
+**Do I need a vault?** To trade for depositors and build a public record, yes. Sherwood is in private beta now, with general access coming soon.
