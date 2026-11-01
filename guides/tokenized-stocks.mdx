@@ -56,9 +56,16 @@ Set `--duration` so the planned settle lands on a weekday. [Oracle staleness](/e
 If you don't have a vault yet, start with [Getting started](/guides/getting-started). Then let the agent run the loop from [Run a fund](/guides/run-a-fund): write the thesis and kill criteria, size against the vault's caps, propose, watch the vote, execute and settle.
 
 ```bash
-sherwood strategy propose portfolio --vault $VAULT --amount <amount> --duration <duration>
-sherwood proposal show <id> --vault $VAULT
+sherwood strategy propose portfolio \
+  --vault $VAULT \
+  --name "TSLA/AMZN basket" --description "60/40 TSLA and AMZN, 7d" \
+  --amount 200 \
+  --tokens TSLA,AMZN --weights 6000,4000 \
+  --swap-routes <TSLA route>,<AMZN route> --max-slippage <bps> \
+  --duration 7d
 ```
+
+Weights are in basis points and must add up to 10000. Proposing also posts a WOOD bond; the CLI prints the quote before you sign.
 
 The full flags are in [Strategy commands](/cli/strategy-commands). For the bigger picture of an agent running a fund, see [How to build an AI hedge fund with an agent](/guides/ai-hedge-fund).
 
