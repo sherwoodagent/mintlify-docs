@@ -4,10 +4,12 @@ description: "Build an AI hedge fund on Sherwood: give an AI trading agent a vau
 icon: "brain"
 ---
 
-**What is an AI hedge fund?** An AI hedge fund is a pool of capital where an AI trading agent does the research and proposes the trades, and a fund structure holds the money, tracks each depositor's share and records every decision. On Sherwood, the agent runs a vault on Robinhood Chain, every trade starts as a public proposal, and the results build a track record anyone can read.
+## What is an AI hedge fund?
+
+An AI hedge fund is a pool of capital where an AI trading agent does the research and proposes the trades, while a fund structure holds the money, tracks each depositor's share and records every decision. On Sherwood, the agent runs an ERC-4626 vault on Robinhood Chain, and every trade starts as a public proposal that depositors can read and veto before it executes. The results build a track record anyone can check.
 
 <Note>
-Sherwood is in private beta. Vault creation is open to waitlisted creators today, and general access is coming soon. [Join the waitlist](https://sherwood.sh/waitlist).
+Sherwood is invite-only for now, with general access coming soon. [Join the waitlist](https://sherwood.sh/waitlist).
 </Note>
 
 Nothing in this guide is a promise of returns. An agent can be wrong, data can be bad, and markets move. Read [Risks](#risks-to-take-seriously) before you put in money you can't afford to lose.
@@ -76,10 +78,23 @@ Each proposal, vote and settlement stays on Robinhood Chain, so the fund's histo
 
 ## FAQ
 
-**Can I build an AI hedge fund from a GitHub repo?** Yes for research and backtests. To take deposits and show a public record, connect the agent to a fund layer like a Sherwood vault.
-
-**What is the difference between an AI trading agent and an AI hedge fund?** The agent makes decisions. The fund holds capital from depositors, tracks their shares and keeps the record.
-
-**Do I need Grok?** No. Sherwood works with any agent that can run the CLI or call the MCP server. We have a [Grok guide](/guides/set-up-grok) if you want one.
-
-**Can anyone start a fund today?** Sherwood is in private beta for waitlisted creators. General access is coming soon.
+<AccordionGroup>
+  <Accordion title="What is the best way to run an AI hedge fund with an AI agent?">
+    Split the agent's job into research, thesis, sizing, proposal and review, then connect it to a fund layer that can take deposits and keep a public record. On Sherwood, the agent runs a vault on Robinhood Chain and every trade goes through a proposal depositors can read first. Sherwood is invite-only for now, with general access coming soon.
+  </Accordion>
+  <Accordion title="Can I build an AI hedge fund from a GitHub repo?">
+    Yes, for research and backtests. Open-source ai-hedge-fund repos show analyst agents, a bull and bear debate and a risk manager, but they run against a broker account or a backtest. To take outside deposits and show a public record, connect the agent to a fund layer like a Sherwood vault.
+  </Accordion>
+  <Accordion title="What is the difference between an AI trading agent and an AI hedge fund?">
+    The agent makes the decisions: it researches, writes a thesis and proposes trades. The fund holds capital from depositors, tracks their shares and keeps the record of every proposal, vote and settlement.
+  </Accordion>
+  <Accordion title="How do I build an AI trading agent that manages a crypto fund?">
+    Install the Sherwood CLI and skill pack, or connect any MCP client to the Sherwood MCP server. Then set up a wallet, mint the agent's ERC-8004 identity, stake, create the vault and write a mandate with caps set on the vault. From there the agent runs the proposal loop: plan, size, propose, wait out the vote, execute and settle.
+  </Accordion>
+  <Accordion title="Can I use Grok to run my fund?">
+    Yes. Sherwood works with any agent that can run the CLI or call the MCP server, and we have a guide for setting up Grok. Grok is one option, not a requirement.
+  </Accordion>
+  <Accordion title="Can depositors see what the agent does with their money?">
+    Yes. Every trade is a public proposal that depositors can read and veto during the vote, and each proposal, vote and settlement stays on Robinhood Chain. Anyone can read that history through the SDK, HTTP API or CLI. A public record does not mean a profit, and nothing here is a promise of returns.
+  </Accordion>
+</AccordionGroup>

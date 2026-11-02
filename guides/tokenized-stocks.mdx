@@ -4,10 +4,12 @@ description: "How to trade tokenized stocks on Robinhood Chain with an AI agent:
 icon: "chart-candlestick"
 ---
 
-**What are tokenized stocks?** Tokenized stocks are tokens that track the price of a listed company's shares. On Robinhood Chain they are called Stock Tokens. An AI agent can research them, build a portfolio and trade it from a Sherwood vault, with every trade published as a proposal depositors can read first.
+## What are tokenized stocks?
+
+Tokenized stocks are tokens that track the price of a listed company's shares. On Robinhood Chain they are called Stock Tokens, and they sit in the same wallet as stablecoins. An AI agent can research them, build a portfolio and trade it from a Sherwood vault, with every trade published as a proposal depositors can read first.
 
 <Note>
-Sherwood is in private beta. Vault creation is open to waitlisted creators today, and general access is coming soon. [Join the waitlist](https://sherwood.sh/waitlist).
+Sherwood is invite-only for now, with general access coming soon. [Join the waitlist](https://sherwood.sh/waitlist).
 </Note>
 
 Nothing here is investment advice or a promise of returns. Tokenized stocks carry market risk like the shares they track, plus the risks of the tokens and contracts themselves. Read [Risks](#risks-to-take-seriously) first.
@@ -77,10 +79,23 @@ The full flags are in [Strategy commands](/cli/strategy-commands). For the bigge
 
 ## FAQ
 
-**Are tokenized stocks the same as owning shares?** No. A Stock Token tracks a share's price. Read the issuer's terms for what it does and doesn't give you.
-
-**Can an AI agent trade tokenized stocks on weekends?** Not a stock portfolio on Sherwood. Feeds pause while US markets are closed, so plan settles for weekdays.
-
-**How many stocks can one portfolio hold?** Up to 20 tokens per Portfolio proposal.
-
-**Do I need a vault?** To trade for depositors and build a public record, yes. Sherwood is in private beta now, with general access coming soon.
+<AccordionGroup>
+  <Accordion title="How do tokenized stocks work?">
+    A Stock Token tracks the price of one company's shares, adjusted by a multiplier that changes with corporate actions such as splits. Prices come from feeds that stop updating while US markets are closed. Sherwood's data feeds list every Stock Token on Robinhood Chain with its address, decimals, multiplier and price feed, with no login needed.
+  </Accordion>
+  <Accordion title="Are tokenized stocks the same as owning shares?">
+    No. A Stock Token tracks a share's price. Read the issuer's terms for what it does and doesn't give you.
+  </Accordion>
+  <Accordion title="Where can I trade tokenized stocks, and what can I do with them?">
+    Stock Tokens live on Robinhood Chain. With Sherwood, an AI agent can hold a weighted portfolio of them through the Portfolio strategy, and vaults can also use lending supply and concentrated liquidity templates. Sherwood is invite-only for now, with general access coming soon.
+  </Accordion>
+  <Accordion title="How does an AI agent build a tokenized stock portfolio on Sherwood?">
+    The agent picks up to 20 Stock Tokens and weights them in basis points that add up to 10000. When the proposal executes, the vault's stablecoin is swapped into each token at its target weight, and on settle it is sold back. The portfolio is fixed for the life of the proposal, so pick weights you are happy to hold until settle.
+  </Accordion>
+  <Accordion title="Can an AI agent trade tokenized stocks on weekends?">
+    Not a stock portfolio on Sherwood. Sherwood won't trade or value against a price older than 26 hours, so from about Saturday evening until Monday 00:00 UTC a stock portfolio can't execute or settle. Set the duration so the planned settle lands on a weekday.
+  </Accordion>
+  <Accordion title="What are the risks of trading tokenized stocks with an agent?">
+    Tokenized stocks move with the underlying shares, including gaps at the open. Thin pools can mean worse prices, stale data can block or distort a trade, and any token or contract can have bugs or be paused. An agent can also overtrade or misread news, so read each proposal yourself at first.
+  </Accordion>
+</AccordionGroup>
