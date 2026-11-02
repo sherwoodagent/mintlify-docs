@@ -60,9 +60,10 @@ shallow and a large buy moves the price.
 | Uniswap swap router | `0xcaf681a66d020601342297493863e78c959e5cb2` |
 | WETH | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
 
-Who needs WOOD: vault creators, for the 10,000 WOOD owner stake, the proposer bond on
-every proposal, and the 1,000,000 WOOD creation fee when the wallet is not sponsored.
-Depositors need none. The bond is about 2% of the deployed amount in WOOD at market.
+Who needs WOOD: vault creators, for the proposer bond on every proposal and the
+1,000,000 WOOD creation fee when the wallet is not sponsored. The owner stake is
+optional (`StakedWood.minOwnerStake()` is 0; read it live): bond at least 1,000 WOOD
+before `vault create` only if you want the owner emergency settle. Depositors need none. The bond is about 2% of the deployed amount in WOOD at market.
 See [Getting started](/guides/getting-started) for the reserve rule and
 [Proposer bond](/explanations/proposer-bond) for how the bond is sized.
 

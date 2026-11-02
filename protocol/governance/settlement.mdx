@@ -9,7 +9,7 @@ icon: "handshake"
 Once a proposal is `Approved`, the pre-committed calls run directly on the vault:
 
 1. Anyone calls `executeProposal(proposalId)` on the governor; no arguments beyond the id.
-2. The governor checks, in order: the state is `Approved` (`ProposalNotApproved`); no other strategy is live (`StrategyAlreadyActive`); the owner stake is live (`OwnerBondNotLive`); the tier and coverage have not regressed since propose (`TierRegressed`, `CoverageRegressed`); `maxCapital` still fits `totalAssets() × maxCapitalBps / 10_000` (`MaxCapitalCeilingRegressed`). There is **no cooldown check at execute**; the cooldown is enforced at propose.
+2. The governor checks, in order: the state is `Approved` (`ProposalNotApproved`); no other strategy is live (`StrategyAlreadyActive`); the owner stake is live (`OwnerBondNotLive`; a vault created with no bond is live); the tier and coverage have not regressed since propose (`TierRegressed`, `CoverageRegressed`); `maxCapital` still fits `totalAssets() × maxCapitalBps / 10_000` (`MaxCapitalCeilingRegressed`). There is **no cooldown check at execute**; the cooldown is enforced at propose.
 3. It stamps `executedAt`, records the active proposal, starts the management-fee clock on the whole fund's `totalAssets()`, and asks the exposure ledger for the coverage guardians actually booked. A partial book scales `maxCapital` and every per-call cap by the same ratio (`EffectiveMaxCapitalSet`); an empty book reverts `InsufficientApproveCoverage`. See [Coverage](/protocol/governance/coverage#shortfall-scales-rather-than-blocks).
 4. The governor calls `vault.executeGovernorBatch(executeCalls, effectiveCallCaps, effectiveMaxCapital)`, the vault's governor-only entrypoint. All positions now live on the vault address.
 
@@ -73,7 +73,7 @@ Every settlement path runs the unwind batch with a **net egress budget of zero**
   <Tab title="emergencySettleWithCalls (guardian-reviewed)">
     When the pre-committed calls are broken (stale params, a paused target, shifted pool state), the owner proposes custom settlement calldata through a block-only guardian review:
 
-    1. `emergencySettleWithCalls(proposalId, calls)` reverts `OwnerBondInsufficient` unless the owner's stake is live and at least `requiredOwnerBond` (10,000 WOOD at launch). The governor stores the hash of the calls (at most 64) in the registry and opens a `reviewPeriod` window. **Calls do not execute yet.**
+    1. `emergencySettleWithCalls(proposalId, calls)` reverts `OwnerBondInsufficient` unless the owner's stake is live and at least `requiredOwnerBond` (1,000 WOOD, the `MIN_OWNER_BOND_FLOOR`). The owner stake is optional, so an owner who did not bond at least that much before `vault create` cannot use this path. The governor stores the hash of the calls (at most 64) in the registry and opens a `reviewPeriod` window. **Calls do not execute yet.**
     2. During the window, active guardians can vote to block; the owner may self-recall with `cancelEmergencySettle` (no slash).
     3. After the window, `finalizeEmergencySettle(proposalId)` replays the stored calls. If guardians reached the block quorum it reverts `EmergencySettleBlocked`; the revert rolls back the burn the registry attempts inside the same call. Otherwise the batch runs with per-call caps disabled and the zero egress budget, and the proposal settles. This path is exempt from the `StrategyNotSettled` check.
 

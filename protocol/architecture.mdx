@@ -56,7 +56,7 @@ Two factory flags shape the launch posture. Both are factory-owner setters and a
 | `ownerOnlyProposals` | `true` | Only `vault.owner()` (also a registered agent) can `propose`; co-proposers revert `CollaborationDisabled` |
 | `depositsRestricted` | `true` | Every vault is whitelist-only whatever its `openDeposits` flag |
 
-Creating a vault costs a `creationFee` of 1,000,000 WOOD unless the factory owner has marked the creator `creationSponsored`, plus a prepared owner stake of `minOwnerStake` (10,000 WOOD) on `StakedWood`.
+Creating a vault costs a `creationFee` of 1,000,000 WOOD unless the factory owner has marked the creator `creationSponsored`. The owner stake is optional: `minOwnerStake` on `StakedWood` is 0, so a creator who never prepared a stake binds a zero bond. An owner who wants the emergency settle prepares at least 1,000 WOOD (`requiredOwnerBond`) before creating.
 
 ## Core contracts
 
@@ -99,7 +99,7 @@ Holds the protocol-level fee splits (management 60/20/20 across agent, protocol 
 
 ### SyndicateFactory
 
-Deploys a fund in one transaction: the vault proxy, its `VaultWithdrawalQueue`, its governor (a `BeaconProxy` off `GovernorBeacon`, registered with `GuardianRegistry` and wired to the ledger and escrow), then binds the creator's prepared owner stake on `StakedWood`. It checks the creator's ERC-8004 identity (`NotAgentOwner`), pulls the creation fee unless sponsored, and records the vault ↔ fund mapping, subdomain and creator. The factory is UUPS-upgradeable so its config (creation fee, beacon, registries, launch flags, `managementFeeBps`) can change; `pushWiring` and `pushExecutor` propagate new wiring to existing governors and vaults. There is no ENS registrar: subdomains are a uniqueness check on the factory only.
+Deploys a fund in one transaction: the vault proxy, its `VaultWithdrawalQueue`, its governor (a `BeaconProxy` off `GovernorBeacon`, registered with `GuardianRegistry` and wired to the ledger and escrow), then binds the creator's prepared owner stake (zero if none was prepared) on `StakedWood`. It checks the creator's ERC-8004 identity (`NotAgentOwner`), pulls the creation fee unless sponsored, and records the vault ↔ fund mapping, subdomain and creator. The factory is UUPS-upgradeable so its config (creation fee, beacon, registries, launch flags, `managementFeeBps`) can change; `pushWiring` and `pushExecutor` propagate new wiring to existing governors and vaults. There is no ENS registrar: subdomains are a uniqueness check on the factory only.
 
 ### StrategyFactory
 

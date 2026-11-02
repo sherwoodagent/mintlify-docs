@@ -183,10 +183,10 @@ Unsigned transactions (`prepare_*`).
 |---|---|
 | `prepare_deposit` | Exact-amount approve (only if short), then the vault deposit. Refuses if paused, locked, or the receiver is not an approved depositor. |
 | `prepare_identity_mint` | ERC-8004 identity mint, needed to create a vault or register an agent. The `agentId` is in the receipt. |
-| `prepare_owner_stake` | WOOD approve (if short) + `prepareOwnerStake`, the bond vault creation needs. Refuses below `minOwnerStake` or when one is prepared. |
+| `prepare_owner_stake` | WOOD approve (if short) + `prepareOwnerStake`, the optional owner bond. `minOwnerStake` is 0, so vault creation needs none; bond at least 1,000 WOOD only for the owner emergency settle. Refuses below `minOwnerStake` or when one is prepared. |
 | `prepare_guardian_stake` | WOOD approve (if short) + `stakeAsGuardian`. Refuses below `minGuardianStake` or while an unstake is pending. |
 | `prepare_guardian_unstake` | One unstake step: request (starts the cooldown), cancel, or claim (after cooldown, no open coverage). |
-| `prepare_create_vault` | `createSyndicate` (+ creation-fee approve if due). Needs an identity, the owner bond and an `ipfs://` metadata URI. |
+| `prepare_create_vault` | `createSyndicate` (+ creation-fee approve if due). Needs an identity, a passing owner-bond check (no bond needed while `minOwnerStake` is 0) and an `ipfs://` metadata URI. |
 | `prepare_update_metadata` | Point the vault at a new `ipfs://` metadata JSON. Creator only. |
 | `prepare_redeem` | ERC-4626 redeem of shares. Refuses if paused, short of shares, or locked by an open proposal. |
 | `prepare_request_deposit` | Approve (if short) + `requestDeposit`: queues a deposit while a proposal is open. |
@@ -213,7 +213,7 @@ Unsigned transactions (`prepare_*`).
 | `prepare_vote` | Shareholder vote on a Pending proposal. Refuses if not Pending or already voted. |
 | `prepare_execute` | `executeProposal`. Refuses unless Approved (or review elapsed in the window) and coverage is full. |
 | `prepare_settle` | `settleProposal` for an Executed proposal: the proposer any time, anyone after the duration. |
-| `prepare_emergency_settle` | `emergencySettleWithCalls`: the owner's guardian-reviewed custom unwind after the duration. Needs a bonded owner stake. |
+| `prepare_emergency_settle` | `emergencySettleWithCalls`: the owner's guardian-reviewed custom unwind after the duration. Needs an owner stake of at least `requiredOwnerBond` (1,000 WOOD), bonded before `vault create`. |
 | `prepare_unstick` | The owner replays an Executed proposal's settlement calls after its duration when settle is stuck. |
 | `prepare_cancel` | `cancelProposal` by the proposer, through Approved. |
 | `prepare_emergency_cancel` | The vault owner cancels a Draft or Pending proposal. |

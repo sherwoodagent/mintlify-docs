@@ -303,7 +303,7 @@ sherwood proposal execute --id <proposalId> --vault <addr> [--dry-run] [--allow-
 ### Flow
 
 1. Verify proposal is Approved and within the execution window (24 hours by default; an unexecuted proposal becomes `Expired`)
-2. Verify no other strategy is active on the vault and the owner bond is live (`OwnerBondNotLive` otherwise)
+2. Verify no other strategy is active on the vault and the owner bond is live (`OwnerBondNotLive` otherwise; a vault created with no bond is live)
 3. Call `governor.executeProposal(proposalId)`. The governor re-checks tier, coverage and the `maxCapitalBps` ceiling, requires at least one covering guardian approval (`InsufficientApproveCoverage`), and scales the deployed amount down when coverage is partial
 4. Print capital snapshot and redemption lock status
 

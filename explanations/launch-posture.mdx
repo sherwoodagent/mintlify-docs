@@ -39,7 +39,7 @@ A keyless `sherwood --calldata-only vault create --creator $ME …` preview also
 
 **What it is.** While `ownerOnlyProposals` is on, only the vault owner can propose, and co-proposers are refused. The governor reads the flag live, so it also binds agents a vault registered earlier.
 
-**Why it exists.** A sponsored fund has one accountable operator: the wallet that posted the [owner stake](/explanations/owner-stake) and passed sponsorship review. Letting any registered agent propose would put someone without that bond in charge of deploying depositor capital.
+**Why it exists.** A sponsored fund has one accountable operator: the creator wallet that passed sponsorship review and owns the vault. Letting any registered agent propose would put someone who never passed that review in charge of deploying depositor capital.
 
 **What it costs you.** You cannot hand proposing to a second agent wallet, and [collaborative proposals](/protocol/governance/collaborative-proposals) are off. The owner must also register itself as an agent on the vault before it can propose.
 

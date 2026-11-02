@@ -91,7 +91,7 @@ Each `encodeX(args, chainId)` returns a `PreparedAction` — `{ txs, preconditio
 | `encodeGovernorParam` | One governor parameter setter. |
 | `encodeMgmtSplit` / `encodePerfSplit` | Protocol fee splits (protocol owner only). |
 | `encodeCreateFund` | Deploy a new vault via the factory, with the WOOD creation-fee approval first when the creator is not sponsored. |
-| `encodePrepareOwnerStake` | Bond the owner stake on `StakedWood`. Required before `encodeCreateFund`. See [Owner stake](/explanations/owner-stake). |
+| `encodePrepareOwnerStake` | Bond the owner stake on `StakedWood`, before `encodeCreateFund`. Optional (`minOwnerStake` is 0); at least 1,000 WOOD only if the owner wants the emergency settle. See [Owner stake](/explanations/owner-stake). |
 | `encodeStrategyDeploy` | Clone and initialize a strategy template. `predictStrategyCloneAddress`, `deriveStrategySalt` and `effectiveStrategySalt` help predict the clone address. |
 | `encodeIdentityMint` | Mint an ERC-8004 identity. |
 | `encodeJoinRequest` / `encodeApproveAgent` | EAS join request and approval. |

@@ -4,19 +4,19 @@ description: "How the WOOD proposer bond is quoted from required coverage at pro
 icon: "shield-check"
 ---
 
-The proposer bond is a WOOD deposit the governor pulls into `ProposerBondEscrow` inside `propose`. It is released when the proposal reaches a terminal state and forfeited only on a challenge conviction. It is the second WOOD pull a vault creator makes; the first is the owner stake. [Why every proposal locks WOOD](/explanations/proposer-bond) explains why the bond exists and why it is quoted at half price.
+The proposer bond is a WOOD deposit the governor pulls into `ProposerBondEscrow` inside `propose`. It is released when the proposal reaches a terminal state and forfeited only on a challenge conviction. It is the one WOOD pull every proposing vault creator makes. The owner stake is optional, and the creation fee applies only when the creator is not sponsored. [Why every proposal locks WOOD](/explanations/proposer-bond) explains why the bond exists and why it is quoted at half price.
 
 ## Who needs WOOD
 
 | Pull | When | Where | Size at launch | Returned? |
 |------|------|-------|----------------|-----------|
 | Creation fee | `createSyndicate` | `SyndicateFactory` → fee recipient | 1,000,000 WOOD, waived once for a sponsored creator (`creationSponsored`) | No |
-| Owner stake | before `createSyndicate` | `StakedWood.prepareOwnerStake`, bound by the factory at creation | `minOwnerStake` = 10,000 WOOD flat; `MIN_OWNER_BOND_FLOOR` of 1,000 WOOD is unconditional; no TVL scaling | Yes, after the 7-day cooldown (`requestUnstakeOwner` → `claimUnstakeOwner`); refused while the vault has an open proposal |
+| Owner stake | before `createSyndicate` | `StakedWood.prepareOwnerStake`, bound by the factory at creation | Optional: `minOwnerStake` = 0. The owner emergency settle needs `requiredOwnerBond`, which floors at `MIN_OWNER_BOND_FLOOR` = 1,000 WOOD unconditionally; no TVL scaling | Yes, after the 7-day cooldown (`requestUnstakeOwner` → `claimUnstakeOwner`); refused while the vault has an open proposal |
 | **Proposer bond** | `propose` | `ProposerBondEscrow.lockBond` | Quoted, see below | Yes, on any terminal state |
 
 Depositors need no WOOD. Guardians stake separately (`minGuardianStake` 10,000 WOOD), see [Guardian Review](/protocol/governance/guardian-review).
 
-The owner stake is slashed only when guardians block an owner emergency settle. The burn takes effect when the blocked review resolves through the permissionless `GuardianRegistry.resolveEmergencyReview`, or when the owner opens the next emergency settle; a `finalizeEmergencySettle` on a blocked review reverts `EmergencySettleBlocked`, and that revert rolls back its own burn. See [Owner stake](/explanations/owner-stake). Proposing and executing require the stake to be live (`OwnerBondNotLive`): an owner who has requested an unstake cannot propose until `cancelUnstakeOwner`.
+The owner stake is slashed only when guardians block an owner emergency settle. The burn takes effect when the blocked review resolves through the permissionless `GuardianRegistry.resolveEmergencyReview`, or when the owner opens the next emergency settle; a `finalizeEmergencySettle` on a blocked review reverts `EmergencySettleBlocked`, and that revert rolls back its own burn. See [Owner stake](/explanations/owner-stake). Proposing and executing require the stake to be live (`OwnerBondNotLive`). Liveness is keyed on the owner, not the amount, so a vault created with no bond is live. An owner who bonded and then requested an unstake cannot propose until `cancelUnstakeOwner`.
 
 ## Quote
 
@@ -35,7 +35,7 @@ Put together: bond ≈ 1% × required coverage ÷ (0.5 × WOOD price). Nothing i
 The number scales with the book and with the WOOD price. A WOOD price fall raises the WOOD count of every new bond. **Never treat a fixed WOOD figure as the requirement**: quote it live from `ExposureLedger.proposerBondWood` (`sherwood strategy propose` prints it) at the moment you propose.
 
 <Tip>
-**Reserve rule for creators.** Hold, in the creator wallet and outside the vault: 10,000 WOOD for the owner stake plus about 3–4% of the capital you plan to deploy, in WOOD. That covers one bond with room for a 50% WOOD fall. A settled bond stays locked for the 14-day challenge window, so back-to-back proposals keep about `(duration + 14d) / cadence` bonds locked at once; size for that. Add 1,000,000 WOOD if your creation is not sponsored. Acquisition is a Uniswap swap on Robinhood Chain; the token and pool addresses are on [Deployments](/reference/deployments).
+**Reserve rule for creators.** Hold, in the creator wallet and outside the vault, about 3–4% of the capital you plan to deploy, in WOOD, plus 1,000 WOOD if you want the owner emergency settle (bonded before `vault create`). That covers one bond with room for a 50% WOOD fall. A settled bond stays locked for the 14-day challenge window, so back-to-back proposals keep about `(duration + 14d) / cadence` bonds locked at once; size for that. Add 1,000,000 WOOD if your creation is not sponsored. Acquisition is a Uniswap swap on Robinhood Chain; the token and pool addresses are on [Deployments](/reference/deployments).
 </Tip>
 
 ## Pull and release

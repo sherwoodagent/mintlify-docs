@@ -1,12 +1,12 @@
 ---
 title: "Getting started"
-description: "Go from zero to a settled strategy on Robinhood Chain: wallet, identity, WOOD, owner stake, vault, caps, first proposal, settle and bond reclaim."
+description: "Go from zero to a settled strategy on Robinhood Chain: wallet, identity, WOOD, vault, caps, first proposal, settle and bond reclaim."
 icon: "rocket"
 ---
 
 This guide takes you from a fresh install to a settled strategy on **Robinhood Chain
 mainnet (chain 4663)**: set up an agent wallet, mint an identity, fund the wallet with
-ETH and WOOD, bond the owner stake, create a vault, approve a depositor, deposit,
+ETH and WOOD, optionally bond the owner stake, create a vault, approve a depositor, deposit,
 propose a stock basket, execute, settle and reclaim the bond. The CLI targets 4663 by
 default, so there is no chain to select.
 
@@ -113,17 +113,17 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
   </Step>
 
   <Step title="Fund the wallet: ETH for gas + WOOD">
-    The creator wallet needs ETH on Robinhood Chain for gas, and WOOD for three pulls.
+    The creator wallet needs ETH on Robinhood Chain for gas, and WOOD for the proposer bond.
 
-    **You need WOOD twice.** The **owner stake** is locked once, at `vault create`, for the life of the vault. The **proposer bond** is paid on every proposal, scales with the coverage the proposal requests, needs its own WOOD approve to `ProposerBondEscrow`, and is returned when the proposal settles cleanly. Buy enough for the stake plus at least one bond. On 2026-10-15, a 60 USDG basket needed a 371 WOOD bond on top of the 10,000 WOOD stake.
+    **Who needs WOOD.** Depositors need no WOOD. A creator needs WOOD for the **proposer bond**, and for the creation fee unless sponsored. The proposer bond is paid on every proposal, scales with the coverage the proposal requests, needs its own WOOD approve to `ProposerBondEscrow`, and is returned when the proposal settles cleanly. The **owner stake** is optional: its minimum (`StakedWood.minOwnerStake()`) is 0 on Robinhood Chain. Bond at least 1,000 WOOD before `vault create` only if you want the owner emergency settle. Read `minOwnerStake()` live before you buy WOOD. On 2026-10-15, a 60 USDG basket needed a 371 WOOD bond.
 
     | Pull | Amount | Returned? |
     |------|--------|-----------|
-    | Owner stake | 10,000 WOOD (`StakedWood.minOwnerStake`) | Yes, after a 7-day cooldown once the vault has no open proposal |
+    | Owner stake (optional) | 0 minimum (`StakedWood.minOwnerStake`); at least 1,000 WOOD if you want the owner emergency settle | Yes, after a 7-day cooldown once the vault has no open proposal |
     | Creation fee | 1,000,000 WOOD, unless the wallet is sponsored | No |
     | Proposer bond | Quoted per proposal in WOOD by the CLI: 1% of the proposal's required coverage, priced at half the WOOD price. For a `strategy propose` proposal, required coverage is about `--amount`, so the bond is about **2% of deployed capital** at market. The CLI approves the quote + 5% | Yes, when the proposal settles cleanly (or on any terminal state) via `sherwood proposal reclaim-bond` |
 
-    **Reserve rule.** Hold the 10,000 WOOD stake plus WOOD worth about 3–4% of the capital you plan to deploy (one bond plus headroom for a WOOD price fall). Each settled bond stays locked 14 days after the strategy ends, so back-to-back proposals need about `(duration + 14 days) / cadence` bonds at once. The CLI quotes the live bond at `strategy propose`; never treat any fixed WOOD figure or WOOD price as the requirement. Why the bond is sized this way: [Proposer bond](/explanations/proposer-bond).
+    **Reserve rule.** Hold WOOD worth about 3–4% of the capital you plan to deploy (one bond plus headroom for a WOOD price fall), plus 1,000 WOOD if you want the owner emergency settle. Each settled bond stays locked 14 days after the strategy ends, so back-to-back proposals need about `(duration + 14 days) / cadence` bonds at once. The CLI quotes the live bond at `strategy propose`; never treat any fixed WOOD figure or WOOD price as the requirement. Why the bond is sized this way: [Proposer bond](/explanations/proposer-bond).
 
     **Buying WOOD.** No CLI command buys WOOD. With the MetaMask Agent Wallet, swap USDG for WOOD with `mm swap` (quote first). Expect price impact on any size: the pools are shallow. WOOD also trades against WETH on Uniswap on Robinhood Chain: V2 pair `0xBF3BB81de6285b8310A028d1C2Cd38F9419d54C1`, V3 pool `0xF6831AaF374B353757F0dE6B3DD2a74697671C69`, swap router `0xcaf681a66d020601342297493863e78c959e5cb2`. The pools are shallow, so quote first, buy in tranches and set a slippage limit. If you already hold WOOD elsewhere, a plain transfer to the agent wallet is cheaper than a swap. Addresses: [Deployments](/reference/deployments).
 
@@ -138,14 +138,14 @@ The vault asset is **USDG** (6 decimals). Depositors need no WOOD; the creator d
     Check which applies before you create. Keyless `vault create` with `--creator` (next steps) prints either the waiver or `Creation fee: <fee> (approved to the factory before create)`, and refuses with `Vault creation is invite-only: …` when the wallet is neither sponsored nor funded. If you are on the waitlist, wait until this exact wallet is sponsored rather than buying the fee.
   </Step>
 
-  <Step title="Bond the owner stake">
-    The factory will not deploy a vault until its creator has prepared an owner bond of at least `minOwnerStake` (10,000 WOOD):
+  <Step title="Bond the owner stake (optional)">
+    `minOwnerStake` is 0 on Robinhood Chain, so you can skip this step and create the vault with no bond. You can still propose, execute, settle and `unstick` without one. The one thing a bond buys is the owner emergency settle (`emergencySettleWithCalls`), which needs at least 1,000 WOOD (`requiredOwnerBond`). A bond can only be posted before `vault create`; there is no top-up later. If you want it:
 
     ```bash
-    sherwood --calldata-only guardian prepare-owner-stake 10000
+    sherwood --calldata-only guardian prepare-owner-stake 1000
     ```
 
-    This prints two transactions: a WOOD approval to sWOOD (`StakedWood`), then `prepareOwnerStake`. Run it once per vault; the factory binds the whole prepared stake to the vault at creation, and there is no top-up later. Why it exists and how to get it back: [Owner stake](/explanations/owner-stake). Skip it and `vault create` refuses with `Vault creation needs a prepared owner bond first`; the on-chain revert is `PreparedStakeNotFound`.
+    This prints two transactions: a WOOD approval to sWOOD (`StakedWood`), then `prepareOwnerStake`. The factory binds the whole prepared stake to the vault at creation. If this wallet bonded WOOD for an earlier vault, run it again before the next create, or `vault create` refuses with `Vault creation needs a prepared owner bond first` (on-chain revert `PreparedStakeNotFound`). Why it exists and how to get it back: [Owner stake](/explanations/owner-stake).
   </Step>
 
   <Step title="Create a vault">

@@ -134,7 +134,7 @@ Launch values are the factory defaults every new governor starts with. Bounds ar
 
 ## Proposer, agents and depositors
 
-**Proposing.** The caller must be a registered agent of the vault (`registerAgent`, up to 32 per vault) and, while `ownerOnlyProposals` is on, the vault owner. The vault's owner stake must be live (`OwnerBondNotLive` at propose and again at execute), the vault must have no open proposal (`VaultHasOpenProposal`), and the cooldown must have elapsed.
+**Proposing.** The caller must be a registered agent of the vault (`registerAgent`, up to 32 per vault) and, while `ownerOnlyProposals` is on, the vault owner. The vault's owner stake must be live (`OwnerBondNotLive` at propose and again at execute; liveness is keyed on the owner, not the amount, so a vault created with no bond is live), the vault must have no open proposal (`VaultHasOpenProposal`), and the cooldown must have elapsed.
 
 **Depositing.** `deposit` / `mint` check the receiver against the vault's depositor whitelist (`NotApprovedDepositor`) while `depositsRestricted` is on, and revert `DepositsLocked` while any proposal is open. Depositors need no WOOD and no identity.
 

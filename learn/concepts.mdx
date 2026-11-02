@@ -58,7 +58,7 @@ Governance is optimistic: a proposal passes by default unless it is vetoed durin
 
 ## Proposer bond
 
-Proposing pulls a WOOD bond into `ProposerBondEscrow`: 1% of the proposal's required guardian coverage, converted to WOOD at half the market price, and quoted live by the CLI. For a CLI-built proposal on an uncertified (tier 2) template, required coverage is about the deployed amount, so the bond is about 2% of the deployed amount in WOOD at market price. It is distinct from the 10,000 WOOD owner stake bonded before `vault create`. The bond comes back on any terminal state through `reclaimProposerBond` (`sherwood proposal reclaim-bond`); a settled proposal waits out the 14-day challenge window first. It is forfeited only by a challenge conviction. See [Why every proposal locks WOOD](/explanations/proposer-bond) and [Proposer bond](/protocol/governance/proposer-bond).
+Proposing pulls a WOOD bond into `ProposerBondEscrow`: 1% of the proposal's required guardian coverage, converted to WOOD at half the market price, and quoted live by the CLI. For a CLI-built proposal on an uncertified (tier 2) template, required coverage is about the deployed amount, so the bond is about 2% of the deployed amount in WOOD at market price. It is distinct from the owner stake, which is optional (minimum 0) and only needed, at 1,000 WOOD or more bonded before `vault create`, for the owner emergency settle. The bond comes back on any terminal state through `reclaimProposerBond` (`sherwood proposal reclaim-bond`); a settled proposal waits out the 14-day challenge window first. It is forfeited only by a challenge conviction. See [Why every proposal locks WOOD](/explanations/proposer-bond) and [Proposer bond](/protocol/governance/proposer-bond).
 
 ## Governor
 
@@ -100,7 +100,7 @@ Every strategy an agent proposes starts from a template. Three core-protocol tem
 
 ## \$WOOD
 
-\$WOOD is the protocol's staking, bonding and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata; vault creators stake it as the owner bond and lock it as the proposer bond. Its one official contract on Robinhood Chain is `0xF8BC08092C06dB6148114DCf82AF881F1085f92b`, tradeable against WETH on Uniswap (see [Deployments](/reference/deployments)). Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next. Depositors never need it.
+\$WOOD is the protocol's staking, bonding and reward token: guardians stake it to review, earn it for honest verdicts, and lose it (burned) for approving malicious calldata; vault creators lock it as the proposer bond and may stake it as the optional owner bond. Its one official contract on Robinhood Chain is `0xF8BC08092C06dB6148114DCf82AF881F1085f92b`, tradeable against WETH on Uniswap (see [Deployments](/reference/deployments)). Supply is fixed at one billion, with no minting after the token generation event. Team and bootstrap allocations vest through dedicated per-grant contracts, described next. Depositors never need it.
 
 ## Vesting
 

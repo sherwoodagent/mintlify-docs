@@ -7,7 +7,7 @@ icon: "map"
 This guide walks through the complete strategy lifecycle on Robinhood Chain (4663) using the **Portfolio** strategy as the example — a weighted basket of tokenized stocks held by a USDG vault. The same flow applies to every strategy template; only the CLI flags and per-strategy parameters differ.
 
 <Note>
-  This guide assumes you've completed [Getting started](/guides/getting-started): wallet configured, identity minted, owner stake prepared, vault created, and capital deposited. While `ownerOnlyProposals` is on, only the vault owner proposes, so the proposer below is the owner, registered as an agent of its own vault. See [Launch posture](/explanations/launch-posture).
+  This guide assumes you've completed [Getting started](/guides/getting-started): wallet configured, identity minted, vault created, and capital deposited. While `ownerOnlyProposals` is on, only the vault owner proposes, so the proposer below is the owner, registered as an agent of its own vault. See [Launch posture](/explanations/launch-posture).
 </Note>
 
 ## Lifecycle Overview
@@ -64,7 +64,7 @@ The `strategy propose` command handles everything: clones the template, initiali
 
 Propose-time checklist:
 
-- **WOOD.** The owner stake must be live and the wallet must hold the [proposer bond](/protocol/governance/proposer-bond): 1% of required coverage at half the WOOD market price, about 2% of `--amount` in WOOD at market for an uncertified basket. The CLI prints the live quote and refuses early if the balance is short. See [Why every proposal locks WOOD](/explanations/proposer-bond).
+- **WOOD.** The owner stake must be live (a vault created with no bond is live; only a requested owner unstake ends it) and the wallet must hold the [proposer bond](/protocol/governance/proposer-bond): 1% of required coverage at half the WOOD market price, about 2% of `--amount` in WOOD at market for an uncertified basket. The CLI prints the live quote and refuses early if the balance is short. See [Why every proposal locks WOOD](/explanations/proposer-bond).
 - **Feeds.** Every slot is priced off a Chainlink push feed with a 26-hour staleness bound, and execute, settle and rebalance all read it. Stock feeds stop over the weekend, so a stock basket cannot execute, settle or rebalance from about Saturday evening until Monday 00:00 UTC. Time the execution window and the settle around that gap, and leave out any stock with an announced split during the strategy. See [Oracle staleness](/explanations/oracle-staleness).
 - **Size.** `maxCapital` must fit `totalAssets() × maxCapitalBps`, each tier-2 call cap must fit `totalAssets() × tier2CallCapBps`, and the whole proposal must price under the $1,000,000 covered-TVL cap.
 
@@ -185,6 +185,6 @@ Standard settlement covers the common cases: the proposer can settle 1h after ex
 If the standard path can't unwind the position, the vault owner uses the owner-only emergency paths on the governor:
 
 - `unstick(proposalId)` — after the strategy duration, replays the pre-committed settlement calls under the 90% rescue drawdown floor instead of the proposal's own. No owner stake needed.
-- `emergencySettleWithCalls(proposalId, calls)` — commits owner-supplied unwind calldata and opens a block-only guardian review. It requires a live owner stake of at least `requiredOwnerBond`; if guardians block it, the stake is burned. `finalizeEmergencySettle(proposalId)` executes the committed calls after the window; `cancelEmergencySettle(proposalId)` withdraws a pending emergency settle during the window. The CLI exposes the custom-calls path as `sherwood proposal settle --calls <file>`.
+- `emergencySettleWithCalls(proposalId, calls)` — commits owner-supplied unwind calldata and opens a block-only guardian review. It requires a live owner stake of at least `requiredOwnerBond` (1,000 WOOD), bonded before `vault create`; if guardians block it, the stake is burned. `finalizeEmergencySettle(proposalId)` executes the committed calls after the window; `cancelEmergencySettle(proposalId)` withdraws a pending emergency settle during the window. The CLI exposes the custom-calls path as `sherwood proposal settle --calls <file>`.
 
 Rescue functions are owner-only and blocked while any proposal is open.

@@ -1,34 +1,37 @@
 ---
 title: "Owner stake"
-description: "Why a Sherwood vault owner stakes 10,000 WOOD before creating a vault, the one case where guardians can burn it, and how to unstake after the 7-day cooldown."
+description: "The Sherwood owner stake is optional on Robinhood Chain (minimum 0). Bond at least 1,000 WOOD before creating a vault only if you want the owner emergency settle. When guardians can burn it, and how to unstake after the 7-day cooldown."
 ---
 
-Every vault owner bonds WOOD in `StakedWood` (sWOOD) before the factory will create the vault. The live minimum is **10,000 WOOD** (`StakedWood.minOwnerStake()`). This page explains why the bond exists and how it behaves over the life of a vault.
+A vault owner can bond WOOD in `StakedWood` (sWOOD) before creating a vault. The owner stake minimum is **0** on Robinhood Chain (`StakedWood.minOwnerStake()`), so the bond is optional: you can create a vault, propose, execute and settle without one. Read `minOwnerStake()` live before you buy WOOD. This page explains what a bond buys and how it behaves over the life of a vault.
 
 ## Why it exists
 
 The vault owner has one discretionary power over depositor capital: the **emergency settle with new calldata** (`emergencySettleWithCalls`). It lets the owner close a stuck strategy with calls nobody voted on. That power needs something at stake behind it.
 
-The owner bond is that stake. Guardians review an emergency settle, and if they reach block quorum the bond is burned in full. The burn lands when `resolveEmergencyReview` runs; a blocked `finalizeEmergencySettle` itself reverts. The contract keeps a floor of 1,000 WOOD on `minOwnerStake` (or 0 for open onboarding) for exactly this reason: so the emergency-settle path always has a slashable bond behind it.
+The owner bond is that stake. Guardians review an emergency settle, and if they reach block quorum the bond is burned in full. The burn lands when `resolveEmergencyReview` runs; a blocked `finalizeEmergencySettle` itself reverts. For exactly this reason, `requiredOwnerBond` never drops below 1,000 WOOD (`MIN_OWNER_BOND_FLOOR`), even when `minOwnerStake` is 0. An owner with no bond, or a bond under 1,000 WOOD, cannot open an emergency settle (`OwnerBondInsufficient`).
 
 Nothing else slashes the owner bond. A guardian block on a normal proposal slashes the approving guardians, not the owner.
 
 ## How big it is
 
-- `minOwnerStake` is 10,000 WOOD on 4663.
-- `requiredOwnerBond(vault)` is the larger of `minOwnerStake` and the 1,000 WOOD floor. In v1 it does not scale with the vault's TVL.
+- `minOwnerStake` is 0 on 4663. That is the open-onboarding setting: vault creation needs no WOOD bond.
+- `requiredOwnerBond(vault)` is the larger of `minOwnerStake` and the 1,000 WOOD floor, so it is 1,000 WOOD today. It applies only to the owner emergency settle. In v1 it does not scale with the vault's TVL.
 - It is a fixed WOOD amount, not a USD amount. A WOOD price move changes its dollar value but not the requirement.
 
 ## Prepared first, bound once
 
-1. `prepareOwnerStake(amount)` escrows WOOD in sWOOD. The amount must be at least `minOwnerStake`. One unbound escrow per address; `cancelPreparedStake()` refunds it if you change your mind.
-2. `createSyndicate` binds the **whole** prepared amount to the new vault in the same transaction. Without a prepared stake the factory reverts `PreparedStakeNotFound`.
-3. There is no top-up path after binding. Each new vault needs a fresh prepared stake.
+A bond can only be posted before `vault create`.
 
-With the CLI:
+1. `prepareOwnerStake(amount)` escrows WOOD in sWOOD. The amount must be at least `minOwnerStake`. One unbound escrow per address; `cancelPreparedStake()` refunds it if you change your mind.
+2. `createSyndicate` binds the **whole** prepared amount to the new vault in the same transaction. A wallet that never prepared binds a zero bond and can create more vaults the same way.
+3. There is no top-up path after binding. If you skip the bond at creation, that vault never gets the owner emergency settle.
+4. If your wallet bonded WOOD for an earlier vault, prepare again before its next `vault create`. Otherwise the factory reverts `PreparedStakeNotFound`.
+
+To bond enough for the emergency settle, with the CLI:
 
 ```bash
-sherwood --calldata-only guardian prepare-owner-stake 10000
+sherwood --calldata-only guardian prepare-owner-stake 1000
 ```
 
 <Warning>
@@ -37,11 +40,13 @@ The signed (non-keyless) `guardian prepare-owner-stake` approves an **unlimited*
 
 ## The bond must stay live
 
-The governor checks `ownerBondLive(vault)` at **propose** and again at **execute**. If the bond is not live, both revert `OwnerBondNotLive`.
+The governor checks `ownerBondLive(vault)` at **propose** and again at **execute**. If the bond is not live, both revert `OwnerBondNotLive`. Live depends on the owner, not the amount: a vault created with no bond is live, so it can propose, execute and settle.
 
-Requesting an unstake makes the bond not live immediately. That is deliberate: it stops an owner from starting an exit, then executing a harmful strategy while the exit is pending.
+For a bonded vault, requesting an unstake makes the bond not live immediately. That is deliberate: it stops an owner from starting an exit, then executing a harmful strategy while the exit is pending.
 
 ## Getting it back
+
+A posted bond comes back after the cooldown. It is slashed only if guardians block an owner emergency settle.
 
 1. `requestUnstakeOwner` is refused while any proposal on the vault is open.
 2. Once requested, the vault cannot propose or execute.
@@ -53,8 +58,9 @@ There is no CLI command for the owner unstake. It is a direct contract call. Do 
 
 ## What to do
 
-- Budget 10,000 WOOD per vault, on top of the [proposer bond](/explanations/proposer-bond) reserve.
-- Prepare the stake from the same wallet that will create the vault. That wallet must also be the [sponsored](/explanations/launch-posture) one.
+- Read `StakedWood.minOwnerStake()` live before you buy WOOD. It is 0 on Robinhood Chain.
+- Budget the [proposer bond](/explanations/proposer-bond) reserve, plus 1,000 WOOD if you want the owner emergency settle.
+- If you bond, prepare the stake from the same wallet that will create the vault. That wallet must also be the [sponsored](/explanations/launch-posture) one.
 - Treat the emergency settle as a last resort. A guardian block burns the whole bond. See [Settlement and drawdown](/explanations/settlement-and-drawdown) for the exits that come first.
 
 ## Related

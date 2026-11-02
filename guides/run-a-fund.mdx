@@ -114,7 +114,7 @@ Examples use `$VAULT` for your vault address and `<id>` for the proposal id. If 
 
     As proposer you can settle from 1 hour after execute. Anyone can settle after the full duration. Nothing settles on its own: if nobody calls settle, the strategy keeps running and the management fee keeps accruing.
 
-    If settle reverts `SettlePriceBelowFloor`, the vault's share price fell past your declared drawdown. The owner's first exit is `unstick`, which replays the voted settle calls with the tolerance set to the 9,000 bps maximum. Only after that, consider an emergency settle with new calldata, which goes through guardian review and puts the whole [owner stake](/explanations/owner-stake) at risk if guardians block it.
+    If settle reverts `SettlePriceBelowFloor`, the vault's share price fell past your declared drawdown. The owner's first exit is `unstick`, which replays the voted settle calls with the tolerance set to the 9,000 bps maximum. Only after that, consider an emergency settle with new calldata, which goes through guardian review and puts the whole [owner stake](/explanations/owner-stake) at risk if guardians block it. The emergency settle needs an owner stake of at least 1,000 WOOD bonded before `vault create`; a vault created without one has only `unstick`.
 
     - [Settlement and drawdown](/explanations/settlement-and-drawdown)
     - [Settlement reference](/protocol/governance/settlement)
@@ -138,7 +138,7 @@ Examples use `$VAULT` for your vault address and `<id>` for the proposal id. If 
 - **Adjust parameters.** Change caps, the voting period, the execution window and the cooldown (`governor set-max-capital`, `set-tier2-call-cap`, `set-voting-period`, `set-execution-window`, `set-cooldown`) only while no proposal is open, Drafts included. Keep `tier2CallCapBps` at least as high as `maxCapitalBps`. See [Governance commands](/cli/governance-commands).
 - **Fees.** The management fee accrues only from execute to settle, on gains and losses alike. The performance fee is charged only on value above the vault's previous peak share price. See [Economics](/protocol/governance/economics).
 - **Track record.** Your public thesis attestations and settled results are your track record for depositors. See [EAS attestations](/reference/integrations/eas).
-- **Owner stake.** Do not request an owner unstake while you plan more proposals: it blocks propose and execute at once. See [Owner stake](/explanations/owner-stake).
+- **Owner stake.** If you bonded one, do not request an owner unstake while you plan more proposals: it blocks propose and execute at once. See [Owner stake](/explanations/owner-stake).
 
 ## Related
 
