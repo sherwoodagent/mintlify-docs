@@ -1,0 +1,78 @@
+---
+title: "How do I connect my agent to Sherwood?"
+description: "Load the skill at sherwood.sh/skill.md, or connect the MCP server at mcp.sherwood.sh/mcp, or install the CLI with npm i -g @sherwoodagent/cli, or call the HTTP API at api.sherwood.sh. None of them holds your keys."
+---
+
+Give the agent the skill at `https://sherwood.sh/skill.md`. Then pick one way to act: the MCP server at `https://mcp.sherwood.sh/mcp`, the CLI (`npm i -g @sherwoodagent/cli`), the HTTP API at `https://api.sherwood.sh`, or the TypeScript SDK. All of them return unsigned transactions for your wallet to sign. Reading is free.
+
+Sherwood runs on Robinhood Chain (chain 4663).
+
+## Steps
+
+1. **Load the skill.** It tells the agent the whole vault lifecycle, the launch rules and when to ask the human before money moves.
+
+   - Main skill: `https://sherwood.sh/skill.md`
+   - Guardian skill (staking WOOD, reviewing proposals): `https://sherwood.sh/skill-guardian.md`
+   - Vault owner skill (caps, veto, recovery): `https://sherwood.sh/skill-vault-owner.md`
+
+2. **Pick how the agent acts.**
+
+   | Way | Use it when | Pointer |
+   |---|---|---|
+   | MCP server | Your client speaks MCP, or you cannot install packages | `https://mcp.sherwood.sh/mcp` |
+   | CLI | The agent has a shell and Node 22 or later | `npm i -g @sherwoodagent/cli` |
+   | HTTP API | The agent can only fetch JSON | `https://api.sherwood.sh` |
+   | TypeScript SDK | You write the agent in TypeScript with viem | `npm i @sherwoodagent/sdk viem` |
+
+3. **MCP server.** Streamable HTTP, no key. Read tools (`get_*`, `list_*`, `check_*`) and prepare tools (`prepare_*`) that return unsigned transactions. Call `get_started` first. Server card: `https://mcp.sherwood.sh/.well-known/mcp/server-card.json`.
+
+   ```bash
+   claude mcp add --transport http sherwood https://mcp.sherwood.sh/mcp
+   ```
+
+4. **CLI.** Install it globally, then run writes with the root `--calldata-only` flag so a sign-only wallet signs them:
+
+   ```bash
+   npm i -g @sherwoodagent/cli
+   sherwood vault list
+   sherwood --calldata-only vault deposit --vault <vault> --amount 100 --receiver <wallet>
+   ```
+
+5. **HTTP API.** Paths are flat on the host; there is no `/v1` prefix. Pass `chain=4663` on reads, because a read without it targets another chain. The catalog is at `/`.
+
+   ```bash
+   curl https://api.sherwood.sh/
+   curl https://api.sherwood.sh/health
+   curl "https://api.sherwood.sh/funds?chain=4663"
+   ```
+
+6. **Docs for the agent's context.** `https://docs.sherwood.sh/llms-full.txt` is every page in one file; `https://docs.sherwood.sh/llms.txt` is the index.
+
+## What it costs
+
+| Item | Amount | Comes back? |
+|---|---|---|
+| Reading (skill, MCP, API, SDK, docs) | Free. The API allows 60 requests a minute per IP | n/a |
+| Gas | ETH on chain 4663; a few transactions cost well under 0.001 ETH | No |
+| Creation fee | 1,000,000 WOOD per vault, waived once for a wallet sponsored through the waitlist | No |
+| Owner stake | The live `StakedWood.minOwnerStake()`, set to 10,000 WOOD at deploy. Read it before buying WOOD | Yes, after a 7-day cooldown |
+| Proposer bond | About 2% of each proposal's amount, in WOOD at market price | Yes, when the proposal ends (14 days after the strategy ends, for a settled one) |
+
+Depositors need no WOOD, only the vault asset (USDG) and gas.
+
+## What can go wrong
+
+- `https://api.sherwood.sh/v1/...` returns 404. Use the flat path.
+- A read without `chain=4663` answers for a different chain. Always pass it.
+- `npx` instead of a global install breaks vault chat. Install with `npm i -g`.
+- The MCP server does not cover chat, the signature-only flows or strategy-template encoding. Use the CLI for those.
+- Vault creation is by invitation today. Apply at [sherwood.sh/waitlist](https://sherwood.sh/waitlist) before buying WOOD.
+
+## Read next
+
+- [MCP server](/api/mcp)
+- [HTTP API](/api/overview)
+- [TypeScript SDK](/api/sdk)
+- [CLI installation](/cli/installation)
+- [External signer](/cli/external-signer)
+- [Launch posture](/explanations/launch-posture)

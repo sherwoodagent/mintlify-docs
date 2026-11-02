@@ -1,0 +1,84 @@
+---
+title: "How do I run an onchain strategy safely?"
+description: "Run it from a Sherwood vault: the agent proposes pre-committed calls, staked guardians review them before execution, a WOOD bond backs the proposal, a declared drawdown floor bounds the settle, and every result is recorded onchain."
+---
+
+Run it from a Sherwood vault, not from the agent's own wallet. The agent proposes the exact calls it will make. Staked guardians review them before anything executes, a WOOD bond backs the proposal, owner caps and a declared drawdown floor bound the loss, and the settlement is recorded onchain.
+
+## Why a vault is the safe default for an agent treasury
+
+1. **The agent proposes; it cannot move vault money directly.** No wallet has a direct transfer path on the vault. Assets move only through a governor proposal whose execute and settle calls were fixed at propose time.
+2. **Staked guardians review the calls before they run.** After voting, guardians simulate the calldata and vote Approve or Block. Approvers lock their own WOOD to cover what the calls could extract. Uncertified strategies, which is every template today, need coverage for the full amount.
+3. **The proposer posts a bond.** A conviction in the challenge game forfeits the whole bond. Challenge filings are paused during the beta, so today the bond is not at risk and guardian review before execution is the active check.
+4. **The loss is bounded.** The owner caps each proposal's share of assets and keeps an idle buffer. Each proposal declares a maximum drawdown on the vault's share price; a normal settle refuses to run below it, and no declaration can exceed 90%.
+5. **Every result is public.** Execution, settlement, fees and the price queued redeems receive are onchain. The agent's thesis attestation is published by default.
+
+Depositors keep two controls of their own: they can vote against a proposal during the voting period, and they can redeem between proposals or queue a redeem while one is open.
+
+## Steps
+
+1. **Set the caps before the first proposal** (vault owner, no proposal open):
+
+   ```bash
+   sherwood --calldata-only governor set-max-capital --vault <vault> --bps 8000
+   sherwood --calldata-only vault set-min-buffer --vault <vault> --bps 500
+   ```
+
+2. **Read the market before proposing.** The feeds are open, no login:
+
+   ```bash
+   sherwood sources get prices
+   sherwood sources get liquidity
+   ```
+
+3. **Agree a management plan with the human.** Triggers, risk levels, settle timing and a check cadence. The agent never adjusts or settles without approval.
+
+4. **Propose with an honest drawdown.** Size `--max-drawdown-bps` from your kill criteria on the whole vault:
+
+   ```bash
+   sherwood --calldata-only strategy propose portfolio --vault <vault> --proposer <agent wallet> \
+     --amount 200 --tokens TSLA,AMZN --weights 6000,4000 \
+     --swap-routes <TSLA route>,<AMZN route> --max-slippage <bps> \
+     --max-drawdown-bps 1500 --duration 7d --name "TSLA/AMZN basket" --description "60/40, 7d"
+   ```
+
+   The CLI quotes the WOOD bond before it signs anything.
+
+5. **Check coverage before executing.** A plain execute does not check it:
+
+   ```bash
+   sherwood proposal execute --vault <vault> --id <id> --dry-run
+   ```
+
+6. **Settle, then reclaim the bond.**
+
+   ```bash
+   sherwood proposal settle --vault <vault> --id <id>
+   sherwood proposal reclaim-bond --vault <vault> --id <id>
+   ```
+
+## What it costs
+
+| Item | Amount | Comes back? |
+|---|---|---|
+| Gas | ETH on chain 4663 | No |
+| Proposer bond | About 2% of `--amount`, in WOOD at market price. Keep 3 to 4% for headroom if WOOD falls | Yes, 14 days after the strategy ends for a settled proposal, at once for a rejected, expired or cancelled one |
+| Management fee | 2% a year on assets, only from execute to settle | No |
+| Performance fee | `agentFeeBps` on profit, at settlement | No |
+
+## What can go wrong
+
+- Guardians block the proposal, or approvers do not raise enough coverage. A short raise executes smaller; zero coverage reverts.
+- The share price falls below the declared floor. Settle reverts `SettlePriceBelowFloor` and the owner falls back to `unstick`, then to an emergency settle that guardians review.
+- A conviction slashes the proposer and the approving guardians. It does not refund the vault.
+- Price feeds go stale over a weekend. Proposals in tokenized stocks can revert `StalePrice` until the feed updates.
+- The vault stays locked from propose until the proposal ends. Deposits and instant redeems wait for it; use the queue.
+
+## Read next
+
+- [Tiers and coverage](/explanations/tiers-and-coverage)
+- [Proposer bond](/explanations/proposer-bond)
+- [Challenge window](/explanations/challenge-window)
+- [Settlement and drawdown](/explanations/settlement-and-drawdown)
+- [Guardian review](/protocol/governance/guardian-review)
+- [Oracle staleness](/explanations/oracle-staleness)
