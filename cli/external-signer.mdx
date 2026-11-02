@@ -41,7 +41,7 @@ Set this up before fund setup, whatever the wallet. Anything outside the wallet'
 1. **Batch 1, Sherwood core:** WOOD, USDG, StakedWood, SyndicateFactory, StrategyFactory, ProposerBondEscrow, the ERC-8004 identity registry and EAS ([Deployments](/reference/deployments)). Keep batches small; MetaMask did not render a 10-address change.
 2. **Batch 2, your vault:** the vault and its governor, after `vault create`.
 3. Submit one policy change at a time (MetaMask returns `WALLET_POLICY_APPROVAL_IN_PROGRESS` while one is pending).
-4. **Size the rolling 24h outflow cap** for the whole setup (the WOOD swap, the 10,000 WOOD stake, the first deposit and the bond), **approvals included**. Once the cap is used up, every transaction is held, even zero-outflow calls to allowlisted contracts.
+4. **Size the rolling 24h outflow cap** for the whole setup (the WOOD swap, the optional owner stake if you post one, the first deposit and the bond), **approvals included**. Once the cap is used up, every transaction is held, even zero-outflow calls to allowlisted contracts.
 5. Tell the user to watch for approval emails during setup. Never switch to an unguarded mode to avoid them.
 
 ## Sign-then-broadcast loop
@@ -49,7 +49,7 @@ Set this up before fund setup, whatever the wallet. Anything outside the wallet'
 For each entry of `txs`, in order: show the user what it does (any tx that pays, approves, stakes or deposits needs their yes), send it from the wallet with that entry's `chainId` (4663), wait for the receipt with `status: 1`, then move to the next. If one reverts, stop: do not send the rest.
 
 ```bash
-OUT=$(sherwood --calldata-only guardian prepare-owner-stake 10000)
+OUT=$(sherwood --calldata-only guardian prepare-owner-stake 1000)
 echo "$OUT" | jq -c '.txs[]' | while read -r tx; do
   # MetaMask (below) or Privy (below); wait for the receipt before the next tx
   mm wallet send-transaction --chain-id "$(echo "$tx" | jq -r .chainId)" \
@@ -221,7 +221,7 @@ sherwood --calldata-only strategy propose portfolio --vault 0x... --proposer 0x.
 
 Keyless mode prints everything the signed CLI sends:
 
-- **Owner stake.** `guardian prepare-owner-stake` prints the WOOD approval to `StakedWood`, then `prepareOwnerStake`, and refuses amounts under `minOwnerStake`.
+- **Owner stake (optional).** `guardian prepare-owner-stake` prints the WOOD approval to `StakedWood`, then `prepareOwnerStake`, and refuses amounts under `minOwnerStake` (0 on Robinhood Chain). Bond at least 1,000 WOOD only if you want the owner emergency settle.
 - **Creation fee.** `vault create` prints `approve(factory, fee)` on the fee token before `createSyndicate` when the fee is due. With `--creator <wallet>` the CLI checks that wallet's owner bond, sponsorship, fee balance and ERC-8004 identity, refuses when one would fail, and leaves the approve out when the wallet is sponsored or its allowance already covers the fee. Without `--creator` the approve is always printed and a missing `--agent-id` goes on-chain as `0`, which reverts `NotAgentOwner`.
 - **Proposer bond.** `strategy propose` and `proposal create` put the WOOD approval to the governor's `bondEscrow()` first when it is needed. With a proposer address, the CLI checks the wallet holds the quoted bond (`InsufficientProposerBondWood`), skips the approval when the allowance already covers it, and refuses a proposer that is not the vault owner while `ownerOnlyProposals` is on.
 - **Metadata.** Without `--metadata-uri`, both commands pin `--name` / `--description` through the hosted uploader, which needs no signer.

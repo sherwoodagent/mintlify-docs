@@ -93,7 +93,7 @@ Sign each tx in `txs` (most actions are 1 tx; `prepare/deposit` returns 1–2 if
 | `GET\|POST /prepare/unstick` | `chainId, vault, proposalId` | `sherwood proposal unstick` *(hidden)* |
 | `POST /prepare/emergency-settle` | `chainId, vault, proposalId, calls` | `sherwood proposal settle --calls <path>` |
 | `GET\|POST /prepare/governor-set` | `chainId, vault, param, value` | *(no CLI equivalent)* |
-| `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood vault create` (the factory also requires a prepared owner stake and, unless sponsored, the 1,000,000 WOOD creation fee) |
+| `GET\|POST /prepare/create-fund` | `chainId, creatorAgentId, metadataURI, asset, name, symbol, openDeposits, subdomain` | `sherwood vault create` (unless sponsored, the factory also requires the 1,000,000 WOOD creation fee; the owner stake is optional while `minOwnerStake` is 0) |
 | `GET\|POST /prepare/approve-depositor` | `chainId, vault, depositor` | `sherwood vault approve-depositor` |
 | `GET\|POST /prepare/register-agent` | `chainId, vault, agentAddress, agentId` | `sherwood vault add` |
 | `GET\|POST /prepare/approve-agent` | `chainId, vault\|subdomain, agentAddress, agentId` | `sherwood vault approve` |
@@ -112,7 +112,7 @@ Read `txs[i].chainId` — it is not always the `chainId` you asked for, and sign
 
 - **Attestations** (`/prepare/join`, the second tx of `/prepare/approve-agent`) land on Robinhood Chain `4663`, which is also where every vault runs, so today both txs of `approve-agent` share one chain. The field exists because the encoders are chain-aware; always read it rather than assuming.
 - **`/prepare/identity-mint`** targets the chain that holds the ERC-8004 registry, Robinhood Chain `4663`.
-- **`/prepare/create-fund`** returns the WOOD approval for the creation fee before `createSyndicate` when a fee is due (with a `balance` precondition for it), and its `note` reminds you that the factory also requires a prepared owner stake (`StakedWood.prepareOwnerStake`) and that the caller owns the ERC-8004 NFT for `creatorAgentId`. The API does not check those two for you.
+- **`/prepare/create-fund`** returns the WOOD approval for the creation fee before `createSyndicate` when a fee is due (with a `balance` precondition for it), and its `note` mentions the owner stake (`StakedWood.prepareOwnerStake`, optional while `minOwnerStake` is 0; at least 1,000 WOOD only for the owner emergency settle) and that the caller must own the ERC-8004 NFT for `creatorAgentId`. The API does not check those two for you.
 
 ### Who may call
 

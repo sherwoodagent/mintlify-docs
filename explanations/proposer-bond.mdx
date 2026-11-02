@@ -50,7 +50,7 @@ The bond outlives settle because a proposer who drains a vault and self-settles 
 
 ## How much WOOD to hold
 
-- The [owner stake](/explanations/owner-stake): 10,000 WOOD, once per vault.
+- The [owner stake](/explanations/owner-stake) is optional: its minimum is 0. Add 1,000 WOOD per vault only if you want the owner emergency settle.
 - One bond: about 2% of the capital you plan to deploy in that proposal.
 - Headroom: a WOOD price fall increases the bond, so hold about **3–4% of planned capital** for one proposal.
 - Overlapping bonds: each settled bond stays locked for `duration + 14 days`. With back-to-back proposals you hold about `(duration + 14 days) / cadence` bonds at once. Seven-day proposals run weekly keep about three bonds in flight.

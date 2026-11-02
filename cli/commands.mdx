@@ -94,7 +94,7 @@ Create a new fund. Deploys an ERC-4626 vault, its governor and its withdrawal qu
 **What the factory checks, in order:**
 
 1. A complete config: asset, name, symbol, subdomain and metadata URI (`InvalidSyndicateConfig`). The CLI fills these.
-2. A prepared owner bond (`PreparedStakeNotFound`). Run `sherwood guardian prepare-owner-stake <amount>` (at least `StakedWood.minOwnerStake`, 10,000 WOOD) from the creating wallet first; the factory binds it to the vault at creation.
+2. The owner bond (`PreparedStakeNotFound`, `OwnerBondInsufficient`). `StakedWood.minOwnerStake` is 0 on Robinhood Chain, so a wallet that never prepared a stake passes with a zero bond. The bond is optional: run `sherwood guardian prepare-owner-stake <amount>` from the creating wallet first only if you want the owner emergency settle, which needs at least 1,000 WOOD. The factory binds whatever is prepared to the vault at creation. A wallet that bonded WOOD for an earlier vault must prepare again before its next create.
 3. The creation fee, or sponsorship. A wallet sponsored through the waitlist creates for free, once (the factory clears the sponsorship when it is used). Any other wallet pays `creationFee()` in `creationFeeToken()` (1,000,000 WOOD), pulled with `transferFrom`. When the allowance is short, signed `vault create` approves exactly the fee to the factory, then creates.
 4. An ERC-8004 identity the creator owns: `--agent-id` in the factory's `agentRegistry()` (`NotAgentOwner`).
 5. The subdomain: at least 3 characters (`SubdomainTooShort`) and not taken (`SubdomainTaken`).
@@ -104,7 +104,7 @@ Signed `vault create` checks gates 2–5 and refuses before sending anything, th
 | The CLI prints | What to do |
 |---|---|
 | `Vault creation is closed: the mainnet deploy has not finished. Until its last step the factory's agent registry is a placeholder no identity can satisfy, so every create reverts. Try again once the deploy is complete.` | Run 2 completed on 2026-10-13, so this only appears if the factory's registry was reset. Nothing on your side fixes it; check back later. |
-| `Vault creation needs a prepared owner bond first: StakedWood.canCreateVault(<creator>) is false …` | Run `sherwood guardian prepare-owner-stake <amount>` from the creating wallet, then retry. |
+| `Vault creation needs a prepared owner bond first: StakedWood.canCreateVault(<creator>) is false …` | With `minOwnerStake` at 0 this appears only when the wallet's last prepared stake is already bound to an earlier vault. Run `sherwood guardian prepare-owner-stake <amount>` from the creating wallet, then retry. |
 | `Vault creation is invite-only: wallets sponsored through the Sherwood waitlist create for free; everyone else pays the factory's creation fee. … <wallet> is not sponsored, and the fee is <fee> (you hold <n>) …` | Wait until this exact wallet is sponsored, or fund it with the fee. |
 | `Vault creation needs an ERC-8004 identity: the factory checks that the creator owns agent #<id> in its agent registry <registry> (chain 4663), and …` | Mint from the creating wallet (`sherwood identity mint --name <name>`) and pass the id with `--agent-id`. |
 | `Subdomain "<x>" is too short: the factory requires at least 3 characters.` or `Subdomain '<x>' is already taken by another vault.` | Pick another subdomain. |
@@ -370,7 +370,7 @@ Cancel a stranded redeem **before the next proposal is made**. Its shares stay e
 
 ### `sherwood guardian prepare-owner-stake`
 
-Bond WOOD as a prospective vault owner — required before `vault create`. Approves WOOD to sWOOD (`StakedWood`) and calls `prepareOwnerStake`; with `--calldata-only` it prints both transactions. The CLI refuses amounts under `StakedWood.minOwnerStake`. Each vault needs a fresh prepared stake: the factory binds it to the vault at creation, and it comes back after a 7-day cooldown once the vault has no open proposal (`requestUnstakeOwner` / `claimUnstakeOwner` on `StakedWood`; no CLI command yet). Proposing and executing revert `OwnerBondNotLive` while an owner unstake is pending.
+Bond WOOD as a prospective vault owner, before `vault create`. Optional: `StakedWood.minOwnerStake` is 0 on Robinhood Chain, so vault creation needs no bond. Bond at least 1,000 WOOD only if you want the owner emergency settle (`requiredOwnerBond`); there is no top-up after creation. Read `minOwnerStake()` live before you buy WOOD. Approves WOOD to sWOOD (`StakedWood`) and calls `prepareOwnerStake`; with `--calldata-only` it prints both transactions. The CLI refuses amounts under `StakedWood.minOwnerStake`. A bonded vault needs a fresh prepared stake: the factory binds it to the vault at creation, and it comes back after a 7-day cooldown once the vault has no open proposal (`requestUnstakeOwner` / `claimUnstakeOwner` on `StakedWood`; no CLI command yet). Proposing and executing revert `OwnerBondNotLive` while an owner unstake is pending. A vault created with no bond stays live.
 
 This is the **owner stake**, not the proposer bond. A separate, risk-scaled WOOD bond is pulled at every `propose` and returned with `sherwood proposal reclaim-bond`. See [Proposer bond](/protocol/governance/proposer-bond). Why the owner stake exists: [Owner stake](/explanations/owner-stake).
 
@@ -378,7 +378,7 @@ The signed path approves an **unlimited** WOOD allowance to sWOOD and does not p
 
 | Argument | Required | Description |
 |--------|----------|-------------|
-| `<amount>` | Yes | WOOD amount (min = `StakedWood.minOwnerStake`, 10,000 at launch) |
+| `<amount>` | Yes | WOOD amount (min = `StakedWood.minOwnerStake`, 0 on Robinhood Chain; 1,000 or more for the owner emergency settle) |
 
 ---
 
