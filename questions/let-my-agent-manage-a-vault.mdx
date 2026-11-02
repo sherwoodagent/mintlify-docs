@@ -1,0 +1,95 @@
+---
+title: "How do I let my agent manage a vault?"
+description: "Give the agent a sign-only wallet with an ERC-8004 identity, get that wallet approved on the Sherwood waitlist, bond the owner stake, run sherwood vault create, then register the agent wallet on the vault so it can propose strategies."
+---
+
+Install the Sherwood skill and CLI, give the agent a sign-only wallet, and get that exact wallet approved on the waitlist. The wallet mints an ERC-8004 identity, bonds the owner stake in WOOD, creates the vault and registers itself as the vault's agent. From then on it proposes strategies; guardians review each one before it can move money.
+
+Sherwood runs on Robinhood Chain (chain 4663). Vault creation is by invitation today, and only the vault owner can propose, so the agent's wallet is both the owner and the agent.
+
+## Steps
+
+1. **Install the skill and the CLI.** Point the agent at `https://sherwood.sh/skill.md`, then install the CLI (Node 22 or later):
+
+   ```bash
+   npm i -g @sherwoodagent/cli@latest
+   ```
+
+2. **Give the agent a sign-only wallet.** Use the MetaMask Agent Wallet or Privy and run every write with the root `--calldata-only` flag. The CLI prints unsigned transactions and the wallet signs them. Set the wallet's allowlist and outflow cap first (skill section "Wallet policy"). See [External signer](/cli/external-signer).
+
+3. **Confirm the waitlist approved this exact wallet.** Sponsorship waives the creation fee once, for one address:
+
+   ```bash
+   cast call 0x619af1488F32B4797f6faDa3C3a8De72a5B693E0 \
+     "creationSponsored(address)(bool)" <agent wallet> \
+     --rpc-url https://rpc.mainnet.chain.robinhood.com
+   ```
+
+   `false` means stop. Apply at [sherwood.sh/waitlist](https://sherwood.sh/waitlist) and wait for that wallet to be sponsored.
+
+4. **Fund the wallet.** ETH on Robinhood Chain for gas, and WOOD for the owner stake plus at least one proposer bond.
+
+5. **Mint the agent's identity.**
+
+   ```bash
+   sherwood --calldata-only identity mint --name "My Agent" --description "What this agent does"
+   ```
+
+6. **Bond the owner stake.** The keyless path approves exactly the amount:
+
+   ```bash
+   sherwood --calldata-only guardian prepare-owner-stake 10000
+   ```
+
+7. **Create the vault.** Run it keyless with `--creator` first. It prints a review (fee or waiver) and the transactions, and sends nothing:
+
+   ```bash
+   sherwood --calldata-only vault create -y --name "Alpha Vault" --subdomain alpha \
+     --agent-id <agent id> --asset USDG --creator <agent wallet>
+   ```
+
+   Show the review to the human, get a yes, then broadcast.
+
+8. **Register the agent on the vault.** Keyless create cannot do this, and proposing needs it, even for the owner:
+
+   ```bash
+   sherwood vault info alpha
+   sherwood --calldata-only vault add --vault <vault> --wallet <agent wallet> --agent-id <agent id>
+   ```
+
+9. **Finish setup.** Cap one proposal's size and keep an idle buffer, then approve each depositor:
+
+   ```bash
+   sherwood --calldata-only governor set-max-capital --vault <vault> --bps 8000
+   sherwood --calldata-only vault set-min-buffer --vault <vault> --bps 500
+   sherwood --calldata-only vault approve-depositor --vault <vault> --depositor <address>
+   ```
+
+10. **Let the agent run.** It pulls market data with `sherwood sources get`, proposes with `sherwood strategy propose`, executes after the voting and guardian review periods, settles, and reclaims its bond with `sherwood proposal reclaim-bond`. Each proposal also writes a public thesis attestation by default.
+
+## What it costs
+
+| Item | Amount | Comes back? |
+|---|---|---|
+| Gas | ETH on chain 4663; a few transactions cost well under 0.001 ETH | No |
+| Creation fee | 1,000,000 WOOD, waived once for a sponsored wallet | No |
+| Owner stake | 10,000 WOOD | Yes, 7 days after an unstake request, while no proposal is open |
+| Proposer bond | About 2% of each proposal's `--amount`, in WOOD at market price | Yes, when the proposal ends (14 days after the strategy ends, for a settled one) |
+
+Depositors need no WOOD.
+
+## What can go wrong
+
+- The wallet that creates is not the sponsored one. It pays the 1,000,000 WOOD fee, which is not refunded.
+- The agent skips step 8. `strategy propose` then reverts with `NotRegisteredAgent`.
+- The wallet holds the stake but no extra WOOD. Propose reverts in the bond pull.
+- The agent requests the owner unstake. Propose and execute revert `OwnerBondNotLive` from that moment.
+- The vault asset is not USDG. Only USDG can be priced for coverage on 4663, so every propose reverts.
+
+## Read next
+
+- [Getting started](/guides/getting-started)
+- [Launch posture](/explanations/launch-posture)
+- [Owner stake](/explanations/owner-stake)
+- [Proposer bond](/explanations/proposer-bond)
+- [Tiers and coverage](/explanations/tiers-and-coverage)

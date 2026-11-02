@@ -1,0 +1,62 @@
+---
+title: "How do I give an agent spending limits on a wallet?"
+description: "On Sherwood the agent cannot move vault money directly: every move is a proposal that staked guardians review, backed by a WOOD bond and bounded by owner-set caps. The agent's own wallet is limited by its wallet policy and a sign-only signer."
+---
+
+Put the money in a Sherwood vault instead of the agent's wallet. No wallet, the owner's included, can transfer vault assets directly. Every move is a proposal with fixed calls, reviewed by staked guardians, backed by a WOOD bond and bounded by owner caps. The agent's own wallet stays small, sign-only and behind an allowlist and outflow cap.
+
+There are two wallets to limit: the vault, which holds the depositors' money, and the agent's wallet, which holds gas and WOOD.
+
+## Steps
+
+1. **Keep the capital in the vault.** The vault has no owner-direct transfer path. Vault assets move only through a governor proposal that passed voting and guardian review.
+
+2. **Cap each proposal (vault owner, while no proposal is open).**
+
+   ```bash
+   sherwood --calldata-only governor set-max-capital --vault <vault> --bps 8000   # one proposal deploys at most 80% of assets
+   sherwood --calldata-only vault set-min-buffer --vault <vault> --bps 500         # keep 5% idle after any batch
+   ```
+
+   `governor set-tier2-call-cap` also caps any single uncertified call as a share of assets. Leave it at its default until a strategy is certified, or `strategy propose` reverts.
+
+3. **Declare a loss limit on each proposal.** `--max-drawdown-bps` (default 2000) on `strategy propose` sets the share-price floor below which a normal settle refuses to run.
+
+4. **Make the agent's wallet sign-only.** Use the MetaMask Agent Wallet or Privy and pass the root `--calldata-only` flag. The CLI never holds a key; it prints unsigned transactions for the wallet to sign:
+
+   ```bash
+   sherwood --calldata-only strategy propose portfolio --vault <vault> --proposer <agent wallet> ...
+   ```
+
+5. **Set the wallet policy before setup.** Allowlist the Sherwood core contracts in one batch (WOOD, USDG, StakedWood, SyndicateFactory, StrategyFactory, ProposerBondEscrow, the ERC-8004 registry and EAS), then the vault and its governor in a second. Keep the rolling 24-hour outflow cap on. Anything outside the policy waits for a human to approve it by email.
+
+6. **Pay the agent from results.** The agent earns a performance fee (`agentFeeBps`) on profit at settlement. `sherwood allowance disburse` only simulates a payout; the CLI refuses `--execute` because vault money moves only through proposals.
+
+## What is not a limit today
+
+Per-transaction and daily caps on the vault (`maxPerTx`, `maxDailyTotal`), per-agent caps and a vault target allowlist appear in older documents. **They are not in the contracts.** Do not rely on them.
+
+At launch the vault owner is the only wallet that can propose, so the owner's veto (`vetoProposal`) does not check an agent that runs as the owner. It applies when the proposer is a different registered agent, once the owner-only flag is lifted.
+
+## What it costs
+
+| Item | Amount | Comes back? |
+|---|---|---|
+| Gas | ETH on chain 4663; each cap setter is one transaction | No |
+| Proposer bond | About 2% of each proposal's `--amount`, in WOOD at market price | Yes, when the proposal ends (14 days after the strategy ends, for a settled one) |
+| Owner stake | 10,000 WOOD | Yes, after a 7-day cooldown |
+
+## What can go wrong
+
+- Caps are inert until set: `maxCapitalBps` and `tier2CallCapBps` start at 100% and `minBufferBps` at 0. Set them before the first proposal; the setters are frozen while any proposal is open.
+- A `tier2CallCapBps` below the proposal's `--amount` share makes propose revert `Tier2CallCapExceedsCeiling` after the strategy clone is paid for.
+- The outflow cap is too small for setup. Once it is used up, every transaction waits for email approval, even calls that move nothing.
+- The declared drawdown is measured on the whole vault's share price, not on `--amount`, so the same bps allows a larger loss on the strategy itself.
+
+## Read next
+
+- [Tiers and coverage](/explanations/tiers-and-coverage)
+- [Settlement and drawdown](/explanations/settlement-and-drawdown)
+- [Guardian review](/protocol/governance/guardian-review)
+- [External signer](/cli/external-signer)
+- [Launch posture](/explanations/launch-posture)

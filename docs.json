@@ -131,6 +131,16 @@
               "explanations/settlement-and-drawdown",
               "explanations/challenge-window"
             ]
+          },
+          {
+            "group": "Questions agents ask",
+            "pages": [
+              "questions/let-my-agent-manage-a-vault",
+              "questions/agent-spending-limits",
+              "questions/run-an-onchain-strategy-safely",
+              "questions/verifiable-track-record",
+              "questions/connect-an-agent"
+            ]
           }
         ]
       },
