@@ -142,7 +142,7 @@ Displays:
 - State, timestamps (created, vote end, review end, execution deadline, executed, settled)
 - **Guardian coverage** (from `GuardianReview` on), read from the `ExposureLedger`: each approving guardian's WOOD lock and its USD value, total WOOD locked, required coverage in the vault asset (for example `60 USDG`) and its USD value, and a status: `FULL`, `PARTIAL` (with the share of capital execute would deploy), `NONE` (execute reverts `InsufficientApproveCoverage`) or `UNKNOWN` (feed unavailable; retry). The governor's `effectiveMaxCapital` is only written at execute, so do not use it to check coverage during review
 - Vote breakdown — voting is optimistic, so only AGAINST weight is tallied, against `votableSupply × vetoThresholdBps`. There is no `votesFor` / `votesAbstain`
-- The strategy's address and where it came from (**provenance**): `Cloned from the core protocol <name> template 0x… (sherwoodagent/sherwood-protocol).` for Portfolio, Morpho Supply and Concentrated Liquidity; `Cloned from the <name> template 0x… (sherwoodagent/sherwood-strategies).` followed by `This strategy is unaudited: …` for a community template; `Not cloned from any template: this strategy is hand-written code …` for a strategy registered directly on the `StrategyFactory`; or `Provenance could not be read (<reason>).` Signed `proposal vote` prints the same lines before it sends the vote
+- The strategy's address and where it came from (**provenance**): `Cloned from the core protocol <name> template 0x… (sherwoodagent/sherwood-protocol).` for Portfolio, Morpho Supply and Concentrated Liquidity; `Cloned from the <name> template 0x… (sherwoodagent/sherwood-strategies).` followed by `This strategy is unaudited: …` for a community template; `Not cloned from any template: this strategy is hand-written code …` followed by ``Guardians judge it by `sherwood guardian review`: …`` for a strategy registered directly on the `StrategyFactory` (see [Custom strategies](/guides/custom-strategies)); or `Provenance could not be read (<reason>).` Signed `proposal vote` prints the same lines before it sends the vote
 - Decoded calls (show target names for known targets like the vault's swap adapter and ERC-20 approvals)
 - Capital snapshot (if executed)
 - P&L and fees (if settled)
@@ -233,7 +233,8 @@ Cast a **guardian** review vote on a proposal already in `GuardianReview`. Disti
 
 ```bash
 sherwood proposal review-vote --id <proposalId> --vault <addr> \
-  --support <approve|block> --lock-wood <wood>
+  --support <approve|block> --lock-wood <wood> --reason "<why>" \
+  [--code <CODE>] [--accept-warnings]
 ```
 
 | Flag | Required | Description |
@@ -242,14 +243,53 @@ sherwood proposal review-vote --id <proposalId> --vault <addr> \
 | `--vault` | Yes | Vault the proposal belongs to (per-vault governor) |
 | `--support` | Yes | `approve` or `block` |
 | `--lock-wood` | Yes | WOOD you declare behind an Approve, in decimal WOOD. Clamped to your free budget by the `ExposureLedger`; ignored on a Block (pass `0`) |
+| `--reason` | Yes | Why you vote this way, one line, up to 1,000 characters. Recorded with the vote (CLI 0.101.0 or later) |
+| `--code` | No | The code for a Block. Default: the guardian review's deciding code; required when the review does not Block |
+| `--accept-warnings` | No | Approve although the guardian review found warnings. Never over a critical |
 
 Calls `GuardianRegistry.voteOnProposal(governor, proposalId, support, lockWood)` — **four** arguments. There is deliberately no overload without the amount, so `--lock-wood` is required in both directions.
+
+The CLI runs [`sherwood guardian review`](#sherwood-guardian-review) first. It refuses an Approve while the review finds a critical code, while it finds warnings (unless `--accept-warnings`), and when the review cannot run. Once the vote lands, it signs your reason, the deciding code and every finding and records them in the verdict index, where the proposer reads them with `proposal status`. If the index has not caught up with the vote, it prints the `guardian verdict submit` command to run.
 
 <Warning>
 **A Block is two transactions.** The review must already be open: `openReview(governor, proposalId)` is permissionless from the end of the shareholder vote, and `voteOnProposal` reverts `ReviewNotOpen` until it lands. A review nobody opens resolves **not blocked** and the proposal executes unreviewed. `sherwood proposal open-reviews` finds and opens the reviews that need it.
 
 An Approve whose lock is worth less than the floor reverts `ApproveLockBelowFloor` — raise `--lock-wood` to a number you are willing to lose, or vote Block. See [Coverage and underwriting](/protocol/governance/coverage).
 </Warning>
+
+---
+
+## `sherwood guardian review`
+
+Check a live proposal the way guardians must: every contract it calls or touches is verified, nothing is rug-shaped, and an Arena vault's proposal is inside the Arena limits. Read-only. CLI 0.101.0 or later; the rule for hand-written strategies below needs 0.102.0.
+
+```bash
+sherwood guardian review --vault <addr> --id <proposalId> [--json]
+```
+
+It walks the strategy, each call's target, `approve` spenders, `transfer` recipients, a template clone's parameters (a Portfolio's tokens and feeds) and what the execute simulation moved value through, and behind each contract its proxy implementation and beacon, its clone target, the addresses embedded in its code and the addresses its view functions return, up to 5 levels and 64 contracts. Contracts in the CLI's address book are trusted and not descended into. A critical code is a Block, warnings alone an abstain, nothing an Approve.
+
+**Hand-written strategies.** A strategy the `StrategyFactory` registered but did not clone from a template is judged by the walk, not by where it came from. The review clears it when it is registered, its source is verified, the walk finds no critical anywhere, the settle calls call it, and its `vault()` returns this vault. The verdict is then **Approve** with the code `STRATEGY_CUSTOM`, which the vote records as its code and reason. The strategy's own `UNKNOWN_TARGET`, `UNDECODED_CALLDATA` and `APPROVE_TO_UNKNOWN` are dropped. A hand-written strategy that is not cleared keeps them as criticals, so it is a Block. The settle check is static: it does not prove that `settle()` returns the deposit asset. See [Custom strategies](/guides/custom-strategies).
+
+**Other unknown targets.** `UNKNOWN_TARGET` and `UNDECODED_CALLDATA` on any other call target become warnings (an abstain) when the walk found that target verified and found no critical anywhere. An unverified target stays critical.
+
+| Code | Level | When |
+|------|-------|------|
+| `UNVERIFIED_CONTRACT` | critical | A contract in the walk, a proxy's implementation included, has no verified source on the explorer |
+| `EXPLORER_UNAVAILABLE` | critical | The explorer could not answer for a contract outside the address book |
+| `CALL_GRAPH_TRUNCATED` | critical | Contracts remain past the bound |
+| `APPROVE_TO_UNVERIFIED` | critical | An allowance goes to an account with no code or to an unverified contract |
+| `UPGRADEABLE_EOA_ADMIN` | critical | An upgradeable contract's upgrade authority is an account with no code, with no timelock in between |
+| `TOKEN_MINT_POWER` | critical | A token outside the book exposes an owner mint, such as `mint(address,uint256)` (`0x40c10f19`) |
+| `TOKEN_BLACKLIST_POWER` | critical | A token outside the book can freeze holders, such as `blacklist(address)` (`0xf9f92be4`) or `freeze(address)` (`0x8d1fdf2f`) |
+| `FRESH_DEPLOY_NO_HISTORY` | critical | A token or pool under 7 days old with fewer than 100 transfers, or a token with fewer than 25 holders |
+| `ARENA_SIZE_CAP`, `ARENA_POSITION_CAP`, `ARENA_PROPOSALS_PER_DAY`, `ARENA_GAS_BUDGET`, `ARENA_TEMPLATE_NOT_ALLOWED` | critical | An Arena vault's proposal is over 90% of NAV, puts over 50% of NAV in one asset, is the proposer's 7th in 24 hours, comes after 0.05 ETH of gas, or clones a template other than Portfolio (a hand-written strategy is "custom", allowed) |
+| `STRATEGY_SETTLE_NO_ASSET` | critical | A hand-written strategy has no path back to the deposit asset: the settle calls never call it, or its `vault()` is missing or names another address |
+| `UPGRADE_AUTHORITY_UNKNOWN`, `ARENA_POSITION_UNKNOWN`, `ARENA_LIMIT_UNREADABLE`, `SIMULATION_UNAVAILABLE` | warning | Something it could not read (`ARENA_LIMIT_UNREADABLE` covers an unreadable strategy provenance too) |
+| `UNKNOWN_TARGET`, `UNDECODED_CALLDATA` | critical or warning | Critical by default; a warning on a verified target in a walk with no critical; dropped for a cleared hand-written strategy |
+| `STRATEGY_CUSTOM` | info | A hand-written strategy the review cleared. With nothing else, the verdict is Approve `STRATEGY_CUSTOM` |
+
+The public explorer refuses non-browser clients, so a guardian that runs unattended sets `SHERWOOD_EXPLORER_API_KEY` (a Blockscout API key). Without it every contract outside the address book reads as `EXPLORER_UNAVAILABLE`. `SHERWOOD_ARENA_VAULTS` lists the Arena vaults, comma-separated.
 
 ---
 
@@ -260,7 +300,7 @@ For a guardian: put the reason for your review vote on record, so the proposer c
 ```bash
 sherwood guardian verdict submit --governor <addr> --id <proposalId> \
   --support <approve|block> --code <CODE> --tx <hash> \
-  [--detail <text>] [--summary <text>] [--nonce <n>] [--json]
+  --summary <text> [--detail <text>] [--finding <CODE:level:message> ...] [--nonce <n>] [--json]
 ```
 
 | Flag | Required | Description |
@@ -270,8 +310,9 @@ sherwood guardian verdict submit --governor <addr> --id <proposalId> \
 | `--support` | Yes | `approve` or `block`: the side you voted. It must match your on-chain vote |
 | `--code` | Yes | Machine code matching `^[A-Z][A-Z0-9_]{0,63}$`, for example `SIMULATION_FAILED` or `CLEAN` |
 | `--tx` | Yes | Your guardian vote transaction hash (`proposal review-vote` prints it) |
+| `--summary` | Yes, or `--detail` | Why you voted this way, one line. Up to 1,000 characters. A verdict without a reason is refused (CLI 0.101.0 or later) |
 | `--detail` | No | Specifics, for example the reverting call and its reason. Up to 1,000 characters |
-| `--summary` | No | A one-line summary. Up to 1,000 characters |
+| `--finding` | No | A code your review triggered, as `CODE:level:message` (`critical`, `warning` or `info`; message up to 500 characters). Repeatable, up to 50 |
 | `--nonce` | No | An unused nonce for this wallet (default: the current time in ms) |
 | `--json` | No | Print the index's answer as JSON |
 
