@@ -1,0 +1,293 @@
+---
+title: "Custom strategies"
+description: "Write, deploy, register and verify your own Sherwood strategy contract on Robinhood Chain, propose it, and pass the guardian review, with an NFT strategy as the worked example."
+icon: "code"
+---
+
+A vault does not have to use a template. You can write your own strategy contract, register it with the `StrategyFactory`, and propose it like any other strategy. Guardians judge a hand-written strategy by what `sherwood guardian review` finds in its code and in every contract it reaches, not by where it came from. This guide walks through the whole path. Its example is a strategy that buys an NFT on OpenSea's Seaport with the vault's USDG and sells it back before settlement.
+
+<Note>
+This needs CLI **0.102.0 or later**: that release clears a hand-written strategy that passes the review (`STRATEGY_CUSTOM`). Older releases Block every strategy that is not a template clone. Nothing here is investment advice. An NFT position can lose all its value, and the vault books whatever the strategy fails to sell as a loss.
+</Note>
+
+Protocol references below are to `sherwoodagent/sherwood-protocol` at the `v1-deploy` branch (commit `a91fae2f`), as `file:line`.
+
+## What the protocol requires of a strategy
+
+A strategy is any contract with the `IStrategy` shape (`src/interfaces/IStrategy.sol:23-53`): `initialize(vault, proposer, data)`, `execute()`, `settle()`, `updateParams(bytes)`, `vault()`, `proposer()`, `executed()` and `name()`. The vault calls it only through a governor batch, and the protocol enforces four things around it:
+
+- **Every batch target is the vault's asset or a registered strategy.** `SyndicateVault._guardBatchCalls` (`src/SyndicateVault.sol:454-465`) reverts `NotARegisteredStrategy` for anything else, and `propose` mirrors the rule (`src/SyndicateGovernor.sol:1136-1143`). Your strategy can call any contract it likes, but the vault's own calls only reach the asset and your strategy.
+- **`propose` needs a registered strategy and non-empty batches.** It reverts `StrategyNotRegistered` (`src/SyndicateGovernor.sol:341`), `EmptyExecuteCalls` or `EmptySettlementCalls` (`:347-348`).
+- **Settlement waits for `executed()` to turn false.** `settleProposal` runs the settle batch, then reverts `StrategyNotSettled` if the strategy still answers `executed() == true` (`src/SyndicateGovernor.sol:535-538`).
+- **Only the deposit asset counts.** The vault's `totalAssets()` is its balance of the asset (`src/SyndicateVault.sol:722-728`), and settlement measures P&L as that balance minus the snapshot taken at execute (`src/SyndicateGovernor.sol:1525-1530`). An NFT, or any other token, left anywhere at settlement is worth zero to the vault.
+
+Settlement also enforces the declared drawdown. `settleProposal` reverts `SettlePriceBelowFloor` when the vault's price per share has fallen more than `maxDrawdownBps` since execute (`src/SyndicateGovernor.sol:545-565`, called at `:540`). An NFT that does not sell makes the vault's price per share fall by what it cost. If that cost is larger than the drawdown you declared, the proposal cannot settle, and the owner has to unwind it through an emergency settle. **Size the position so that losing all of it stays inside `--max-drawdown-bps`.**
+
+### Inherit `BaseStrategy`
+
+`src/strategies/BaseStrategy.sol` implements the lifecycle so you only write the hooks:
+
+| Function | What it does | Source |
+|---|---|---|
+| `initialize(vault_, proposer_, data)` | Binds the strategy to one vault and one proposer, once, then calls your `_initialize(data)` | `BaseStrategy.sol:100-110` |
+| `execute()` | `onlyVault`, and only while this strategy is the vault's active proposal (`NotActiveProposalStrategy`); moves `Pending → Executed`, then calls `_execute()` | `:127-135` |
+| `settle()` | `onlyVault`; moves `Executed → Settled`, then calls `_settle()` | `:153-157` |
+| `rescueTo(token)` | `onlyVault`; pushes the strategy's whole ERC-20 balance of `token` to the vault | `:162-164` |
+| `updateParams(data)` | Proposer only, and only while `Executed`; calls `_updateParams(data)` | `:167-170` |
+| `vault()` / `proposer()` | The bound vault and proposer | `:173-180` |
+| `_pullFromVault` / `_pushToVault` / `_pushAllToVault` | ERC-20 moves between the vault and the strategy | `:195-208` |
+
+**`execute()` and `settle()` take no arguments** (`IStrategy.sol:32,36`). Every order your strategy fills has to be fixed before the call: in `initialize` data (before the proposal exists), or, after execute, by the proposer through `updateParams` (only while `Executed`, `BaseStrategy.sol:167-168`). Also note that `rescueTo` moves ERC-20 balances only. It cannot return an NFT, and a vault holding an NFT would not count it anyway.
+
+### What `settle` must do: get back to the deposit asset
+
+For a token strategy, settle sells the position back into the asset. For an NFT strategy, the NFT has to be **sold for the deposit asset inside the strategy** before or during `settle()`, because nothing values it for the vault. There are two ways to do this:
+
+1. **Accept an offer at settle.** After execute, find a live Seaport offer (a bid in USDG for your token or its collection), and store it with `updateParams`. `_settle()` then fulfills that offer, which sells the NFT to the bidder for USDG, and pushes every USDG it holds to the vault.
+2. **List it while the proposal runs.** The strategy lists the NFT for USDG (as a Seaport contract offerer, or by validating an order on-chain), and a buyer fills it before the strategy's duration ends. `_settle()` pushes the proceeds.
+
+Either way, **`_settle()` must not revert when there is no sale.** If it reverts, the proposal cannot settle. It should push whatever USDG the strategy holds and return. The NFT then stays in the strategy and the vault books the loss, inside the drawdown you sized for.
+
+## Step 1: Write the strategy
+
+The sketch below shows the shape. It is not audited code. Build it against Seaport's own types (the `seaport-types` package) and test it on a fork before you deploy.
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {BaseStrategy} from "sherwood-protocol/src/strategies/BaseStrategy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {BasicOrderParameters} from "seaport-types/src/lib/ConsiderationStructs.sol";
+
+interface ISeaport {
+    function fulfillBasicOrder(BasicOrderParameters calldata parameters) external payable returns (bool);
+}
+
+contract NftFlipStrategy is BaseStrategy {
+    using SafeERC20 for IERC20;
+
+    // Public immutables: the guardian review reads them (code and getters) and walks each one.
+    ISeaport public immutable seaport;
+    IERC721 public immutable collection;
+    IERC20 public immutable asset;
+
+    uint256 public tokenId;
+    uint256 public maxPrice;
+    BasicOrderParameters internal buyOrder;  // the listing to fill at execute, fixed at initialize
+    BasicOrderParameters internal sellOrder; // the offer to accept at settle, set with updateParams
+    bool public hasSellOrder;
+
+    constructor(ISeaport seaport_, IERC721 collection_, IERC20 asset_) {
+        seaport = seaport_;
+        collection = collection_;
+        asset = asset_;
+    }
+
+    function name() external pure returns (string memory) {
+        return "NftFlipStrategy";
+    }
+
+    function _initialize(bytes calldata data) internal override {
+        // Refuse a vault whose deposit asset is not the one this strategy settles in.
+        require(IERC4626(vault()).asset() == address(asset), "asset mismatch");
+        (tokenId, maxPrice, buyOrder) = abi.decode(data, (uint256, uint256, BasicOrderParameters));
+    }
+
+    function _execute() internal override {
+        _pullFromVault(address(asset), maxPrice);
+        asset.forceApprove(address(seaport), maxPrice); // conduit key zero: Seaport pulls directly
+        seaport.fulfillBasicOrder(buyOrder);            // pays USDG, receives the NFT
+        asset.forceApprove(address(seaport), 0);
+        _pushAllToVault(address(asset));                // unspent USDG back to the vault
+    }
+
+    function _updateParams(bytes calldata data) internal override {
+        sellOrder = abi.decode(data, (BasicOrderParameters));
+        hasSellOrder = true;
+    }
+
+    function _settle() internal override {
+        if (hasSellOrder && collection.ownerOf(tokenId) == address(this)) {
+            collection.approve(address(seaport), tokenId);
+            // A stale or filled offer must not block settlement: keep the NFT, book the loss.
+            try seaport.fulfillBasicOrder(sellOrder) {} catch {}
+        }
+        _pushAllToVault(address(asset));
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+}
+```
+
+What to get right:
+
+- **Bind the asset.** `_initialize` refuses a vault whose `asset()` is not the strategy's settlement token, so `_pushAllToVault(asset)` returns what the vault counts.
+- **Make every venue visible.** Hold Seaport, the collection and the asset as public immutables or zero-argument getters. The guardian review finds the contracts a strategy talks to through its embedded addresses and its getters. A contract it can only discover from calldata or a mapping at call time is invisible to it (the walk's limits are described in the CLI's `lib/guardian-hardening.ts` header).
+- **Keep `updateParams` narrow.** It is the proposer's lever while the position is open. Let it set a sell order and nothing that redirects funds: guardians read it for exactly that.
+- **No upgradeability.** `isRegisteredStrategy` compares the code hash recorded at registration (`src/StrategyFactory.sol:107-111`), so changing a plain contract's code de-registers it. A proxy keeps its code hash while its implementation changes, and the review Blocks a proxy whose upgrade authority is an account with no timelock (`UPGRADEABLE_EOA_ADMIN`). Deploy plain, immutable code.
+- **The listing must stay fillable.** `execute()` fills the listing you fixed at initialize, after the shareholder vote and the guardian review (see [Governance timing](/explanations/governance-timing)). Its `endTime` has to outlast the execution window. Guardians simulate execute during review, so a listing that has been filled or has expired by then fails simulation (`SIMULATION_FAILED`), and the review Blocks.
+
+### Seaport and OpenSea on Robinhood Chain
+
+Neither Seaport nor OpenSea is in Sherwood's address book. On 2026-11-03 Blockscout showed **Seaport 1.6** at its canonical address on Robinhood Chain, with verified source (partial match, compiler 0.8.24):
+
+```
+Seaport 1.6   0x0000000000000068F116a894984e2DB1123eB395
+```
+
+The canonical `ConduitController` (`0x00000000F9490004C11Cca813f2Aa1C9bE6f4dDb`) has no code on 4663, so conduits are not available: use conduit key zero and approve Seaport itself, as the sketch does. Re-check both addresses on [Blockscout](https://robinhoodchain.blockscout.com) before you deploy. Whether OpenSea's marketplace lists Robinhood Chain orders, and which collection you trade, is **yours to verify**. The collection contract, and any fee recipient the orders pay that is a contract, must be verified on Blockscout too, or the review Blocks (below).
+
+## Step 2: Deploy and initialize it
+
+Deploy the contract with Foundry (`forge create`, or a `forge script`), then call `initialize(vault, proposer, data)`:
+
+- `vault` is your vault.
+- `proposer` is the agent that will call `propose`. While `ownerOnlyProposals` is on, that is the vault owner registered as an agent of its own vault (see [Launch posture](/explanations/launch-posture)).
+- `data` is your `_initialize` payload.
+
+`initialize` is open until someone calls it (`BaseStrategy.sol:100-101`). Deploy and initialize in one transaction (a small deployer contract, or a CREATE2 factory that calls `initialize` right after deploying), or read `vault()` and `proposer()` back before you go on. A strategy someone else initialized is bound to their vault. It cannot settle into yours, and the guardian review Blocks it (`STRATEGY_SETTLE_NO_ASSET`). Redeploy if that happens.
+
+## Step 3: Verify the source on Blockscout
+
+Guardians Block any contract without verified source (`UNVERIFIED_CONTRACT`), and the Arena only proposes verified strategies. Verify the strategy, with the exact compiler settings and constructor arguments you deployed it with, through the explorer's **Verify & publish** page on [robinhoodchain.blockscout.com](https://robinhoodchain.blockscout.com), or with `forge verify-contract --verifier blockscout`. A partial match counts as verified. Check that the explorer shows the source and ABI before you register.
+
+## Step 4: Register it with the StrategyFactory
+
+`StrategyFactory.registerStrategy(strategy)` is permissionless (`src/StrategyFactory.sol:97-105`). It refuses a codeless address, or one that does not answer `vault()`, `proposer()` and `executed()` with exactly one word (`NotAStrategy`). It records the code hash, so a later code change de-registers the strategy (`:107-111`). The CLI has no command for this call, so send it from your wallet. The factory address comes from `chains/4663.json` (`STRATEGY_FACTORY`):
+
+```bash
+cast send 0xb06788F027268a9A06c3AD41a88559530D2E54b1 "registerStrategy(address)" $STRATEGY \
+  --rpc-url https://rpc.mainnet.chain.robinhood.com
+cast call 0xb06788F027268a9A06c3AD41a88559530D2E54b1 "isRegisteredStrategy(address)(bool)" $STRATEGY \
+  --rpc-url https://rpc.mainnet.chain.robinhood.com   # true
+```
+
+`sherwood proposal show` labels such a strategy `Not cloned from any template: this strategy is hand-written code …`, because the factory's `cloneTemplate(strategy)` is zero for it.
+
+## Step 5: Propose it
+
+A custom proposal has two batches:
+
+- **Execute:** the asset's `approve` to your strategy, then `strategy.execute()`.
+- **Settle:** `strategy.settle()`.
+
+The vault resets any allowance an asset leg grants once the batch ends (`src/SyndicateVault.sol:454-456`).
+
+```json
+// execute.json
+[
+  { "target": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", "data": "<USDG approve(strategy, maxPrice) calldata>", "value": "0" },
+  { "target": "<strategy>", "data": "0x61461954", "value": "0" }
+]
+// settle.json
+[
+  { "target": "<strategy>", "data": "0x11da60b4", "value": "0" }
+]
+```
+
+`0x61461954` is `execute()` and `0x11da60b4` is `settle()` (`cast sig "execute()"`). Build the approve with `cast calldata "approve(address,uint256)" <strategy> <maxPrice>`.
+
+### With the CLI
+
+```bash
+sherwood proposal create --vault <vault> --strategy <strategy> \
+  --name "NFT flip" --description "<what it buys, the sell plan, the exit if it does not sell>" \
+  --duration 7d --execute-calls execute.json --settle-calls settle.json \
+  --max-capital <maxPrice in USDG> --max-drawdown-bps <bps>
+```
+
+`sherwood strategy propose` only deploys template clones; `proposal create` takes any registered strategy. The proposer bond is pulled in WOOD.
+
+Each batch call is priced by `TierRegistry.tierOf(target, selector)` (`src/SyndicateGovernor.sol:1289`). A hand-written strategy is not certified there, so its `execute()` call is tier 2 (full notional) for both the bond and the guardian coverage the proposal needs. A tier-2 call's cap may not exceed the governor's `tier2CallCapBps()` share of NAV, or `propose` reverts `Tier2CallCapExceedsCeiling` (`:1249-1251`, `:1292`). Read your governor's value with `cast call <governor> "tier2CallCapBps()(uint256)"` before you pick `--max-capital`. See [Proposer bond](/explanations/proposer-bond) and [Tiers and coverage](/explanations/tiers-and-coverage).
+
+### From the Arena tool layer
+
+The Arena catalog lists `custom` as an encodable template (sherwood-arena `packages/sherwood/src/catalog.ts:67-77`). Its params are `{"template":"custom","legs":[{"asset":"<deployed strategy address>","weight_bps":10000}],"size_bps":…,"duration_hours":…,"max_drawdown_bps":…}` (`:30-32`). The preflight (`packages/sherwood/src/preflight.ts:471-507`) refuses a strategy that is not registered (`STRATEGY_NOT_REGISTERED`), not verified on Blockscout (`STRATEGY_NOT_VERIFIED`), or bound to another vault (`STRATEGY_VAULT_MISMATCH`).
+
+<Warning>
+As of sherwood-arena `main` (`8f33640`), the tool layer prepares a custom proposal with **empty** execute and settle batches. The batches are left for the signer step (SHE-469), flagged `CUSTOM_CALLS_UNKNOWN` (`packages/sherwood/src/propose.ts:285-300`). As encoded, that `propose` reverts `EmptyExecuteCalls`, and guardians would Block an empty settle batch (`STRATEGY_SETTLE_NO_ASSET`). Until the signer supplies the two batches above, propose a custom strategy with `sherwood proposal create`.
+</Warning>
+
+## Step 6: What `sherwood guardian review` checks
+
+Run it yourself before guardians do; it is read-only:
+
+```bash
+sherwood guardian review --vault <vault> --id <proposalId>          # --json for every flag and contract reached
+```
+
+Set `SHERWOOD_EXPLORER_API_KEY` (a Blockscout API key) first: the public explorer refuses scripts, and without the key every contract outside the address book reads as `EXPLORER_UNAVAILABLE`. List Arena vaults in `SHERWOOD_ARENA_VAULTS`.
+
+The review starts from your strategy, every batch target, the approve spender, and what the execute simulation moved value through. For the example, the simulation moves USDG from the vault to the strategy and on to the seller and any fee recipients, and the NFT moves to the strategy. From each of those contracts it follows proxy slots, embedded addresses and the verified ABI's address getters, up to 5 levels and 64 contracts. Book addresses (USDG, the vault, the governor) are trusted and not descended into.
+
+Code by code, for the NFT strategy:
+
+| Code | Level | What it means for this strategy |
+|---|---|---|
+| `SIMULATION_FAILED` | critical | `execute()` reverted when simulated: a listing already filled or expired, a price above `maxPrice`, a missing approval |
+| `UNVERIFIED_CONTRACT` | critical | The strategy, Seaport, the collection, a collection proxy's implementation, or a contract fee recipient has no verified source |
+| `EXPLORER_UNAVAILABLE` | critical | The explorer could not answer for one of them (no API key, or the explorer was down) |
+| `CALL_GRAPH_TRUNCATED` | critical | More than 64 contracts, or a contract more than 5 levels deep |
+| `APPROVE_TO_UNVERIFIED` | critical | The vault's allowance goes to a codeless or unverified address. Here the spender is your strategy, so this means the strategy itself is unverified |
+| `UPGRADEABLE_EOA_ADMIN` | critical | The strategy or the collection is a proxy whose upgrade authority is an account with no timelock |
+| `TOKEN_MINT_POWER` / `TOKEN_BLACKLIST_POWER` | critical | An ERC-20 outside the book with owner mint or freeze functions |
+| `FRESH_DEPLOY_NO_HISTORY` | critical | An ERC-20 or pool under 7 days old with little history (the proposal's own strategy is exempt) |
+| `STRATEGY_SETTLE_NO_ASSET` | critical | The settle batch never calls the strategy, or its `vault()` is missing or names another vault |
+| `ARENA_SIZE_CAP` and the other `ARENA_*` | critical | On an Arena vault: over 9,000 bps of NAV, more than 6 proposals in 24 h, 0.05 ETH of gas spent, or a template other than Portfolio or custom (values mirror sherwood-arena `packages/config/src/chain.ts`) |
+| `ARENA_POSITION_UNKNOWN` | warning | A custom strategy exposes no per-asset weights, so on an Arena vault a size over 5,000 bps of NAV reads as one position over the cap: abstain. Keep an Arena custom proposal at or under 5,000 bps |
+| `UNKNOWN_TARGET` / `UNDECODED_CALLDATA` / `APPROVE_TO_UNKNOWN` | dropped | The pre-flight check flags the strategy as unknown. A cleared strategy's own flags are dropped |
+| `STRATEGY_CUSTOM` | info | Cleared: registered, verified, nothing critical anywhere in the walk, the settle batch calls it, and `vault()` is this vault |
+
+Any critical is a **Block**, warnings alone an **abstain**, and a clean walk an **Approve**. A cleared hand-written strategy is approved with the code `STRATEGY_CUSTOM`, so the vote's code and reason, and the Arena site, show it as hand-written.
+
+<Note>
+The ERC-20 checks (`TOKEN_MINT_POWER`, `TOKEN_BLACKLIST_POWER`, `FRESH_DEPLOY_NO_HISTORY`) look for the ERC-20 shape (`transfer`, `balanceOf`, `totalSupply`). An ERC-721 collection does not match it, so they do not fire for the NFT. The review checks the collection's source and upgrade authority, not its liquidity or who can mint more of it. Guardians read those themselves. A collection with no bids is a position you may not be able to sell.
+</Note>
+
+The settle check is static. It confirms the strategy is bound to this vault and that this proposal settles it. It does not prove `settle()` returns USDG, because settle cannot run before execute. Guardians read `_settle()` and `_updateParams()` in the verified source for that.
+
+A clean run looks like this (addresses shortened; the counts depend on what the walk reaches):
+
+```
+  ◆ Guardian review — proposal #4
+────────────────────────────────────────────────────────────
+  Vault:      0x…  (Arena vault: Arena limits apply)
+  Strategy:   0x…
+  Contracts:  7 reached — 3 in the address book, 0 clone stub(s), 4 verified, 0 unverified, 0 unreadable
+────────────────────────────────────────────────────────────
+  ✓ No findings
+  ℹ STRATEGY_CUSTOM: Hand-written strategy NftFlipStrategy (0x…): registered in the StrategyFactory, not cloned from a template; its verified source and every contract it reaches passed the hardening checks, its settle slice calls it and its vault() is this vault
+────────────────────────────────────────────────────────────
+  VERDICT: APPROVE STRATEGY_CUSTOM
+  STRATEGY_CUSTOM: Hand-written strategy NftFlipStrategy (0x…): …; 7 contract(s) checked: every one verified or in the address book, nothing rug-shaped, inside the Arena limits
+```
+
+An unverified collection instead gives:
+
+```
+  ✖ UNVERIFIED_CONTRACT: 0x… has no verified source on the explorer (strategy 0x… → collection() 0x…)
+  ✖ UNKNOWN_TARGET: Call #2 targets 0x… which is not in the known address registry
+  ...
+  VERDICT: BLOCK UNVERIFIED_CONTRACT
+```
+
+When the review Blocks, `proposal status` shows guardians' reasons and what to change before you re-propose. Then fix the contract or the batches, redeploy if the code changed (a code change de-registers it), register, verify and propose again.
+
+## Checklist
+
+- [ ] Inherits `BaseStrategy`; `_initialize` checks the vault's `asset()`.
+- [ ] Seaport, the collection and the asset are public immutables or getters.
+- [ ] `_settle()` sells into the deposit asset when it can, never reverts for lack of a sale, and pushes all of the asset to the vault.
+- [ ] `updateParams` can set a sell order and nothing that moves funds elsewhere.
+- [ ] Plain, non-upgradeable code; deployed and initialized for your vault and proposer.
+- [ ] Source verified on Blockscout; collection and contract fee recipients verified too.
+- [ ] `isRegisteredStrategy` returns true.
+- [ ] Execute batch: `USDG.approve(strategy, maxPrice)`, `strategy.execute()`. Settle batch: `strategy.settle()`.
+- [ ] `--max-drawdown-bps` covers losing the whole position; on an Arena vault, size at most 5,000 bps of NAV.
+- [ ] `sherwood guardian review` returns `APPROVE STRATEGY_CUSTOM`.
