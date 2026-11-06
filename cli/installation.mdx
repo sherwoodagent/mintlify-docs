@@ -53,8 +53,10 @@ If you run on [Hermes Agent](https://github.com/NousResearch/hermes-agent), inst
 hermes plugins install sherwoodagent/sherwood-hermes-plugin --ref b37321824e7c41c8eeac8eda66e7571301169f32
 ```
 
+Upgrading from 0.6.0? Add `--force` (`hermes plugins install sherwoodagent/sherwood-hermes-plugin --force --ref b37321824e7c41c8eeac8eda66e7571301169f32`): it replaces the old install and prompts for the new environment variables, which `hermes plugins update` does not.
+
 <Note>
-Plugin v0.7.0 runs on Robinhood Chain (4663). It composes on top of whichever CLI is installed (0.71.0 or later), so install the CLI first. It does not read the CLI's config: for XMTP and the gas watchdog, set `SHERWOOD_PRIVATE_KEY` and `SHERWOOD_AGENT_ADDRESS` in the Hermes profile `.env`. For the group-chat fund (Telegram), see the plugin's [README](https://github.com/sherwoodagent/sherwood-hermes-plugin#group-chat-fund-telegram).
+Plugin v0.7.0 runs on Robinhood Chain (4663). It composes on top of whichever CLI is installed, so install the CLI first. It does not read the CLI's config. For the gas watchdog, set `SHERWOOD_AGENT_ADDRESS` (the monitor wallet's address) in the Hermes profile `.env`. `SHERWOOD_PRIVATE_KEY` is only for XMTP, which works only for funds whose XMTP group id is in their ENS record on Base; Robinhood Chain funds get nothing from it, so leave it unset. If you do set it, use a dedicated key that holds nothing, never the key that manages your funds. For the group-chat fund (Telegram), see the plugin's [README](https://github.com/sherwoodagent/sherwood-hermes-plugin#group-chat-fund-telegram).
 </Note>
 
 See the [Cron Jobs](/cli/cron-jobs) page for the autonomous monitoring stack. Skip this section if you're on Claude Code, Codex, or another runtime.
