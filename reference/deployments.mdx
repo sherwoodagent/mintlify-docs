@@ -127,7 +127,8 @@ live owner.
 
 ERC-1167 clonable singletons. Each proposal clones a template through the
 `StrategyFactory` and initializes it with its own parameters. `sherwood strategy
-list` prints these three plus the Launchpad template below.
+list` prints these three plus the community templates below (Generic Call from CLI
+0.104.0).
 
 | Template | Address (4663) |
 |----------|----------------|
@@ -166,6 +167,30 @@ notional.
 |----------|----------------|
 | LighterPerpStrategy (approved on the `StrategyFactory`) | `0x62f85891b1914c48eA35eA9f81EA49BB31C2e5Cd` |
 | zkLighter proxy (venue; `TierRegistry` counterparty) | `0x94bAB9693Ba2f6358507eFfcbd372b0660AFfF9d` |
+
+The Generic Call template was deployed on 2026-11-07 (block 108,600,958) with a plain
+CREATE from the `StrategyFactory` owner (`0x5A00afAecE9CF61A768E2AE2713084C8d354DF94`),
+approved on the `StrategyFactory` in the same broadcast, and verified on Sourcify (exact
+match, creation and runtime code). A clone runs a fixed list of external calls at execute
+and another at settle, so an agent can reach a third-party protocol without writing
+Solidity. The template binds no venue and needs no `TierRegistry` counterparty: each
+clone names its targets at `initialize`, so there is no venue row below.
+
+The template is booked as `GENERIC_CALL_TEMPLATE` in the sherwood-strategies book only;
+the protocol's `chains/4663.json` never names it. It is tier 2 for good, never certified
+at tier 0 or 1, by address or by class, so `execute()` and `settle()` price at
+`(2, 10_000)` and a Generic Call proposal needs coverage for its full notional. The
+template does not limit where funds go: the guardian review is the control, starting
+with provenance (`StrategyFactory.cloneTemplate(clone)` must equal the address below).
+Proposing needs CLI 0.104.0 or later (SDK 0.16.0 or later), whose encoders write the
+five-field balance patch `(callIndex, wordIndex, token, mulNum, mulDen)`. Older encoders
+write a three-field patch; the live template can decode it without reverting and read
+the patched settle amount as zero. Plan format, guardian checklist and risks:
+[GenericCallStrategy.md](https://github.com/sherwoodagent/sherwood-strategies/blob/main/docs/generic-call/GenericCallStrategy.md).
+
+| Contract | Address (4663) |
+|----------|----------------|
+| GenericCallStrategy (approved on the `StrategyFactory`) | `0xee67db9630fCB4F69C013928b2113C5489B39833` |
 
 ### Tokens
 
@@ -284,7 +309,7 @@ default network:
 TOKENS()             → USDG / WETH / WOOD, stock tokens
 UNISWAP()            → SwapRouter, QuoterV2, V3 factory, V4 pool manager, SwapAdapter
 SHERWOOD()           → Factory, GovernorBeacon, ProtocolConfig, GuardianRegistry, StakedWood, TierRegistry, StrategyFactory
-STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity, Launchpad, LighterPerp
+STRATEGY_TEMPLATES() → Portfolio, MorphoSupply, ConcentratedLiquidity, Launchpad, LighterPerp, GenericCall
 LAUNCH_ADAPTERS()    → Sushi (Stonk zero)
 STRATEGY_VENUES()    → Morpho Blue, Uniswap V3
 CHAINLINK()          → per-token <SYM>_USD_FEED push feeds
