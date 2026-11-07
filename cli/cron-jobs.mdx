@@ -13,7 +13,7 @@ agent-driven reasoning cron.
 
 - **Hermes Agent** installed and running (`hermes status`)
 - **Sherwood CLI** (latest, 0.96.0 or later) on PATH (`sherwood --version`), which targets Robinhood Chain (4663) by default
-- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin --ref b37321824e7c41c8eeac8eda66e7571301169f32` (the v0.7.0 release commit; add `--force` to upgrade from 0.6.0). It composes on top of whichever CLI is installed, so install the CLI first
+- **Sherwood plugin** installed via `hermes plugins install sherwoodagent/sherwood-hermes-plugin --ref e92bd8573c0296853faa6de7801114874ac2455d` (the v0.8.0 release commit; add `--force` to upgrade from an earlier release). It composes on top of whichever CLI is installed, so install the CLI first
 - **At least one fund configured** in `~/.hermes/plugins/sherwood-monitor/config.yaml`
 - **Monitor wallet** for the gas watchdog: `SHERWOOD_AGENT_ADDRESS=0x...` in the Hermes profile `.env`. The plugin does not read the Sherwood CLI's config
 - **Always-on host** — laptop sleep means missed cron runs
