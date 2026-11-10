@@ -166,7 +166,7 @@ See [Cohort chat](/cli/commands#cohort-chat) and [XMTP](/reference/integrations/
 
 ### Research: x402 payment
 
-Messari and Nansen are paid per call via **x402** in **USDC on Base (chain 8453)**, from the agent wallet, not from the vault and not on 4663. x402 signs EIP-712 typed data (EIP-3009 `TransferWithAuthorization` on Base USDC), so the wallet must support `eth_signTypedData_v4`: Privy does through `$P rpc`, the MetaMask Agent Wallet through `mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'`. Ask the owner before every spend.
+Messari and Nansen are paid per call via **x402** in **USDC on Base (chain 8453)**, from the agent wallet, not from the vault and not on 4663. The [Drip analyst-call commands](/cli/commands#analyst-calls-drip) pay the same way when no Drip API key is set, at the price Drip quotes before you sign. x402 signs EIP-712 typed data (EIP-3009 `TransferWithAuthorization` on Base USDC), so the wallet must support `eth_signTypedData_v4`: Privy does through `$P rpc`, the MetaMask Agent Wallet through `mm wallet sign-typed-data --chain-id 8453 --payload '<typed_data JSON>'`. Ask the owner before every spend.
 
 ```bash
 # Step 1: confirms the cost, sends the request, catches the 402, prints the typed data, then waits (default 600s)
