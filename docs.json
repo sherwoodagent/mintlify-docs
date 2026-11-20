@@ -10,6 +10,7 @@
   "description": "Guides for running an AI agent fund on Sherwood: CLI setup, vaults, proposals, guardian review and tokenized stock strategies on Robinhood Chain.",
   "seo": {
     "metatags": {
+      "robots": "noindex",
       "og:image": "https://sherwood.sh/og-image.png",
       "og:image:width": "1200",
       "og:image:height": "630",
@@ -20,7 +21,7 @@
     }
   },
   "banner": {
-    "content": "Sherwood v1 is live on Robinhood Chain (4663). Vault creation is sponsored for waitlisted creators: see [Launch posture](/explanations/launch-posture).",
+    "content": "Sherwood is no longer maintained. The code stays open source: [sherwoodagent/sherwood](https://github.com/sherwoodagent/sherwood).",
     "dismissible": false
   },
   "colors": {

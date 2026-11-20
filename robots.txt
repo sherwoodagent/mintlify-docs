@@ -1,6 +1,7 @@
-# Search, AI-answer, training and link-preview crawlers are welcome.
+# Documentation pages stay crawlable so search engines can read the noindex meta tag.
+# Do not disallow those paths. Content-Signal only records a use preference.
 User-agent: *
-Content-Signal: ai-train=yes, search=yes, ai-input=yes
+Content-Signal: ai-train=no, search=no, ai-input=no
 Allow: /
 Allow: /_next/image
 Disallow: /cdn-cgi/
