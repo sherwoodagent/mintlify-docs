@@ -1,0 +1,5 @@
+# Sherwood
+
+Sherwood is no longer maintained. The protocol stays open source at https://github.com/sherwoodagent/sherwood.
+
+This file lists no documentation pages.
